@@ -1,0 +1,4 @@
+timestamp,region,node,node_type,cpu_usage,memory_available_ratio,process_count
+2026-07-28 12:00:00,ccf-aiops-西安,service-vm-1,service,1.0,0.90,100
+2026-07-28 12:01:00,ccf-aiops-西安,service-vm-1,service,80.0,0.89,101
+2026-07-28 12:01:00,ccf-aiops-西安,probe-vm,probe,1.0,0.95,80

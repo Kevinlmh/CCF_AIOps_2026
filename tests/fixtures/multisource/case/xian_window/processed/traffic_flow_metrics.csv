@@ -1,0 +1,4 @@
+timestamp_utc,series_key,flow_type,source_region,source_ip,target_region,target_domain,protocol,web_flow_requests_total,web_flow_success_total,web_flow_error_total,web_flow_batches_timeout_total,web_flow_latency_p95_seconds
+2026-07-28 12:00:00,flow-a,web,xian,fd00::10,shanghai,web01.shanghai.aiops.local,http,100,95,5,0,0.02
+2026-07-28 12:01:00,flow-a,web,xian,fd00::10,shanghai,web01.shanghai.aiops.local,http,130,120,10,2,1.50
+2026-07-28 12:02:00,flow-a,web,xian,fd00::10,shanghai,web01.shanghai.aiops.local,http,5,4,1,0,0.03
