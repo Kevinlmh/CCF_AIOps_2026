@@ -67,6 +67,13 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--use-llm", action="store_true")
     parser.add_argument(
+        "--decision-backend", choices=("local", "transformers", "api"), default="local"
+    )
+    parser.add_argument("--api-base")
+    parser.add_argument("--api-key-env", default="AIOPS_LLM_API_KEY")
+    parser.add_argument("--config-path", type=Path)
+    parser.add_argument("--inference-log", type=Path)
+    parser.add_argument(
         "--model", default="deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
     )
     args = parser.parse_args()
@@ -87,9 +94,22 @@ def main() -> int:
                 str(case_output),
                 "--prediction-prefix",
                 f"{case_name}_",
+                "--decision-backend",
+                args.decision_backend,
+                "--api-key-env",
+                args.api_key_env,
             ]
+            case_log = run_dir / f"{case_name}.inference.json"
+            if args.inference_log:
+                command.extend(["--inference-log", str(case_log)])
+            if args.api_base:
+                command.extend(["--api-base", args.api_base])
+            if args.config_path:
+                command.extend(["--config-path", str(args.config_path)])
             if args.use_llm:
                 command.extend(["--use-llm", "--model", args.model])
+            elif args.decision_backend != "local":
+                command.extend(["--model", args.model])
             try:
                 subprocess.run(command, cwd=REPO, check=True)
             except subprocess.CalledProcessError as exc:
@@ -99,7 +119,7 @@ def main() -> int:
                 ) from None
             records = _read_jsonl(
                 case_output,
-                allow_unknown_category=not args.use_llm,
+                allow_unknown_category=False,
             )
             if len(records) != 1:
                 raise RuntimeError(
@@ -112,13 +132,27 @@ def main() -> int:
         staged_output.write_bytes(combined)
         records = _read_jsonl(
             staged_output,
-            allow_unknown_category=not args.use_llm,
+            allow_unknown_category=False,
         )
         if len(records) != 3 or len({item["prediction_id"] for item in records}) != 3:
             raise RuntimeError("combined prediction must contain three unique events")
         output_staging = args.output.with_name(f".{args.output.name}.tmp")
         output_staging.write_bytes(combined)
         os.replace(output_staging, args.output)
+        if args.inference_log:
+            combined_log = {
+                "cases": {
+                    case_name: json.loads((run_dir / f"{case_name}.inference.json").read_text())
+                    for case_name in CASES
+                }
+            }
+            args.inference_log.parent.mkdir(parents=True, exist_ok=True)
+            log_staging = args.inference_log.with_name(f".{args.inference_log.name}.tmp")
+            log_staging.write_text(
+                json.dumps(combined_log, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            os.replace(log_staging, args.inference_log)
     print(json.dumps({"events": 3, "output": str(args.output)}))
     return 0
 

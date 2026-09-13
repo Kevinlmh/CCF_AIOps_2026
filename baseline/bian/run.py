@@ -1,19 +1,14 @@
-"""Run the public BiAn-style end-to-end baseline.
-
-The detector only proposes time windows.  The RCA path then follows the public
-BiAn stages: candidate evidence preprocessing, 7B-A candidate analysis, 7B-B
-Stage-1 ranking, repeated Stage-2 synthesis with Rank-of-Ranks aggregation, and
-taxonomy classification from evidence. ``--use-llm`` enables the full model
-path; without it the command provides a lightweight validation path.
-"""
+"""Run the multi-source hybrid AIOps diagnosis pipeline."""
 
 from __future__ import annotations
 
 import argparse
 from datetime import timezone
 import json
+import os
 from pathlib import Path
 import sys
+import tempfile
 from typing import Any
 
 HERE = Path(__file__).resolve().parent
@@ -21,22 +16,27 @@ REPO = HERE.parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(HERE))
 
-from anomaly_detector.five_sigma import detect
 from aiops_challenge_2026.config import load_public_config
-from classification.classifier import (
+from aiops_challenge_2026.schema import validate_prediction
+from baseline.bian.anomaly_detector.five_sigma import detect as detect_five_sigma
+from baseline.bian.anomaly_detector.robust_detector import DetectionDiagnostics, detect_events
+from baseline.bian.classification.classifier import (
     classification_taxonomy,
     classify_with_llm,
-    unknown_category,
 )
-from localization.ranking import (
-    quick_validation_top5,
+from baseline.bian.classification.prototype_model import ClassificationResult, classify_event
+from baseline.bian.localization.graph_fusion import RankingResult, rank_candidates
+from baseline.bian.localization.ranking import (
     rank_stage1,
     stage2_consensus,
     validate_stage1,
     validate_stage2,
 )
-from models.backend import JsonModelBackend, ModelConfig
-from preprocessing.evidence import build_event_context, public_topology
+from baseline.bian.models.api_backend import ApiBackend, ApiConfig
+from baseline.bian.models.backend import JsonModelBackend, ModelConfig
+from baseline.bian.preprocessing.evidence import public_topology
+from baseline.bian.preprocessing.multisource import SOURCE_ORDER, ObservationBundle, load_observations
+from baseline.bian.preprocessing.observations import AnomalyEvidence, DetectedEvent
 
 
 def _config() -> dict[str, Any]:
@@ -48,6 +48,15 @@ def _config() -> dict[str, Any]:
     config["candidate_roles"] = network_elements["device_roles"]
     config["region_aliases"] = {city: city for city in network_elements["cities"]}
     return config
+
+
+def _model_config(path: Path | None = None) -> dict[str, Any]:
+    target = path or (HERE / "config" / "model_v1.json")
+    value = json.loads(target.read_text(encoding="utf-8"))
+    for section in ("detector", "localization", "classification"):
+        if not isinstance(value.get(section), dict):
+            raise ValueError(f"model config is missing object section: {section}")
+    return value
 
 
 def _utc(value) -> str:
@@ -95,10 +104,10 @@ def _topology_for_nodes(topology: dict[str, Any], nodes: list[str]) -> dict[str,
 
 
 def _llm_event(
-    event: dict[str, Any],
+    event: DetectedEvent,
     context: dict[str, Any],
     config: dict[str, Any],
-    backend: JsonModelBackend,
+    backend: Any,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     nodes = [item["node_id"] for item in context["candidates"]]
     compact_candidates = context["candidates"]
@@ -170,22 +179,244 @@ def _llm_event(
     return top5, category
 
 
-def run(data_root: Path, output: Path, model: str, use_llm: bool, prediction_prefix: str, max_events: int | None = None) -> int:
+def _legacy_events(data_root: Path, aliases: dict[str, str]) -> list[DetectedEvent]:
+    converted = []
+    for raw in detect_five_sigma(data_root, aliases):
+        points = tuple(
+            AnomalyEvidence(
+                timestamp=item["time"],
+                source=item["metric"].split(".", 1)[0],
+                node_id=item["node"],
+                related_node_ids=(),
+                metric=item["metric"],
+                value=float(item["magnitude"]),
+                baseline=0.0,
+                score=min(25.0, float(item["magnitude"])),
+                direction="both",
+                dimensions=(),
+            )
+            for item in raw["points"]
+        )
+        if not points:
+            continue
+        converted.append(
+            DetectedEvent(
+                start=raw["start"],
+                end=raw["end"],
+                peak_time=max(points, key=lambda item: item.score).timestamp,
+                confidence=min(1.0, max(item.score for item in points) / 10.0),
+                evidence=points,
+                source_counts={
+                    source: sum(item.source == source for item in points)
+                    for source in {item.source for item in points}
+                },
+            )
+        )
+    return converted
+
+
+def _hybrid_context(
+    event: DetectedEvent,
+    ranking: RankingResult,
+    topology: dict[str, Any],
+    config: dict[str, Any],
+    prototype: ClassificationResult,
+) -> dict[str, Any]:
+    candidates = []
+    for candidate in ranking.candidates:
+        evidence = [
+            {"evidence_id": f"E-{candidate['node_id']}-{index:02d}", **item}
+            for index, item in enumerate(candidate["evidence"], 1)
+        ]
+        candidates.append(
+            {
+                "node_id": candidate["node_id"],
+                "device_role": candidate["device_role"],
+                "deterministic_score": min(1.0, float(candidate["score"])),
+                "max_magnitude": max((item["score"] for item in evidence), default=0.0),
+                "anomaly_count": candidate["anomaly_count"],
+                "features": {
+                    name: candidate[name]
+                    for name in (
+                        "severity",
+                        "persistence",
+                        "precedence",
+                        "source_diversity",
+                        "directness",
+                        "relational_support",
+                        "topology_explanation",
+                        "symptom_penalty",
+                    )
+                },
+                "evidence": evidence,
+            }
+        )
+    limit = int(config["preprocessing"]["max_timeline_events"])
+    timeline = [
+        {
+            "timestamp_utc": _utc(point.timestamp),
+            "node_id": point.node_id,
+            "source": point.source,
+            "metric": point.metric,
+            "score": round(point.score, 5),
+        }
+        for point in sorted(event.evidence, key=lambda item: (item.timestamp, -item.score))[:limit]
+    ]
+    return {
+        "candidates": candidates,
+        "topology": topology,
+        "timeline": timeline,
+        "window": {"start_time": _utc(event.start), "end_time": _utc(event.end)},
+        "prototype_hint": {
+            "category": prototype.category,
+            "confidence": prototype.confidence,
+            "top3": list(prototype.top3),
+            "signals": prototype.signals,
+        },
+    }
+
+
+def _write_predictions_atomic(records: list[dict[str, Any]], output: Path) -> None:
+    """Validate all records before atomically replacing the JSONL destination."""
+    for record in records:
+        validate_prediction(record)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{output.name}.", suffix=".tmp", dir=output.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            for record in records:
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(output)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def _write_json_atomic(value: dict[str, Any], output: Path) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{output.name}.", suffix=".tmp", dir=output.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(output)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def _diagnostic_log(
+    *,
+    bundle: ObservationBundle | None,
+    diagnostics: DetectionDiagnostics | None,
+    detector_name: str,
+    backend_name: str,
+    event_logs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    nonzero_energy = []
+    if diagnostics is not None:
+        nonzero_energy = [
+            {"timestamp_utc": _utc(minute), "energy": round(energy, 5)}
+            for minute, energy in diagnostics.minute_energy.items()
+            if energy > 0
+        ][:4096]
+    coverage = (
+        {source: bundle.source_coverage.get(source, 0) for source in SOURCE_ORDER}
+        if bundle is not None
+        else {source: 0 for source in SOURCE_ORDER}
+    )
+    return {
+        "detector": detector_name,
+        "backend": backend_name,
+        "source_coverage": coverage,
+        "bad_rows": dict(bundle.stats.bad_rows_by_source) if bundle is not None else {},
+        "warnings": list(bundle.stats.warnings[:100]) if bundle is not None else [],
+        "evidence_count": diagnostics.evidence_count if diagnostics is not None else None,
+        "minute_energy_nonzero": nonzero_energy,
+        "events": event_logs,
+    }
+
+
+def run(
+    data_root: Path,
+    output: Path,
+    model: str = "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+    use_llm: bool = False,
+    prediction_prefix: str = "pred_",
+    max_events: int | None = None,
+    *,
+    detector: str = "robust",
+    decision_backend: str = "local",
+    api_base: str | None = None,
+    api_key_env: str = "AIOPS_LLM_API_KEY",
+    config_path: Path | None = None,
+    inference_log: Path | None = None,
+) -> int:
     config = _config()
-    events = detect(data_root, config["region_aliases"])
+    model_config = _model_config(config_path)
+    network = load_public_config("network_elements")
+    taxonomy = load_public_config("fault_taxonomy")
+    topology = public_topology(config)
+
+    if detector not in {"robust", "five-sigma"}:
+        raise ValueError(f"unsupported detector: {detector}")
+    bundle: ObservationBundle | None = None
+    diagnostics: DetectionDiagnostics | None = None
+    if detector == "robust":
+        bundle = load_observations(
+            data_root,
+            config["region_aliases"],
+            network["device_roles"],
+        )
+        events, diagnostics = detect_events(bundle, model_config["detector"])
+    else:
+        events = _legacy_events(data_root, config["region_aliases"])
     if max_events is not None:
         events = events[:max_events]
-    backend = None
-    if use_llm:
-        backend = JsonModelBackend(
-            model,
-            ModelConfig(**config["model"]),
+
+    backend_name = "transformers" if use_llm and decision_backend == "local" else decision_backend
+    if backend_name not in {"local", "transformers", "api"}:
+        raise ValueError(f"unsupported decision backend: {backend_name}")
+    backend: Any = None
+    if backend_name == "transformers":
+        backend = JsonModelBackend(model, ModelConfig(**config["model"]), HERE / "prompts")
+    elif backend_name == "api":
+        if not api_base:
+            raise ValueError("--api-base is required when --decision-backend api")
+        backend = ApiBackend(
+            ApiConfig(
+                base_url=api_base,
+                model=model,
+                api_key_env=api_key_env,
+                retries=config["model"]["retries"],
+            ),
             HERE / "prompts",
         )
-    records = []
+
+    records: list[dict[str, Any]] = []
+    event_logs: list[dict[str, Any]] = []
     for index, event in enumerate(events, 1):
-        context = build_event_context(event, config)
+        ranking = rank_candidates(event, network, topology, model_config["localization"])
+        prototype = classify_event(
+            event,
+            ranking,
+            taxonomy,
+            model_config["classification"],
+        )
+        top5 = ranking.top5
+        category = prototype.category
         if backend is not None:
+            context = _hybrid_context(event, ranking, topology, config, prototype)
             try:
                 top5, category = _llm_event(event, context, config, backend)
             except Exception as exc:
@@ -194,24 +425,46 @@ def run(data_root: Path, output: Path, model: str, use_llm: bool, prediction_pre
                     f"BiAn LLM inference failed for event {index}: "
                     f"{type(exc).__name__}: {reason}"
                 ) from None
-        else:
-            shortlist = _quick_validation_stage1(context)
-            top5 = quick_validation_top5(shortlist)
-            category = unknown_category()
-        start = event["start"].astimezone(timezone.utc)
-        end = event["end"].astimezone(timezone.utc)
-        records.append({
-            "prediction_id": f"{prediction_prefix}{index:06d}",
-            "start_time": _utc(start),
-            "end_time": _utc(end),
-            "root_cause_top5": top5,
-            "fault_category": category,
-        })
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("w", encoding="utf-8") as handle:
-        for record in records:
-            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-    print(json.dumps({"events": len(records), "output": str(output), "mode": "bian_llm" if use_llm else "quick_validation"}, ensure_ascii=False))
+        records.append(
+            {
+                "prediction_id": f"{prediction_prefix}{index:06d}",
+                "start_time": _utc(event.start),
+                "end_time": _utc(event.end),
+                "root_cause_top5": top5,
+                "fault_category": category,
+            }
+        )
+        event_logs.append(
+            {
+                "prediction_id": f"{prediction_prefix}{index:06d}",
+                "start_time": _utc(event.start),
+                "end_time": _utc(event.end),
+                "peak_time": _utc(event.peak_time),
+                "confidence": event.confidence,
+                "source_counts": event.source_counts,
+                "candidates": list(ranking.candidates[:10]),
+                "prototype_top3": list(prototype.top3),
+                "prototype_signals": prototype.signals,
+            }
+        )
+    _write_predictions_atomic(records, output)
+    if inference_log is not None:
+        _write_json_atomic(
+            _diagnostic_log(
+                bundle=bundle,
+                diagnostics=diagnostics,
+                detector_name=detector,
+                backend_name=backend_name,
+                event_logs=event_logs,
+            ),
+            inference_log,
+        )
+    print(
+        json.dumps(
+            {"events": len(records), "output": str(output), "mode": backend_name},
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 
@@ -223,9 +476,30 @@ def main() -> int:
     parser.add_argument("--use-llm", action="store_true")
     parser.add_argument("--prediction-prefix", default="pred_")
     parser.add_argument("--max-events", type=int)
+    parser.add_argument("--detector", choices=("robust", "five-sigma"), default="robust")
+    parser.add_argument(
+        "--decision-backend", choices=("local", "transformers", "api"), default="local"
+    )
+    parser.add_argument("--api-base")
+    parser.add_argument("--api-key-env", default="AIOPS_LLM_API_KEY")
+    parser.add_argument("--config-path", type=Path)
+    parser.add_argument("--inference-log", type=Path)
     args = parser.parse_args()
     try:
-        return run(args.data_root, args.output, args.model, args.use_llm, args.prediction_prefix, args.max_events)
+        return run(
+            args.data_root,
+            args.output,
+            args.model,
+            args.use_llm,
+            args.prediction_prefix,
+            args.max_events,
+            detector=args.detector,
+            decision_backend=args.decision_backend,
+            api_base=args.api_base,
+            api_key_env=args.api_key_env,
+            config_path=args.config_path,
+            inference_log=args.inference_log,
+        )
     except Exception as exc:
         print(f"Baseline failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1

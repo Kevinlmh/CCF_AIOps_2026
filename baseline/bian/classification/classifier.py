@@ -40,7 +40,14 @@ def classify_with_llm(backend, *, top5: list[dict[str, Any]], context: dict[str,
         result = backend.generate_json(
             role="7B-B",
             prompt_name="classification",
-            payload={"round": round_index, "taxonomy": taxonomy, "root_cause_top5": top5, "timeline": observed_timeline, "candidate_evidence": observed_evidence},
+            payload={
+                "round": round_index,
+                "taxonomy": taxonomy,
+                "root_cause_top5": top5,
+                "timeline": observed_timeline,
+                "candidate_evidence": observed_evidence,
+                "local_prototype_hint": context.get("prototype_hint"),
+            },
             validator=lambda value: validate_classification(value, taxonomy),
             max_new_tokens=max_new_tokens,
         )
