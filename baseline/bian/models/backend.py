@@ -34,6 +34,11 @@ RESPONSE_PREFIXES = {
 }
 
 
+def model_load_options(*, cuda_available: bool) -> dict[str, Any]:
+    """Return device placement options without importing Torch."""
+    return {"device_map": "auto"} if cuda_available else {}
+
+
 def response_prefix_for(prompt_name: str) -> str:
     """Schema-only assistant prefill; contains no candidate or label values."""
     return RESPONSE_PREFIXES.get(prompt_name, "")
@@ -56,7 +61,8 @@ class JsonModelBackend:
         self._tokenizer = AutoTokenizer.from_pretrained(self.model, local_files_only=local, trust_remote_code=False)
         kwargs = {"trust_remote_code": False, "local_files_only": local, "low_cpu_mem_usage": True}
         if torch.cuda.is_available():
-            kwargs.update({"torch_dtype": torch.bfloat16, "device_map": {"": 0}})
+            kwargs.update({"torch_dtype": torch.bfloat16})
+        kwargs.update(model_load_options(cuda_available=torch.cuda.is_available()))
         self._network = AutoModelForCausalLM.from_pretrained(self.model, **kwargs)
         self._network.eval()
 

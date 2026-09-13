@@ -5,3 +5,5 @@ temporal_precedence_score, topology_upstream_score,
 fault_pattern_compatibility_score, symptom_likelihood in [0,1], and reason.
 Score every shortlist node exactly once. Keep reason to at most 12 words. This
 is one independent ranking round; do not use labels or hidden answers.
+Use all seven supplied source families, temporal precedence and topology paths.
+Do not let high-volume downstream observations outweigh direct causal evidence.

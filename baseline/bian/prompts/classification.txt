@@ -3,3 +3,7 @@ taxonomy entries against the observed evidence and the RCA Top-5. Return exactly
 one JSON object with major_category, sub_category, and confidence in [0,1].
 The pair must be one of the supplied taxonomy entries. Do not use candidate
 order or any information outside the supplied observations.
+Distinguish direct root-node resource/routing/interface evidence from propagated
+service symptoms. Compare CPU/load, memory/swap, disk I/O/space, process and
+softirq signals; link loss/delay/rate; firewall selectivity; BGP/OSPF/routes;
+and DNS/Web/Auth latency, timeout and error signatures before choosing one pair.
