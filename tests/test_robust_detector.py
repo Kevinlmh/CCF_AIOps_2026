@@ -25,6 +25,10 @@ CONFIG = {
     "long_series_threshold": 60,
     "absolute_scale_floor": 0.01,
     "relative_scale_floor": 0.01,
+    "metric_scale_floors": {
+        "node.cpu_usage": 1.0,
+        "interface.*_bytes_rate": 1000.0,
+    },
     "evidence_threshold": 5.0,
     "source_thresholds": {},
     "max_score": 25.0,
@@ -148,6 +152,34 @@ class EventSegmentationTests(unittest.TestCase):
         self.assertEqual(events[0].start, BASE + timedelta(minutes=4))
         self.assertGreater(diagnostics.evidence_count, 0)
         self.assertEqual(diagnostics.source_coverage, {"node": len(values)})
+
+    def test_metric_scale_floor_suppresses_tiny_sparse_interface_toggles(self):
+        interface = tuple(
+            NumericObservation(
+                timestamp=BASE + timedelta(minutes=index),
+                source="interface",
+                node_id="xian-service-vm-2",
+                related_node_ids=(),
+                metric="interface.tx_bytes_rate",
+                value=value,
+                dimensions=(("interface_id", "ens3"),),
+                direction="both",
+            )
+            for index, value in enumerate([60.0] * 4 + [0.0] * 5)
+        )
+        cpu = tuple(observation(index, value) for index, value in enumerate([1.0] * 4 + [40.0] * 5))
+        bundle = ObservationBundle(
+            numeric=interface + cpu,
+            text_events=(),
+            stats=ParseStats(),
+            source_coverage={"node": 9, "interface": 9},
+        )
+
+        events, _ = detect_events(bundle, CONFIG)
+
+        self.assertEqual(len(events), 1)
+        self.assertTrue(any(item.metric == "node.cpu_usage" for item in events[0].evidence))
+        self.assertFalse(any(item.metric == "interface.tx_bytes_rate" for item in events[0].evidence))
 
 
 if __name__ == "__main__":

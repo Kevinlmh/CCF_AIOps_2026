@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from fnmatch import fnmatch
 import math
 from statistics import median
 from typing import Any, Iterable
@@ -106,6 +107,17 @@ def _numeric_evidence(
     source_thresholds = config.get("source_thresholds", {})
     default_threshold = float(config.get("evidence_threshold", 6.0))
 
+    def metric_config(metric: str) -> dict[str, Any]:
+        floor = float(config.get("absolute_scale_floor", 0.01))
+        for pattern, configured in config.get("metric_scale_floors", {}).items():
+            if fnmatch(metric, pattern):
+                floor = max(floor, float(configured))
+        if floor == float(config.get("absolute_scale_floor", 0.01)):
+            return config
+        adjusted = dict(config)
+        adjusted["absolute_scale_floor"] = floor
+        return adjusted
+
     for values in _consolidate_series(observations).values():
         minimum_history = long_history if len(values) >= long_threshold else short_history
         history: list[float] = []
@@ -114,7 +126,7 @@ def _numeric_evidence(
                 baseline, score = robust_score(
                     item.value,
                     history[-lookback:],
-                    config,
+                    metric_config(item.metric),
                     direction=item.direction,
                 )
                 threshold = float(source_thresholds.get(item.source, default_threshold))
