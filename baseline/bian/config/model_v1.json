@@ -1,0 +1,52 @@
+{
+  "detector": {
+    "lookback_points": 60,
+    "short_series_min_history": 4,
+    "long_series_min_history": 15,
+    "long_series_threshold": 60,
+    "absolute_scale_floor": 0.01,
+    "relative_scale_floor": 0.02,
+    "evidence_threshold": 6.0,
+    "source_thresholds": {
+      "node": 5.0,
+      "interface": 6.0,
+      "routing": 5.0,
+      "scrape": 7.0,
+      "traffic": 5.0,
+      "netflow": 7.0,
+      "frr": 5.0
+    },
+    "source_weights": {
+      "node": 1.0,
+      "interface": 1.0,
+      "routing": 1.05,
+      "scrape": 0.5,
+      "traffic": 1.1,
+      "netflow": 0.75,
+      "frr": 1.2
+    },
+    "max_score": 25.0,
+    "top_k_per_source": 3,
+    "open_threshold": 7.0,
+    "keep_threshold": 3.0,
+    "gap_tolerance_minutes": 1,
+    "end_padding_minutes": 1,
+    "min_event_minutes": 1,
+    "max_event_minutes": 30
+  },
+  "localization": {
+    "weights": {
+      "severity": 0.28,
+      "persistence": 0.15,
+      "precedence": 0.16,
+      "source_diversity": 0.14,
+      "directness": 0.16,
+      "relational_support": 0.07,
+      "topology_explanation": 0.08,
+      "symptom_penalty": -0.04
+    }
+  },
+  "classification": {
+    "role_prior_weight": 0.12
+  }
+}
