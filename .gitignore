@@ -18,3 +18,6 @@ cache/
 *.pyc
 *.log
 *.egg-info/
+.env
+.env.*
+!.env.example

@@ -141,6 +141,9 @@ def _numeric_evidence(
                 )
                 threshold = float(source_thresholds.get(item.source, default_threshold))
                 if score >= threshold:
+                    observed_direction = item.direction
+                    if item.direction == "both":
+                        observed_direction = "high" if item.value > baseline else "low"
                     evidence.append(
                         AnomalyEvidence(
                             timestamp=item.timestamp,
@@ -151,7 +154,7 @@ def _numeric_evidence(
                             value=item.value,
                             baseline=baseline,
                             score=score,
-                            direction=item.direction,
+                            direction=observed_direction,
                             dimensions=item.dimensions,
                             summary=None,
                         )
@@ -308,10 +311,24 @@ def _event_from_window(
     evidence: tuple[AnomalyEvidence, ...],
     minute_energy: dict[datetime, float],
     open_threshold: float,
+    config: dict[str, Any],
 ) -> DetectedEvent | None:
     selected = tuple(point for point in evidence if start <= point.timestamp < end)
     if not selected:
         return None
+    recovery = None
+    if config.get("trim_recovery_reversals", True):
+        recovery = _recovery_start(
+            selected,
+            start,
+            float(config.get("recovery_reverse_threshold", 5.0)),
+            max(2, int(config.get("recovery_min_initial_points", 3))),
+        )
+    if recovery is not None:
+        end = recovery
+        selected = tuple(point for point in selected if point.timestamp < end)
+        if not selected:
+            return None
     peak_time = max(
         (minute for minute in minute_energy if start <= minute < end),
         key=lambda minute: (minute_energy[minute], -minute.timestamp()),
@@ -326,6 +343,43 @@ def _event_from_window(
         evidence=tuple(sorted(selected, key=lambda item: (-item.score, item.timestamp, item.metric))),
         source_counts=dict(sorted(counts.items())),
     )
+
+
+def _recovery_start(
+    points: tuple[AnomalyEvidence, ...],
+    event_start: datetime,
+    threshold: float,
+    minimum_initial_points: int,
+) -> datetime | None:
+    """Find a sustained-series direction reversal caused by recovery.
+
+    A rolling baseline can temporarily regard the return to normal as a second
+    anomaly.  We only trim when a directly observed series has already supplied
+    at least two same-direction points and then reverses strongly.
+    """
+    direct_sources = {"node", "interface", "routing", "frr"}
+    initial: dict[tuple[object, ...], str] = {}
+    counts: Counter[tuple[object, ...]] = Counter()
+    by_minute: dict[datetime, list[AnomalyEvidence]] = defaultdict(list)
+    for point in sorted(points, key=lambda item: (item.timestamp, -item.score)):
+        by_minute[_minute(point.timestamp)].append(point)
+    for minute in sorted(by_minute):
+        reverse_score = 0.0
+        for point in by_minute[minute]:
+            if point.source not in direct_sources or point.direction not in {"high", "low"}:
+                continue
+            key = (point.source, point.node_id, point.metric, point.dimensions)
+            first = initial.setdefault(key, point.direction)
+            if point.direction == first:
+                counts[key] += 1
+            elif counts[key] >= minimum_initial_points:
+                reverse_score += point.score
+        if (
+            minute >= event_start + timedelta(minutes=2)
+            and reverse_score >= threshold
+        ):
+            return minute
+    return None
 
 
 def segment_evidence(
@@ -353,7 +407,12 @@ def segment_evidence(
     events = [
         event
         for start, end in windows
-        if (event := _event_from_window(start, end, points, minute_energy, open_threshold)) is not None
+        if (
+            event := _event_from_window(
+                start, end, points, minute_energy, open_threshold, config
+            )
+        )
+        is not None
     ]
     diagnostics = DetectionDiagnostics(
         minute_energy=minute_energy,

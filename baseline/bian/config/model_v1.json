@@ -79,6 +79,9 @@
     "keep_threshold": 3.0,
     "gap_tolerance_minutes": 1,
     "end_padding_minutes": 1,
+    "trim_recovery_reversals": true,
+    "recovery_reverse_threshold": 5.0,
+    "recovery_min_initial_points": 3,
     "min_event_minutes": 1,
     "max_event_minutes": 30
   },

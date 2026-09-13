@@ -146,7 +146,10 @@ def _topology_explanation(
     distances = _distances(node_id, graph)
     contributions = []
     for observed_node, points in direct_by_node.items():
-        if observed_node not in distances or not points:
+        # Local anomaly strength is already represented by severity/directness;
+        # topology support must explain *other* observed nodes rather than
+        # rewarding an isolated candidate for reaching itself at distance zero.
+        if observed_node == node_id or observed_node not in distances or not points:
             continue
         contributions.append(_severity(points) / (1.0 + distances[observed_node]))
     if not contributions:

@@ -58,7 +58,7 @@ def observation(minute: int, value: float, *, direction: str = "high") -> Numeri
     )
 
 
-def evidence(minute: int, score: float = 10.0) -> AnomalyEvidence:
+def evidence(minute: int, score: float = 10.0, *, direction: str = "high") -> AnomalyEvidence:
     return AnomalyEvidence(
         timestamp=BASE + timedelta(minutes=minute),
         source="node",
@@ -68,7 +68,7 @@ def evidence(minute: int, score: float = 10.0) -> AnomalyEvidence:
         value=80.0,
         baseline=1.0,
         score=score,
-        direction="high",
+        direction=direction,
         dimensions=(),
         summary=None,
     )
@@ -213,6 +213,23 @@ class EventSegmentationTests(unittest.TestCase):
         self.assertTrue(
             any(item.metric == "node.memory_available_ratio" for item in events[0].evidence)
         )
+
+    def test_opposite_direction_recovery_closes_event_before_recovery_tail(self):
+        points = tuple(evidence(minute, direction="high") for minute in range(4, 9)) + tuple(
+            evidence(minute, direction="low") for minute in range(9, 14)
+        )
+
+        events, _ = segment_evidence(
+            points,
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=14),
+            config=CONFIG,
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].start, BASE + timedelta(minutes=4))
+        self.assertEqual(events[0].end, BASE + timedelta(minutes=9))
+        self.assertTrue(all(item.direction == "high" for item in events[0].evidence))
 
 
 if __name__ == "__main__":

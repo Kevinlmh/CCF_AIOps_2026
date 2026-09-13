@@ -147,6 +147,31 @@ class GraphFusionTests(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)))
         self.assertTrue(set(ids) <= {f"xian-{role}" for role in ROLES})
 
+    def test_isolated_monitor_disk_noise_does_not_beat_service_with_correlated_symptoms(self):
+        detected = event(
+            point(1, "xian-service-vm-1", "node.cpu_usage", source="node", score=25.0),
+            point(2, "xian-service-vm-1", "node.cpu_usage", source="node", score=25.0),
+            point(3, "xian-service-vm-1", "node.load1", source="node", score=18.0),
+            point(0, "xian-monitor-vm", "node.disk_read_rate", source="node", score=25.0),
+            point(2, "xian-monitor-vm", "node.disk_read_rate", source="node", score=20.0),
+            point(
+                2,
+                "xian-traffic-vm",
+                "traffic.web.latency_p95_seconds",
+                source="traffic",
+                score=20.0,
+                related=("xian-service-vm-1", "xian-service-vm-2", "xian-service-vm-3"),
+            ),
+        )
+
+        result = rank_candidates(detected, NETWORK, TOPOLOGY, CONFIG)
+
+        self.assertLess(
+            result.by_node["xian-service-vm-1"]["rank"],
+            result.by_node["xian-monitor-vm"]["rank"],
+        )
+        self.assertEqual(result.by_node["xian-monitor-vm"]["topology_explanation"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
