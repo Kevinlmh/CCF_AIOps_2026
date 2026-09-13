@@ -29,6 +29,9 @@ CONFIG = {
         "node.cpu_usage": 1.0,
         "interface.*_bytes_rate": 1000.0,
     },
+    "metric_relative_scale_floors": {
+        "node.memory_available_ratio": 0.0,
+    },
     "evidence_threshold": 5.0,
     "source_thresholds": {},
     "max_score": 25.0,
@@ -180,6 +183,36 @@ class EventSegmentationTests(unittest.TestCase):
         self.assertEqual(len(events), 1)
         self.assertTrue(any(item.metric == "node.cpu_usage" for item in events[0].evidence))
         self.assertFalse(any(item.metric == "interface.tx_bytes_rate" for item in events[0].evidence))
+
+    def test_metric_relative_floor_preserves_meaningful_ratio_drop(self):
+        memory = tuple(
+            NumericObservation(
+                timestamp=BASE + timedelta(minutes=index),
+                source="node",
+                node_id="xian-service-vm-3",
+                related_node_ids=(),
+                metric="node.memory_available_ratio",
+                value=value,
+                dimensions=(),
+                direction="low",
+            )
+            for index, value in enumerate([0.924, 0.923, 0.925, 0.923, 0.855, 0.852, 0.851, 0.850])
+        )
+        bundle = ObservationBundle(
+            numeric=memory,
+            text_events=(),
+            stats=ParseStats(),
+            source_coverage={"node": len(memory)},
+        )
+
+        config = dict(CONFIG)
+        config["relative_scale_floor"] = 0.1
+        events, _ = detect_events(bundle, config)
+
+        self.assertEqual(len(events), 1)
+        self.assertTrue(
+            any(item.metric == "node.memory_available_ratio" for item in events[0].evidence)
+        )
 
 
 if __name__ == "__main__":

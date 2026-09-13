@@ -45,6 +45,15 @@
       "netflow.unique_*": 1.0,
       "netflow.protocol_byte_share": 0.05
     },
+    "metric_relative_scale_floors": {
+      "node.memory_available_ratio": 0.0,
+      "node.swap_used_ratio": 0.0,
+      "node.filesystem_used_ratio": 0.0,
+      "node.inode_used_ratio": 0.0,
+      "node.open_fd_ratio": 0.0,
+      "traffic.*.*_ratio": 0.0,
+      "netflow.protocol_byte_share": 0.0
+    },
     "evidence_threshold": 6.0,
     "source_thresholds": {
       "node": 5.0,
@@ -86,6 +95,36 @@
     }
   },
   "classification": {
-    "role_prior_weight": 0.12
+    "role_prior_weight": 0.12,
+    "prototypes": {
+      "link_delay": {"latency": 1.0, "jitter": 0.4, "interface": 0.3, "role_router": 0.15},
+      "link_rate_limit": {"rate_limit": 1.0, "throughput_low": 0.8, "interface": 0.4, "role_router": 0.15},
+      "link_loss": {"loss": 1.0, "interface": 0.5, "link_state": 0.3, "role_router": 0.15},
+      "firewall_acl_drop": {"acl": 1.0, "loss": 0.7, "port_selectivity": 0.5, "role_firewall": 0.8},
+      "firewall_rate_limit": {"rate_limit": 1.0, "throughput_low": 0.8, "role_firewall": 0.9},
+      "firewall_port_block": {"port_block": 1.0, "port_selectivity": 0.8, "service_error": 0.4, "role_firewall": 0.9},
+      "firewall_cpu_pressure": {"cpu": 1.0, "load": 0.6, "role_firewall": 1.0},
+      "firewall_default_route_error": {"default_route": 1.0, "route_table": 0.4, "role_firewall": 0.9},
+      "firewall_rule_order_error": {"rule_order": 1.0, "acl": 0.7, "port_selectivity": 0.4, "role_firewall": 0.9},
+      "resource_cpu_high": {"cpu": 1.0, "load": 0.65, "role_service": 0.15},
+      "resource_memory_pressure": {"memory": 1.0, "swap": 0.5, "role_service": 0.15},
+      "resource_disk_io_pressure": {"disk_io": 1.0, "load": 0.2, "role_service": 0.15},
+      "resource_disk_space_low": {"disk_space": 1.0, "role_service": 0.15},
+      "resource_process_pressure": {"process": 1.0, "cpu": 0.25, "role_service": 0.15},
+      "resource_softirq_udp_pressure": {"softirq_udp": 1.0, "udp": 0.6, "cpu": 0.25, "role_service": 0.15},
+      "route_blackhole": {"blackhole": 1.0, "route_table": 0.5, "loss": 0.4, "role_router": 0.7},
+      "route_bgp_session_down": {"bgp_down": 1.0, "bgp": 0.5, "link_state": 0.2, "role_router": 0.6},
+      "route_bgp_route_flap": {"bgp_flap": 1.0, "bgp": 0.5, "route_table": 0.4, "role_router": 0.6},
+      "route_wrong_static_route": {"static_route": 1.0, "route_table": 0.6, "role_router": 0.6},
+      "route_ospf6_neighbor_down": {"ospf_down": 1.0, "ospf": 0.5, "link_state": 0.2, "role_router": 0.6},
+      "route_ospf6_cost_anomaly": {"ospf_cost": 1.0, "ospf": 0.5, "role_router": 0.6},
+      "route_wrong_default_route": {"default_route": 1.0, "route_table": 0.6, "role_router": 0.6},
+      "service_dns_down": {"dns": 1.0, "timeout": 0.6, "service_error": 0.5, "role_service": 0.3},
+      "service_dns_wrong_record": {"dns_record": 1.0, "dns": 0.6, "role_service": 0.3},
+      "service_web_5xx": {"web": 0.8, "service_error": 1.0, "role_service": 0.3, "role_traffic": 0.2},
+      "service_web_slow": {"web": 0.7, "latency": 1.0, "timeout": 0.3, "role_service": 0.3, "role_traffic": 0.2},
+      "service_auth_timeout": {"auth": 0.8, "timeout": 1.0, "latency": 0.4, "role_service": 0.3},
+      "service_auth_error": {"auth": 0.8, "service_error": 1.0, "role_service": 0.3}
+    }
   }
 }

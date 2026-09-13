@@ -108,14 +108,24 @@ def _numeric_evidence(
     default_threshold = float(config.get("evidence_threshold", 6.0))
 
     def metric_config(metric: str) -> dict[str, Any]:
-        floor = float(config.get("absolute_scale_floor", 0.01))
+        absolute_floor = float(config.get("absolute_scale_floor", 0.01))
         for pattern, configured in config.get("metric_scale_floors", {}).items():
             if fnmatch(metric, pattern):
-                floor = max(floor, float(configured))
-        if floor == float(config.get("absolute_scale_floor", 0.01)):
+                absolute_floor = max(absolute_floor, float(configured))
+        relative_floor = float(config.get("relative_scale_floor", 0.01))
+        relative_overridden = False
+        for pattern, configured in config.get("metric_relative_scale_floors", {}).items():
+            if fnmatch(metric, pattern):
+                relative_floor = float(configured)
+                relative_overridden = True
+        if (
+            absolute_floor == float(config.get("absolute_scale_floor", 0.01))
+            and not relative_overridden
+        ):
             return config
         adjusted = dict(config)
-        adjusted["absolute_scale_floor"] = floor
+        adjusted["absolute_scale_floor"] = absolute_floor
+        adjusted["relative_scale_floor"] = relative_floor
         return adjusted
 
     for values in _consolidate_series(observations).values():
