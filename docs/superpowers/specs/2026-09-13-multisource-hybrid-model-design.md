@@ -1,122 +1,88 @@
-# Multi-source Hybrid Diagnosis Model Design
+# 多源混合故障诊断模型设计
 
-## 1. Objective
+## 1. 建设目标
 
-Build the first competition-ready model for the 2026 CCF AIOps challenge by
-replacing the public baseline's single-pass five-sigma detector with a
-reproducible multi-source diagnosis pipeline.
+在官方 BiAn Baseline 基础上完成一套可参赛的第一版模型，用可复现的多源诊断流水线替代当前简单的五倍标准差检测器。
 
-The model must:
+模型必须满足以下目标：
 
-- parse and use every supplied observation family: node metrics, interface
-  metrics, routing metrics, scrape health, traffic-flow metrics, NetFlow and
-  FRR syslog;
-- detect one or more fault intervals from continuous input without reading a
-  ground-truth file;
-- rank at most five unique public network-element IDs for every event;
-- select one valid major/sub-category pair from the public taxonomy;
-- run locally in a lightweight development mode and expose a backend for a
-  multi-GPU LLM server;
-- keep inference deterministic and auditable enough for code and model review;
-- retain a stable tensor-ready representation for a later temporal
-  Transformer/GNN implementation.
+- 解析并实际利用全部观测数据：节点指标、接口指标、路由指标、采集健康、业务流指标、NetFlow 和 FRR Syslog；
+- 在完全不读取 Ground Truth 的前提下，从连续时间数据中检测一个或多个故障区间；
+- 为每个事件输出最多 5 个合法且不重复的根因网元 ID；
+- 从官方故障分类表中选择唯一合法的大类和子类；
+- 支持本机轻量开发，同时预留服务器多卡 LLM 推理后端；
+- 推理过程可复现、可审计，满足代码和模型审核要求；
+- 保留稳定的张量化接口，为后续时序 Transformer/GNN 提供数据底座。
 
-The work intentionally excludes the data-team assignments at the end of
-`AIOPS_OnePage.md`. Dataset documentation and manual case attribution are not
-deliverables of this model implementation.
+本次工作不包含 `AIOPS_OnePage.md` 末尾“数据 @dyx”部分的人工分工。数据说明文档和逐 Case 人工归因不属于本轮模型交付。
 
-## 2. Competition Constraints
+## 2. 赛事约束
 
-The design treats the published rules as model constraints rather than hidden
-labels:
+以下公开规则是模型设计约束，不是隐藏标签：
 
-- Initial scoring is AD 40, RCA 40, major category 10 and minor category 10.
-- A ground-truth incident that does not match a predicted interval receives
-  zero RCA and classification credit.
-- Interval matching requires Dice overlap of at least 0.4. Boundary accuracy is
-  continuously rewarded within a 180-second tolerance.
-- False-positive intervals reduce the AD score; duplicate predictions for one
-  incident become false positives.
-- Root-cause credit decreases by rank: 1.0, 0.8, 0.6, 0.4 and 0.2 for ranks
-  one through five.
-- Top-five network-element IDs must be valid, unique and ordered consistently
-  with their rank fields.
-- A fault lasts from one to thirty minutes. Faults are normally separated by at
-  least twenty minutes, do not overlap, and the environment is restored after
-  each injection.
-- The first published competition input is fourteen continuous days containing
-  292 faults.
-- The inference pipeline may use preprocessing, statistics, machine learning,
-  public topology, general operational knowledge and LLMs, but may not contain
-  test answers, per-case mappings or manual labels.
-- The reviewed submission must be reproducible and retain inference logs.
+- 总分构成为 AD 40 分、RCA 40 分、故障大类 10 分、故障子类 10 分。
+- 某条真实故障如果没有匹配到预测区间，其 RCA 和分类得分均为 0。
+- 真实区间和预测区间的 Dice 重叠系数至少为 0.4 才能匹配。
+- 起止时间在 180 秒容差范围内连续计分，边界越准确得分越高。
+- 无法匹配真实事件的预测会成为 FP，并降低 AD 得分。
+- 根因位于 Top5 的第 1 至第 5 位时，单条 RCA 系数依次为 1.0、0.8、0.6、0.4、0.2。
+- Top5 网元 ID 必须来自官方枚举、不能重复，数组顺序必须与 `rank` 一致。
+- 单个故障持续 1 至 30 分钟；故障间通常至少间隔 20 分钟；同一时刻不存在并发故障；每次注入后环境会恢复。
+- 第一批正式数据是连续 14 天，共包含 292 个故障。
+- 允许数据预处理、统计模型、机器学习、拓扑、通用运维知识和 LLM，但禁止人工标注测试集、按 Case 写答案或硬编码测试集标签。
+- 代码、模型、运行说明和必要推理日志必须能够复现结果。
 
-The duration, separation and non-overlap facts may guide event segmentation.
-They must never be used to invent a fixed event schedule.
+故障时长、间隔和不并发信息只用于事件切分先验，不能用于构造固定故障时刻表。
 
-## 3. Selected Approach
+## 3. 总体方案
 
-Use a hybrid model with three independent but composable decision layers:
+第一版采用三层可组合的混合模型：
 
-1. A robust unsupervised time-series model detects anomalous evidence and event
-   intervals.
-2. A topology-aware fusion model ranks candidate root-cause elements from
-   temporal, local, relational and cross-source features.
-3. A closed-set prototype classifier produces a reproducible local category,
-   while an optional LLM backend re-ranks candidates and classifies the event
-   from the same compact evidence.
+1. 鲁棒无监督时序模型负责产生异常证据和故障区间。
+2. 拓扑感知融合模型综合局部、时序、关联和多源特征，排序根因网元。
+3. 闭集原型分类器提供本机可复现分类；可选 LLM 后端使用同一份压缩证据重新排序并完成分类。
 
-The statistical and prototype paths make local development possible without
-GPU dependencies. Competition inference will use the hybrid LLM path so the
-final decision is not a pure rule script. General fault-signature knowledge is
-permitted, but case identifiers, incident times and sample answers are never
-features.
+统计模型和原型模型保证不安装 GPU 依赖时也能开发和验证。正式提交建议使用 LLM 混合路径，使最终决策不是纯规则脚本。模型允许使用通用故障特征，但生产代码不得出现 Case ID、样例故障时刻或样例答案映射。
 
-## 4. Non-goals for Version 1
+## 4. 第一版不做的内容
 
-- Training a supervised end-to-end Transformer/GNN from the three public sample
-  labels.
-- Resolving physical switch IDs that are absent from the public root-cause
-  enumeration.
-- Inventing exact service-VM identities from a target domain when the input
-  does not provide a defensible mapping.
-- Online streaming alerts. The implementation is offline but processes large
-  files incrementally.
-- Replacing the official evaluator or output schema.
-- Downloading or bundling model weights.
+- 不使用仅有的 3 个公开样例标签训练监督式端到端 Transformer/GNN。
+- 不推断官方根因枚举中不存在的交换机 ID。
+- 当数据没有可靠映射时，不根据域名臆测精确的 `service-vm-*` 编号。
+- 第一版为离线批处理，不强制提供在线流式告警。
+- 不修改官方评测器和预测输出协议。
+- 不下载或提交大模型权重。
 
-## 5. Package Boundaries
+## 5. 模块边界
 
-The implementation will follow these responsibilities:
+目标代码结构如下：
 
 ```text
 baseline/bian/
 ├── preprocessing/
-│   ├── observations.py       canonical records and identifiers
-│   └── multisource.py         seven source parsers and aggregators
+│   ├── observations.py       # 统一数据类与网元标识
+│   └── multisource.py         # 七类数据解析及聚合
 ├── anomaly_detector/
-│   └── robust_detector.py     robust scoring and event segmentation
+│   └── robust_detector.py     # 鲁棒异常评分与事件切分
 ├── localization/
-│   └── graph_fusion.py        topology-aware candidate model
+│   └── graph_fusion.py        # 拓扑感知根因融合模型
 ├── classification/
-│   └── prototype_model.py     local closed-set category model
+│   └── prototype_model.py     # 本地闭集分类模型
 ├── models/
-│   ├── api_backend.py         OpenAI-compatible JSON backend
-│   └── backend.py             local Transformers JSON backend
+│   ├── api_backend.py         # OpenAI-compatible JSON 后端
+│   └── backend.py             # 本地 Transformers JSON 后端
 ├── config/
-│   └── model_v1.json          documented model parameters
-└── run.py                     orchestration and JSONL output
+│   └── model_v1.json          # 第一版模型参数
+└── run.py                     # 总流程与 JSONL 输出
 ```
 
-Existing evaluator, schema and public taxonomy code remain authoritative.
-Existing BiAn ranking and prompt components may be reused where their contracts
-remain valid.
+官方 evaluator、schema、网元枚举和故障分类表继续作为权威协议。原有 BiAn 排序、输出解析和 Prompt 在契约兼容时复用。
 
-## 6. Canonical Data Contracts
+## 6. 统一数据契约
 
-### 6.1 Numeric observation
+### 6.1 数值观测
 
-Every numeric signal is represented as:
+每条数值信号统一表示为：
 
 ```python
 NumericObservation(
@@ -131,15 +97,15 @@ NumericObservation(
 )
 ```
 
-`node_id` is the network element directly measured by the observation.
-`related_node_ids` contains defensible endpoints or candidates affected by a
-relational observation. Unknown endpoints stay unknown; they are not guessed.
-`dimensions` keeps identity such as interface, route metric, peer, exporter,
-protocol, flow type and source/target region.
+- `node_id` 表示被直接测量的网元。
+- `related_node_ids` 表示能被输入证据可靠确定的关联端点或候选网元。
+- 无法确认的端点保持未知，禁止猜测。
+- `dimensions` 保留接口、路由指标、Peer、Exporter、协议、流类型和源/目标地域等身份。
+- `direction` 表示升高、降低或双向偏离是否构成异常。
 
-### 6.2 Text event
+### 6.2 文本事件
 
-FRR messages are represented as:
+FRR 日志统一表示为：
 
 ```python
 TextEvent(
@@ -153,12 +119,11 @@ TextEvent(
 )
 ```
 
-Version 1 uses normalized event families and severity counts for statistical
-detection while preserving bounded message excerpts for LLM evidence.
+第一版使用归一化事件族和严重程度计数参与统计检测，同时保留长度受限的消息摘要供 LLM 使用。
 
-### 6.3 Anomaly evidence
+### 6.3 异常证据
 
-The robust detector produces:
+鲁棒检测器输出：
 
 ```python
 AnomalyEvidence(
@@ -176,10 +141,9 @@ AnomalyEvidence(
 )
 ```
 
-Scores are finite and capped. A zero-variance baseline cannot produce an
-unbounded magnitude.
+异常分数必须有限并设有上限。零方差基线不得再产生 `10^16` 量级的异常分数。
 
-### 6.4 Event
+### 6.4 检测事件
 
 ```python
 DetectedEvent(
@@ -192,12 +156,11 @@ DetectedEvent(
 )
 ```
 
-`run.py` will adapt this object to the existing dictionaries expected by
-legacy BiAn code only at compatibility boundaries.
+只有在兼容旧 BiAn 接口的边界处，`run.py` 才把数据类转换为原有字典结构。
 
-### 6.5 Tensor-ready representation
+### 6.5 面向端到端模型的稳定表示
 
-The canonical layer exposes stable indices and masks that can later form:
+统一观测层必须提供稳定索引和缺失掩码，使其以后可以直接形成：
 
 ```text
 node_features     [T, N, F_node]
@@ -206,190 +169,152 @@ observation_mask  [T, N, F_node]
 edge_index        [2, E]
 ```
 
-Version 1 does not require PyTorch to materialize these arrays. It guarantees
-that timestamp, node, metric and dimension keys are stable and serializable.
+第一版不强制用 PyTorch 创建张量，但必须保证时间、网元、指标和维度键稳定且可序列化。
 
-## 7. Source-specific Processing
+## 7. 七类数据处理
 
-### 7.1 Node metrics
+### 7.1 节点指标
 
-- Keep one series per node and metric.
-- Exclude identifier and timestamp columns from numeric features.
-- Preserve CPU, load, memory, swap, disk, filesystem, inode, file-descriptor
-  and process signals.
-- Treat these as direct local evidence for resource faults and supporting
-  evidence for firewall or service degradation.
+- 按“网元 + 指标”分别建立序列。
+- 时间戳和标识字段不作为数值特征。
+- 保留 CPU、系统负载、内存、Swap、磁盘、文件系统、inode、文件描述符和进程数。
+- 这些指标是资源故障的直接证据，也是防火墙或服务性能下降的辅助证据。
 
-### 7.2 Interface metrics
+### 7.2 接口指标
 
-- Key each series by node, interface ID, interface role and metric.
-- Never merge different interfaces into one sequence.
-- Preserve byte/packet rates, drops, errors and carrier changes.
-- Keep direction metadata so increases in errors and decreases in throughput
-  can both be anomalous.
+- 按“网元 + 接口 ID + 接口角色 + 指标”建立序列。
+- 不同接口绝不能混入同一序列。
+- 保留字节速率、包速率、丢包、错误和载波变化。
+- 保留异常方向，既能检测错误率升高，也能检测吞吐下降。
 
-### 7.3 Routing metrics
+### 7.3 路由指标
 
-- Key each series by node, `metric_name` and normalized label.
-- Treat the numeric `value` as the measurement; never create one shared
-  `routing.value` sequence.
-- Preserve peer, interface, prefix and command labels.
-- Mark BGP/OSPF session state and command failures as direct routing evidence.
+- 按“网元 + `metric_name` + 归一化 label”建立序列。
+- `value` 是观测值，禁止把所有指标合并成一个 `routing.value` 序列。
+- 保留 Peer、接口、Prefix 和命令标签。
+- BGP/OSPF 会话状态和命令失败作为直接路由证据。
 
-### 7.4 Scrape health
+### 7.4 采集健康
 
-- Key by node, target and exporter type.
-- Use `scrape_up`, duration and sample count as data-quality evidence.
-- A scrape failure downweights missing metrics from the same node and period;
-  it does not automatically make that node the root cause.
-- Preserve sanitized scrape errors as text evidence when present.
+- 按“网元 + target + exporter 类型”建立序列。
+- 使用 `scrape_up`、采集耗时和样本数评估数据质量。
+- 采集失败只用于降低同网元同期缺失指标的可信度，不能自动把该网元判为根因。
+- 非空 `scrape_error` 作为经过清洗的文本证据保留。
 
-### 7.5 Traffic-flow metrics
+### 7.5 业务流指标
 
-- Key by series key, flow type, source region, target region, target domain and
-  protocol.
-- Convert cumulative `*_total` counters to per-minute non-negative deltas and
-  mark counter resets instead of treating them as negative traffic.
-- Use derived latency, QPS, success/error/timeout ratios, throughput, loss,
-  retransmission and jitter signals.
-- Attribute source-side evidence to the source region's `traffic-vm`.
-- Add target-region relational evidence to service candidates without claiming
-  an exact service VM unless an explicit mapping is available.
+- 按 series key、流类型、源地域、目标地域、目标域名和协议分组。
+- 将累计 `*_total` 转成非负分钟增量；计数器复位单独标记，不能当成负流量。
+- 使用延迟、QPS、成功率、错误率、超时率、吞吐、丢包、重传和抖动。
+- 源侧证据归于源地域 `traffic-vm`。
+- 目标侧只产生目标地域服务候选的关联证据；没有明确映射时不指定某个 `service-vm`。
 
 ### 7.6 NetFlow
 
-- Stream rows and aggregate by minute, observer node, interface and protocol.
-- Produce packet, byte, flow-record, unique-source, unique-destination,
-  unique-port and TCP/UDP/OSPF share features.
-- Bound cardinality with aggregate counters; raw five-tuples are not stored in
-  memory.
-- Preserve a small deterministic set of dominant endpoints/ports as evidence
-  summaries.
-- NetFlow observer anomalies are evidence at routers, while endpoint changes
-  remain relational symptoms unless the topology supports causality.
+- 流式读取，并按“分钟 + 观测路由器 + 接口 + 协议”聚合。
+- 生成包数、字节数、流记录数、唯一源/目标数、唯一端口数以及 TCP/UDP/OSPF 比例。
+- 通过聚合限制基数，内存中不保留全部原始五元组。
+- 只保留少量、确定性选出的主要端点和端口作为证据摘要。
+- 观测器异常归于对应路由器，端点变化首先作为关联症状，除非拓扑支持其因果性。
 
-### 7.7 FRR syslog
+### 7.7 FRR Syslog
 
-- Parse event time before receive time and normalize hostnames to public router
-  IDs.
-- Aggregate counts by minute, node, severity, program and event family.
-- Recognize general BGP, OSPF, route, interface, command/configuration and
-  process families through reusable patterns, not case-specific messages.
-- Preserve only bounded, sanitized excerpts for model prompts.
-- Empty syslog files are valid and do not fail inference.
+- 优先解析 `event_time`，其次使用接收时间。
+- 将 hostname 归一化成官方路由器 ID。
+- 按分钟、网元、严重程度、程序和事件族聚合。
+- 用通用模式识别 BGP、OSPF、路由、接口、配置/命令和进程事件，不使用 Case 专属消息。
+- 只保留经过清洗且长度受限的日志片段。
+- 空日志文件是合法输入，不能导致推理失败。
 
-## 8. Robust Anomaly Model
+## 8. 鲁棒异常模型
 
-### 8.1 Per-series transformation
+### 8.1 序列预处理
 
-- Sort and deduplicate timestamps per full series key.
-- Convert eligible cumulative counters to minute deltas.
-- Apply `log1p` to non-negative heavy-tailed count/rate features when
-  configured.
-- Retain explicit missing-value masks. Do not replace missing data with zero.
+- 使用完整序列键排序，并去除重复时间点。
+- 需要差分的累计计数器转换为分钟增量。
+- 对配置指定的非负长尾计数或速率使用 `log1p`。
+- 显式保留缺失值，禁止使用 0 填补未知数据。
 
-### 8.2 Baseline
+### 8.2 动态基线
 
-Use a causal rolling window for formal continuous data and a prefix fallback
-for short sample cases:
+正式连续数据使用因果滚动窗口，短样例使用前缀回退：
 
-- default rolling lookback: 60 minutes;
-- minimum history: 4 valid points for short samples and 15 for long runs;
-- center: rolling median;
-- scale: `1.4826 * MAD` with a relative and absolute floor;
-- optional level-shift score from the difference between short and long rolling
-  medians.
+- 默认回看窗口为 60 分钟；
+- 短样例最少需要 4 个历史点，长数据默认至少需要 15 个历史点；
+- 中心位置使用滚动中位数；
+- 尺度使用 `1.4826 × MAD`，并同时设置相对和绝对下限；
+- 可选短期与长期滚动中位数之差作为水平突变分数。
 
-The scale floor is derived from local value magnitude and configured metric
-families. The final score is clipped to a finite maximum.
+尺度下限根据局部数值规模和指标族计算。最终分数统一截断到有限上限。
 
-### 8.3 Evidence threshold
+### 8.3 异常证据阈值
 
-An observation becomes evidence when at least one condition holds:
+满足以下任一条件可形成异常证据：
 
-- robust deviation exceeds the source threshold;
-- a state metric changes to a known degraded state;
-- a level shift persists for the configured number of samples;
-- a sufficiently severe FRR family event occurs.
+- 鲁棒偏离超过该数据源阈值；
+- 状态指标变化到明确的异常状态；
+- 水平突变持续达到配置的最少样本数；
+- 出现足够严重的 FRR 事件。
 
-Single-source evidence can trigger an event when its score and persistence are
-strong. Weaker evidence requires agreement across multiple series or sources.
+强且持续的单源异常可以开启事件；弱异常需要多个序列或多个数据源相互印证。
 
-### 8.4 Minute-level event energy
+### 8.4 分钟级事件能量
 
-For every minute, aggregate capped top-k evidence scores instead of summing all
-points. This prevents high-cardinality NetFlow and routing data from dominating
-node metrics. Source energies are normalized before fusion.
+每分钟只聚合各数据源 Top-K 截断分数，不能直接累加所有异常点，避免高基数 NetFlow 或路由数据压过节点指标。各数据源能量先独立归一化，再做融合。
 
-Use hysteresis:
+事件切分使用迟滞机制：
 
-- a higher threshold opens an event;
-- a lower threshold keeps it open;
-- short internal gaps are bridged;
-- inactive tails close the event;
-- detected boundaries remain on observed timestamps.
+- 较高阈值负责开启事件；
+- 较低阈值负责维持事件；
+- 桥接很短的内部空隙；
+- 连续安静后关闭事件；
+- 起止边界落在真实观测时间戳上。
 
-Events longer than thirty minutes are split at the lowest internal energy.
-Events separated by less than the configured quiet period are merged only when
-the combined duration remains valid and the gap still contains supporting
-evidence. No fixed number of events is assumed.
+超过 30 分钟的事件在内部最低能量处分割。间隔短于安静窗口的两个事件，仅在总时长合法且间隙仍有支持证据时合并。模型不假定固定事件数量。
 
-## 9. Topology-aware Root-cause Model
+## 9. 拓扑感知根因模型
 
-Create one candidate for every valid public network element. Candidate evidence
-contains direct and relational observations separately.
+为每个官方合法网元创建候选，直接证据和关联证据必须分开保存。
 
-Local features include:
+局部特征包括：
 
-- capped anomaly severity;
-- persistence and affected metric-family count;
-- temporal precedence relative to event start and other candidates;
-- number and reliability of independent sources;
-- directness: resource/routing state on the measured device versus remote
-  traffic symptoms;
-- recovery alignment at the event end;
-- scrape-health confidence.
+- 截断后的异常严重度；
+- 持续性和受影响指标族数量；
+- 相对于事件开始和其他候选的时间领先性；
+- 相互独立的数据源数量及可靠性；
+- 直接性：本机资源/路由状态与远端流量症状的区别；
+- 故障结束时的恢复一致性；
+- 采集健康可信度。
 
-Graph features include:
+图特征包括：
 
-- distance to anomalous nodes;
-- number of downstream symptoms explainable by the candidate;
-- upstream position on documented intra-region paths;
-- agreement between flow direction and topology;
-- penalties for symptom-only nodes whose anomaly starts after a stronger
-  upstream candidate.
+- 与异常网元之间的拓扑距离；
+- 候选能够解释的下游异常数量；
+- 在官方区域内路径上的上游位置；
+- 流量方向与拓扑方向的一致性；
+- 对“异常较晚且仅有症状”的候选施加惩罚。
 
-The local fallback score is a normalized weighted fusion loaded from
-`model_v1.json`. It returns five unique valid IDs even when evidence is sparse.
-Candidates without evidence receive a low prior rather than an arbitrary high
-rank.
+本地回退模型使用 `model_v1.json` 中的归一化权重融合特征。即使证据稀疏，也必须输出 5 个合法且不重复的网元；无证据网元只能获得低先验，不能因为字母排序占据高位。
 
-The LLM receives the strongest bounded evidence for a shortlist, the event
-timeline, topology and public taxonomy. It must not receive ground truth,
-prediction examples or candidate ordering as a hidden answer cue.
+LLM 只接收候选短名单的最强证据、事件时间线、拓扑和公开分类表。禁止向它提供 Ground Truth、预测答案示例或利用候选输入顺序暗示答案。
 
-## 10. Closed-set Classification
+## 10. 闭集故障分类
 
-The local classifier compares event features with 28 public fault prototypes.
-Each prototype is a documented vector over general signal families such as:
+本地分类器把事件特征与官方 28 种故障原型比较。原型是以下通用信号族上的向量：
 
-- resource CPU/load, memory/swap, disk I/O, disk space, process count and
-  network pressure;
-- interface throughput, loss, errors and carrier state;
-- BGP, OSPF, route and default-route state;
-- traffic latency, success, error, timeout, throughput and protocol scope;
-- NetFlow volume, disappearance, endpoint and port selectivity;
-- FRR event families;
-- likely root role and affected business type.
+- CPU/负载、内存/Swap、磁盘 I/O、磁盘空间、进程数和网络软中断压力；
+- 接口吞吐、丢包、错误和载波状态；
+- BGP、OSPF、路由及默认路由状态；
+- 业务延迟、成功、错误、超时、吞吐和协议影响范围；
+- NetFlow 流量规模、流量消失、端点和端口选择性；
+- FRR 事件族；
+- 可能的根因角色和受影响业务类型。
 
-Prototype similarity is a fallback development model and an explicit feature
-for the LLM. It contains no case IDs, timestamps or answer mappings. The LLM
-must output exactly one pair present in the public taxonomy. Multiple LLM
-passes may be aggregated deterministically when configured.
+原型相似度是本机开发回退模型，也会作为 LLM 输入特征。原型不得包含 Case ID、故障时刻或答案映射。LLM 的输出必须是公开分类表中的合法组合；配置多轮推理时采用确定性聚合。
 
-## 11. LLM Backends
+## 11. LLM 后端
 
-Define one JSON-generation protocol shared by both backends:
+两个后端共享以下 JSON 生成协议：
 
 ```python
 generate_json(
@@ -402,33 +327,28 @@ generate_json(
 ) -> dict[str, object]
 ```
 
-### 11.1 Local Transformers
+### 11.1 本地 Transformers
 
-- Preserve the existing local path/model-ID behavior.
-- Use deterministic decoding.
-- Select CUDA with `device_map="auto"` so a future checkpoint can use all four
-  RTX 5090 GPUs.
-- Keep CPU/MPS development possible when dependencies and weights permit.
+- 保留本地模型目录和 Hugging Face 模型 ID 两种加载方式。
+- 使用确定性解码。
+- CUDA 环境使用 `device_map="auto"`，使未来模型可以利用 4 张 RTX 5090。
+- 依赖和权重允许时保留 CPU/MPS 开发能力。
 
 ### 11.2 OpenAI-compatible API
 
-- Configure base URL, model name and API-key environment-variable name through
-  CLI/config, never source code.
-- Support vLLM's OpenAI-compatible chat-completions endpoint.
-- Send no data until the user explicitly configures and invokes this backend.
-- Apply timeout, retry and JSON validation.
-- Avoid logging credentials or full raw network records.
+- Base URL、模型名和 API Key 环境变量名通过 CLI 或配置传入，不能写在源码中。
+- 兼容 vLLM 的 OpenAI Chat Completions 接口。
+- 只有用户显式配置并调用该后端时才发送数据。
+- 提供超时、重试和 JSON 结构验证。
+- 日志不能记录凭证或完整原始网络流。
 
-### 11.3 Development fallback
+### 11.3 本机开发回退
 
-`--decision-backend local` uses the topology fusion and prototype models. It is
-for tests, feature development and reproducibility checks. Submission runs
-should use `--decision-backend transformers` or `api` unless the team has
-separately validated that the local statistical model satisfies review rules.
+`--decision-backend local` 使用拓扑融合模型和原型分类器，服务于测试、特征开发和可复现检查。正式提交应使用 `--decision-backend transformers` 或 `api`，除非团队另行证明本地统计路径符合模型审核要求。
 
-## 12. Orchestration and CLI
+## 12. 编排和命令行
 
-Keep the existing invocation compatible while adding explicit options:
+保留现有用法，同时增加显式参数：
 
 ```text
 --detector robust|five-sigma
@@ -441,122 +361,95 @@ Keep the existing invocation compatible while adding explicit options:
 --max-events INTEGER
 ```
 
-Legacy `--use-llm` maps to the Transformers backend with a deprecation warning.
+旧参数 `--use-llm` 映射到 Transformers 后端并输出弃用提示。
 
-The pipeline writes prediction JSONL only after schema validation. Inference
-logs contain event energies, selected boundaries, source counts, candidate
-feature components, model backend, category scores and sanitized failure
-details. Logs never contain API keys or full NetFlow rows.
+流水线只有在通过官方 Schema 校验后才写预测 JSONL。推理日志记录事件能量、边界、数据源计数、候选特征分量、模型后端、分类分数和经过清洗的失败信息。日志禁止包含 API Key 或完整 NetFlow 行。
 
-## 13. Failure Handling
+## 13. 异常处理
 
-- Missing observation families produce a warning and source-coverage metadata,
-  not a crash.
-- Malformed rows are counted and skipped with path and line statistics.
-- Non-finite numeric values are ignored.
-- Unknown cities/nodes remain relational evidence and cannot create an invalid
-  output ID.
-- A failed optional LLM call fails closed by default. An explicit configuration
-  may permit the local model fallback and records that decision in the log.
-- Invalid model JSON is retried within the configured bound and then rejected.
-- Output is atomically assembled and schema-validated before replacing the
-  requested destination.
+- 缺少某类数据时记录警告和覆盖率，而不是直接失败。
+- 畸形行按路径和行号统计后跳过。
+- 非有限数值直接忽略。
+- 未知地域或网元只能保留为关联证据，不能产生非法输出 ID。
+- LLM 调用失败默认封闭失败；只有显式配置才允许回退本地模型，并在日志中记录。
+- 无效模型 JSON 在限定次数内重试，仍无效则拒绝。
+- 预测先在内存中组装并通过 Schema 验证，再原子替换目标文件。
 
-## 14. Performance Requirements
+## 14. 性能要求
 
-- NetFlow and syslog parsers operate incrementally.
-- No raw five-tuple corpus is retained after aggregation.
-- Series storage is bounded by aggregated minute keys and configured evidence
-  limits.
-- The three public sample cases must run on the current Mac without installing
-  Torch when the local decision backend is selected.
-- Formal fourteen-day input must not require loading every CSV row
-  simultaneously.
-- LLM payloads are compact and capped by candidate/evidence limits.
+- NetFlow 和 Syslog 采用增量解析。
+- 聚合完成后不保留原始五元组全集。
+- 序列内存由分钟聚合键和证据数量上限约束。
+- 本机选择 local 后端时，三个公开样例无需安装 Torch 即可运行。
+- 正式 14 天数据不能要求一次性加载全部 CSV 行。
+- LLM 输入由候选数和证据数上限严格控制。
 
-## 15. Testing Strategy
+## 15. 测试策略
 
-All production changes follow red-green-refactor.
+所有生产改动遵循红—绿—重构。
 
-Unit tests cover:
+单元测试覆盖：
 
-- public node-ID normalization;
-- all seven source parsers;
-- interface and routing dimension separation;
-- counter delta and reset handling;
-- bounded NetFlow aggregation;
-- empty and non-empty FRR logs;
-- robust score behavior with zero variance and missing values;
-- event hysteresis, splitting and quiet-gap handling;
-- candidate uniqueness and valid public IDs;
-- topology/temporal feature effects;
-- all taxonomy outputs and prototype selection;
-- API request construction with an injected local HTTP test server;
-- credential redaction and model-output validation.
+- 官方网元 ID 归一化；
+- 七类数据解析器；
+- 接口和路由维度隔离；
+- 累计计数差分及复位；
+- 有界 NetFlow 聚合；
+- 空和非空 FRR 日志；
+- 零方差、缺失值下的有限鲁棒分数；
+- 事件迟滞、分割和安静间隔；
+- 候选唯一性与合法 ID；
+- 拓扑和时间特征对排序的影响；
+- 28 种分类输出与原型选择；
+- 使用测试 HTTP 服务验证 API 请求协议；
+- 凭证脱敏和模型输出验证。
 
-Integration tests cover:
+集成测试覆盖：
 
-- each public sample case produces exactly one structurally valid prediction;
-- the detector reads every available source family and reports its coverage;
-- sample inference does not read `ground_truth.jsonl`;
-- local development inference is deterministic;
-- the official evaluator accepts generated prediction JSONL;
-- a synthetic multi-event dataset produces distinct intervals without
-  duplicate Top5 IDs.
+- 每个公开样例输出恰好一个结构合法的预测；
+- 检测器读取全部可用数据源并报告覆盖率；
+- 样例推理不会读取 `ground_truth.jsonl`；
+- 本地开发推理结果确定；
+- 官方 evaluator 接受生成的预测 JSONL；
+- 合成多事件数据能够产生独立区间且 Top5 不重复。
 
-Ground truth is used only in an explicit evaluation test after predictions are
-generated. No production module imports or opens it.
+Ground Truth 只允许在预测生成完成后的独立评测测试中使用，生产模块不得导入或打开它。
 
-## 16. Acceptance Criteria
+## 16. 第一版验收标准
 
-Version 1 is accepted when:
+满足以下条件才算第一版完成：
 
-1. Tests demonstrate successful parsing and non-zero modeled features for every
-   non-empty observation family.
-2. FRR syslog is covered by a synthetic non-empty fixture and public empty
-   files remain valid.
-3. No series key mixes interfaces, routing metric names, peers or traffic-flow
-   identities.
-4. All anomaly scores are finite and bounded.
-5. All three public samples complete in local mode and produce schema-valid
-   JSONL.
-6. The official evaluator runs successfully against the generated sample
-   predictions and a report is recorded without using labels during inference.
-7. The inference log proves source coverage, event boundaries and candidate
-   score components.
-8. The API backend contract is tested without requiring a real external API.
-9. Existing baseline compatibility and evaluator tests remain green.
-10. Git diff contains no sample-answer mapping, model secret or generated large
-    artifact.
+1. 测试证明所有非空数据源均成功解析并产生非零模型特征。
+2. 用合成非空 FRR fixture 覆盖日志处理，公开样例空日志保持合法。
+3. 序列键不混合接口、路由指标名、Peer 或业务流身份。
+4. 所有异常分数有限且有上限。
+5. 三个公开样例均能在 local 模式完成并输出 Schema 合法 JSONL。
+6. 官方 evaluator 能对样例预测完成评测，且推理阶段不使用标签。
+7. 推理日志能证明数据源覆盖、事件边界和候选评分分量。
+8. API 后端契约无需真实外部 API 即可测试。
+9. 官方已有测试和兼容流程保持通过。
+10. Git Diff 中不存在样例答案映射、模型密钥或生成的大文件。
 
-Sample score is reported as evidence, not asserted as hidden-test performance.
+公开样例得分只作为验证证据，不能宣称代表隐藏测试集性能。
 
-## 17. Migration to Temporal Transformer/GNN
+## 17. 迁移到时序 Transformer/GNN
 
-The later learned model replaces decision layers, not ingestion:
+后续端到端模型替换的是决策层，不是数据接入层：
 
-1. Materialize canonical observations as node/edge tensors with masks.
-2. Pretrain a temporal encoder on the fourteen-day unlabeled series using
-   masked reconstruction or forecasting.
-3. Use the version-1 detector and LLM outputs as auditable pseudo-labels only
-   after manual leakage review.
-4. Replace robust anomaly scoring with a temporal anomaly head.
-5. Replace graph-fusion weights with a GNN root-cause head.
-6. Add a closed-set category head and retain the LLM as optional reranker or
-   explanation layer.
+1. 把统一观测物化为带掩码的节点和边张量。
+2. 使用掩码重建或预测任务，在 14 天无标签序列上预训练时序编码器。
+3. 经泄漏审查后，才可将第一版检测器和 LLM 输出作为可审计伪标签。
+4. 用时序异常 Head 替换鲁棒异常评分。
+5. 用 GNN 根因 Head 替换图融合权重。
+6. 增加闭集分类 Head，LLM 继续作为可选重排器或解释层。
 
-Because raw observations, dimension keys, topology edges and output contracts
-remain stable, this migration does not require rewriting the seven source
-parsers or evaluator integration.
+由于原始观测、维度键、拓扑边和输出协议保持稳定，迁移时无需重写七类解析器和评测接口。
 
-## 18. Compliance Notes
+## 18. 合规说明
 
-- Public sample labels are never embedded in production configuration.
-- Ground truth is excluded from the inference data root by contract and tested.
-- Public taxonomy, topology and general fault signatures are documented model
-  inputs permitted by the rules.
-- API credentials come only from environment variables and are redacted.
-- Inference mode, config digest, model identifier and source coverage are logged
-  for reproducibility.
-- The technical report must distinguish the local prototype fallback from the
-  competition LLM-assisted hybrid path.
+- 生产配置不包含公开样例标签。
+- 推理数据根目录按契约排除 Ground Truth，并用测试验证。
+- 公开分类表、拓扑和通用故障特征属于规则允许的模型输入。
+- API 凭证只从环境变量读取，并在日志中脱敏。
+- 推理模式、配置摘要、模型标识和数据源覆盖率写入日志，保证可复现。
+- 技术报告必须明确区分本地原型回退路径和正式 LLM 混合路径。
