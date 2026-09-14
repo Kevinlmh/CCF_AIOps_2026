@@ -8,7 +8,7 @@
 
 **Tech Stack:** Git、GitHub HTTPS、Python unittest、官方 evaluator。
 
-**Spec:** `docs/superpowers/specs/2026-09-14-repository-organization-design.md`
+**Spec:** `docs/design/repository-organization-design.md`
 
 ## Global Constraints
 

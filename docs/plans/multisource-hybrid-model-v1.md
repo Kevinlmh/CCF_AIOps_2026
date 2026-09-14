@@ -8,7 +8,7 @@
 
 **技术栈：** Python 3.10+ 标准库、`dataclasses`、`csv`、`statistics`、`urllib`、`unittest`；可选 `torch>=2.1`、`transformers>=4.40`、`accelerate`。
 
-**设计文档：** `docs/superpowers/specs/2026-09-13-multisource-hybrid-model-design.md`
+**设计文档：** `docs/design/multisource-hybrid-model-design.md`
 
 ## 全局约束
 

@@ -16,8 +16,9 @@
 
 详细设计和实施计划见：
 
-- `docs/superpowers/specs/2026-09-13-multisource-hybrid-model-design.md`
-- `docs/superpowers/plans/2026-09-13-multisource-hybrid-model-v1.md`
+- `docs/requirements/AIOPS_OnePage.md`
+- `docs/design/multisource-hybrid-model-design.md`
+- `docs/plans/multisource-hybrid-model-v1.md`
 
 ## 安装
 
@@ -123,6 +124,7 @@ examples/              预测结果示例
 sample/                公开样例数据及参考答案
 tools/                 Baseline 运行工具
 tests/                 单元测试与公开样例回归测试
+artifacts/             可复现的代表性预测与评测报告
 ```
 
 ## 开发验证
