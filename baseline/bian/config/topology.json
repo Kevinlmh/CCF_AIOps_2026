@@ -37,6 +37,7 @@
   "model": {
     "max_input_tokens": 8192,
     "batch_size": 4,
+    "llm_candidate_limit": 12,
     "device_max_new_tokens": 1024,
     "stage1_max_new_tokens": 512,
     "stage2_max_new_tokens": 2048,

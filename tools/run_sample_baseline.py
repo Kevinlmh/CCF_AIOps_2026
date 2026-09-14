@@ -74,6 +74,10 @@ def main() -> int:
     parser.add_argument("--config-path", type=Path)
     parser.add_argument("--inference-log", type=Path)
     parser.add_argument(
+        "--ingestion-mode", choices=("auto", "memory", "streaming"), default="auto"
+    )
+    parser.add_argument("--disable-spatial-split", action="store_true")
+    parser.add_argument(
         "--model", default="deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
     )
     args = parser.parse_args()
@@ -98,7 +102,11 @@ def main() -> int:
                 args.decision_backend,
                 "--api-key-env",
                 args.api_key_env,
+                "--ingestion-mode",
+                args.ingestion_mode,
             ]
+            if args.disable_spatial_split:
+                command.append("--disable-spatial-split")
             case_log = run_dir / f"{case_name}.inference.json"
             if args.inference_log:
                 command.extend(["--inference-log", str(case_log)])

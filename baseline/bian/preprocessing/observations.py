@@ -172,7 +172,13 @@ class DetectedEvent:
 class ParseStats:
     files_by_source: dict[str, int] = field(default_factory=dict)
     rows_by_source: dict[str, int] = field(default_factory=dict)
+    valid_rows_by_source: dict[str, int] = field(default_factory=dict)
+    filtered_rows_by_source: dict[str, int] = field(default_factory=dict)
     bad_rows_by_source: dict[str, int] = field(default_factory=dict)
+    emitted_by_source: dict[str, int] = field(default_factory=dict)
+    unknown_nodes_by_source: dict[str, int] = field(default_factory=dict)
+    first_timestamp_by_source: dict[str, datetime] = field(default_factory=dict)
+    last_timestamp_by_source: dict[str, datetime] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
     @staticmethod
@@ -185,8 +191,37 @@ class ParseStats:
     def record_row(self, source: str) -> None:
         self._increment(self.rows_by_source, source)
 
+    def record_valid_row(self, source: str) -> None:
+        self._increment(self.valid_rows_by_source, source)
+
+    def record_filtered_row(self, source: str) -> None:
+        self._increment(self.filtered_rows_by_source, source)
+
     def record_bad_row(self, source: str) -> None:
         self._increment(self.bad_rows_by_source, source)
+
+    def record_emitted(self, source: str, count: int = 1) -> None:
+        if count < 0:
+            raise ValueError("emitted count cannot be negative")
+        self.emitted_by_source[source] = self.emitted_by_source.get(source, 0) + count
+
+    def record_unknown_node(self, source: str) -> None:
+        self._increment(self.unknown_nodes_by_source, source)
+
+    def record_timestamp(self, source: str, timestamp: datetime) -> None:
+        first = self.first_timestamp_by_source.get(source)
+        last = self.last_timestamp_by_source.get(source)
+        if first is None or timestamp < first:
+            self.first_timestamp_by_source[source] = timestamp
+        if last is None or timestamp > last:
+            self.last_timestamp_by_source[source] = timestamp
+
+    def rows_conserved(self, source: str) -> bool:
+        return self.rows_by_source.get(source, 0) == (
+            self.valid_rows_by_source.get(source, 0)
+            + self.filtered_rows_by_source.get(source, 0)
+            + self.bad_rows_by_source.get(source, 0)
+        )
 
     def warn(self, message: str) -> None:
         self.warnings.append(message)

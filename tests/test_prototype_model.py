@@ -78,6 +78,27 @@ def ranking(role: str = "service-vm-1") -> RankingResult:
 
 
 class PrototypeModelTests(unittest.TestCase):
+    def test_configured_conflict_signals_penalize_an_incompatible_fault(self):
+        taxonomy = {
+            "fault_categories": [
+                {"fault_name": "fault_a", "major_category": "a", "sub_category": "a1"},
+                {"fault_name": "fault_b", "major_category": "b", "sub_category": "b1"},
+            ]
+        }
+        config = {
+            "role_prior_weight": 0.0,
+            "conflict_weight": 1.0,
+            "prototypes": {
+                "fault_a": {"cpu": 1.0},
+                "fault_b": {"cpu": 0.9, "role_service": 0.4},
+            },
+            "conflicts": {"fault_a": {"cpu": 1.0}},
+        }
+
+        result = classify_event(event(point("node.cpu_usage")), ranking(), taxonomy, config)
+
+        self.assertEqual(result.category, {"major_category": "b", "sub_category": "b1"})
+
     def test_cpu_and_load_classify_as_resource_cpu_pressure(self):
         result = classify_event(
             event(point("node.cpu_usage"), point("node.load1")),

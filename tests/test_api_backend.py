@@ -7,8 +7,8 @@ from pathlib import Path
 import threading
 import unittest
 
-from baseline.bian.models.api_backend import ApiBackend, ApiConfig
-from baseline.bian.models.backend import model_load_options
+from baseline.bian.models.api_backend import ApiBackend, ApiConfig, resolve_api_base
+from baseline.bian.models.backend import ModelConfig, model_load_options
 
 
 PROMPTS = Path(__file__).parents[1] / "baseline/bian/prompts"
@@ -127,6 +127,29 @@ class ApiBackendTests(unittest.TestCase):
     def test_multi_gpu_load_options_use_automatic_device_map(self):
         self.assertEqual(model_load_options(cuda_available=True), {"device_map": "auto"})
         self.assertEqual(model_load_options(cuda_available=False), {})
+
+    def test_api_base_can_come_from_server_environment(self):
+        os.environ["AIOPS_LLM_API_BASE"] = "http://server.example/v1/"
+        try:
+            self.assertEqual(resolve_api_base(None), "http://server.example/v1")
+            self.assertEqual(
+                resolve_api_base("http://explicit.example/v1/"),
+                "http://explicit.example/v1",
+            )
+        finally:
+            os.environ.pop("AIOPS_LLM_API_BASE", None)
+
+    def test_local_model_config_ignores_orchestration_only_fields(self):
+        config = ModelConfig.from_mapping(
+            {
+                "batch_size": 4,
+                "max_input_tokens": 4096,
+                "llm_candidate_limit": 12,
+            }
+        )
+
+        self.assertEqual(config.batch_size, 4)
+        self.assertEqual(config.max_input_tokens, 4096)
 
 
 if __name__ == "__main__":

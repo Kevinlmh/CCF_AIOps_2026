@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from .structured_output import parse_and_validate
 
@@ -20,6 +20,17 @@ class ModelConfig:
     classification_max_new_tokens: int = 192
     retries: int = 1
     seed: int = 42
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any]) -> "ModelConfig":
+        """Separate model-loading options from pipeline orchestration options."""
+        model_fields = set(cls.__dataclass_fields__)
+        orchestration_fields = {"llm_candidate_limit"}
+        unknown = set(value) - model_fields - orchestration_fields
+        if unknown:
+            names = ", ".join(sorted(unknown))
+            raise ValueError(f"unknown local model configuration fields: {names}")
+        return cls(**{key: value[key] for key in model_fields if key in value})
 
 
 EXPECTED_KEYS = {

@@ -5,6 +5,7 @@ import math
 import unittest
 
 from baseline.bian.anomaly_detector.robust_detector import (
+    _text_evidence,
     detect_events,
     robust_score,
     segment_evidence,
@@ -14,6 +15,7 @@ from baseline.bian.preprocessing.observations import (
     AnomalyEvidence,
     NumericObservation,
     ParseStats,
+    TextEvent,
 )
 
 
@@ -99,6 +101,37 @@ class RobustScoreTests(unittest.TestCase):
 
         self.assertEqual(baseline, 1.0)
         self.assertEqual(score, 25.0)
+
+
+class TextEvidenceTests(unittest.TestCase):
+    def test_configured_frr_noise_is_suppressed_but_fault_log_is_retained(self):
+        events = (
+            TextEvent(
+                timestamp=BASE,
+                source="frr",
+                node_id="xian-br-1",
+                severity="err",
+                program="ospf6d",
+                event_family="ospf",
+                message="sendmsg failed: Operation not permitted",
+            ),
+            TextEvent(
+                timestamp=BASE + timedelta(minutes=1),
+                source="frr",
+                node_id="xian-br-1",
+                severity="err",
+                program="bgpd",
+                event_family="bgp",
+                message="BGP peer went Down",
+            ),
+        )
+        bundle = ObservationBundle((), events, ParseStats(), {"frr": 2})
+        config = {**CONFIG, "frr_noise_patterns": ["sendmsg failed", "operation not permitted"]}
+
+        result = _text_evidence(bundle, config)
+
+        self.assertEqual(len(result), 1)
+        self.assertIn("BGP peer", result[0].summary)
 
 
 class EventSegmentationTests(unittest.TestCase):

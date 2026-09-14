@@ -7,12 +7,12 @@ GitHub 仓库：`https://github.com/Kevinlmh/CCF_AIOps_2026`
 分支说明：
 
 - `official-baseline`：官方 Gitee Baseline 的原始快照；
-- `hybrid-v1`：第一版多源混合模型；
-- `main`：当前稳定版本，与 `hybrid-v1` 保持一致。
+- `hybrid-v1`：多源混合模型开发分支，当前 v1.1 修改位于此分支工作区；
+- `main`：已发布的稳定分支，v1.1 完成团队复核后再合并。
 
 远端 `upstream` 指向官方 Gitee，`origin` 指向本项目 GitHub。
 
-## 第一版多源混合模型
+## 多源混合模型 v1.1
 
 当前分支已在原始 BiAn Baseline 上加入可直接运行的第一版混合模型：
 
@@ -22,6 +22,8 @@ GitHub 仓库：`https://github.com/Kevinlmh/CCF_AIOps_2026`
 4. 用覆盖官方 28 类故障的闭集原型模型完成本地分类；
 5. 可选用本地 Transformers 或 OpenAI-compatible API 对候选进行模型复核。
 
+v1.1 进一步支持正式 `*_data/` 目录、严格八城市七来源清单、受控内存流式检测、Counter/State 指标语义、FRR 去噪、并发城市事件拆分、事件缓存和 API 并行推理。正式数据自动选择 `streaming`；公开样例继续使用内存模式保持回归稳定。
+
 `local` 后端适合本机开发和快速回归。正式提交建议启用 LLM 混合路径，从而让模型在统计证据和图特征基础上完成最终复核，而不是把纯规则脚本作为最终方案。
 
 详细设计和实施计划见：
@@ -29,6 +31,10 @@ GitHub 仓库：`https://github.com/Kevinlmh/CCF_AIOps_2026`
 - `docs/requirements/AIOPS_OnePage.md`
 - `docs/design/multisource-hybrid-model-design.md`
 - `docs/plans/multisource-hybrid-model-v1.md`
+- `docs/superpowers/specs/2026-09-14-multisource-v1-1-design.md`
+- `docs/superpowers/plans/2026-09-14-multisource-v1-1.md`
+- `docs/data/model-data-coordination.md`
+- `docs/deployment/server-inference.md`
 
 ## 安装
 
@@ -71,6 +77,19 @@ python baseline/bian/run.py \
 
 默认参数是 `--detector robust --decision-backend local`。旧的检测器仍可用 `--detector five-sigma` 回归验证。
 
+正式第一批数据建议先运行纯本地流式阶段：
+
+```bash
+python baseline/bian/run.py \
+  --data-root data/stage1/regions \
+  --scratch-dir data/stage1/scratch \
+  --event-cache outputs/stage1_events_v1_1.json \
+  --output outputs/stage1_local_predictions.jsonl \
+  --inference-log outputs/stage1_local_inference.json
+```
+
+正式目录默认严格检查八城市七来源；单城市调试需显式使用 `--allow-partial-input`。服务器与事件缓存用法见 `docs/deployment/server-inference.md`，数据协作要求见 `docs/data/model-data-coordination.md`。
+
 ### 四卡本地 Transformers 后端
 
 本仓库提供基于 BiAn 方法实现的参考 Baseline。BiAn 方法来源于论文 [Towards LLM-Based Failure Localization in Production-Scale Networks](https://doi.org/10.1145/3718958.3750505)。
@@ -96,10 +115,10 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python baseline/bian/run.py \
 
 ```bash
 export AIOPS_LLM_API_KEY='<YOUR_KEY>'
+export AIOPS_LLM_API_BASE='https://example.com/v1'
 python baseline/bian/run.py \
   --data-root <DATA_ROOT> \
   --decision-backend api \
-  --api-base https://example.com/v1 \
   --api-key-env AIOPS_LLM_API_KEY \
   --model <API_MODEL_NAME> \
   --output outputs/predictions.jsonl

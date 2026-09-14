@@ -113,16 +113,49 @@ def _source_for_file(path: Path) -> str | None:
 
 
 def iter_source_files(root: Path) -> Iterator[tuple[str, Path]]:
-    """Yield recognized processed CSV files in deterministic source/path order."""
+    """Yield official CSV files from sample and formal directory layouts."""
     found: list[tuple[str, Path]] = []
     for path in root.rglob("*.csv"):
-        if path.parent.name != "processed":
+        parent = path.parent.name.lower()
+        if parent != "processed" and not parent.endswith("_data"):
             continue
         source = _source_for_file(path)
         if source is not None:
             found.append((source, path))
     order = {source: index for index, source in enumerate(SOURCE_ORDER)}
     yield from sorted(found, key=lambda item: (order[item[0]], item[1].as_posix()))
+
+
+def validate_source_inventory(
+    root: Path,
+    aliases: dict[str, str],
+    *,
+    expected_cities: Iterable[str],
+    expected_sources: Iterable[str] = SOURCE_ORDER,
+) -> dict[str, dict[str, Path]]:
+    """Return a complete city/source inventory or raise on gaps/duplicates."""
+    cities = tuple(expected_cities)
+    sources = tuple(expected_sources)
+    inventory: dict[str, dict[str, Path]] = {city: {} for city in cities}
+    for source, path in iter_source_files(root):
+        city = city_from_path(path, aliases)
+        if city not in inventory or source not in sources:
+            continue
+        if source in inventory[city]:
+            raise ValueError(
+                f"duplicate input for city={city} source={source}: "
+                f"{inventory[city][source]} and {path}"
+            )
+        inventory[city][source] = path
+    missing = [
+        f"{city}/{source}"
+        for city in cities
+        for source in sources
+        if source not in inventory[city]
+    ]
+    if missing:
+        raise ValueError("missing required input: " + ", ".join(missing))
+    return inventory
 
 
 def _number(value: str | None) -> float | None:
@@ -147,7 +180,10 @@ def _dimensions(**values: str | None) -> tuple[tuple[str, str], ...]:
     return tuple(
         (key, value.strip())
         for key, value in values.items()
-        if value is not None and value.strip() and value.strip().lower() not in {"null", "none"}
+        if value is not None
+        and value.strip()
+        and value.strip() not in NULL_VALUES
+        and value.strip().lower() not in NULL_VALUES
     )
 
 
@@ -185,6 +221,44 @@ def _direction(source: str, metric: str) -> str:
     return "both"
 
 
+def _validate_header(source: str, fields: tuple[str, ...], path: Path) -> None:
+    available = set(fields)
+    requirements = {
+        "node": ({"timestamp", "node"},),
+        "interface": ({"timestamp", "node", "interface_id"},),
+        "routing": ({"timestamp", "node", "metric_name", "value"},),
+        "scrape": ({"timestamp", "node", "scrape_up"},),
+        "traffic": ({"timestamp_utc", "flow_type", "source_region", "target_region"},),
+        "netflow": ({"minute_utc", "packets", "bytes"},),
+        "frr": ({"event_time", "message"},),
+    }
+    missing = sorted(requirements[source][0] - available)
+    if source == "netflow" and not ({"node", "node_key"} & available):
+        missing.append("node|node_key")
+    if missing:
+        raise ValueError(f"{source}: missing required fields {missing} in {path}")
+    if source in {"node", "interface"} and not any(
+        field not in IDENTITY_FIELDS for field in fields
+    ):
+        raise ValueError(f"{source}: missing numeric metric fields in {path}")
+    if source == "traffic" and not any("_flow_" in field for field in fields):
+        raise ValueError(f"traffic: missing flow metric fields in {path}")
+
+
+def validate_source_file_header(path: Path, source: str) -> tuple[str, ...]:
+    """Read and validate only the CSV header, without scanning the data body."""
+    try:
+        with path.open(newline="", encoding="utf-8-sig", errors="replace") as handle:
+            reader = csv.reader(handle)
+            fields = tuple(next(reader, ()))
+    except OSError as exc:
+        raise ValueError(f"{source}: cannot open {path}: {type(exc).__name__}") from exc
+    if not fields:
+        raise ValueError(f"{source}: missing header in {path}")
+    _validate_header(source, fields, path)
+    return fields
+
+
 def _read_rows(path: Path, source: str, stats: ParseStats) -> Iterator[tuple[int, dict[str, str]]]:
     try:
         handle = path.open(newline="", encoding="utf-8-sig", errors="replace")
@@ -194,8 +268,8 @@ def _read_rows(path: Path, source: str, stats: ParseStats) -> Iterator[tuple[int
     with handle:
         reader = csv.DictReader(handle)
         if reader.fieldnames is None:
-            stats.warn(f"{source}: missing header in {path}")
-            return
+            raise ValueError(f"{source}: missing header in {path}")
+        _validate_header(source, tuple(reader.fieldnames), path)
         for line_number, row in enumerate(reader, 2):
             stats.record_row(source)
             yield line_number, row
@@ -209,26 +283,28 @@ def _node_for_row(
     return normalize_node_id(row.get("node") or row.get("node_key"), city, valid_roles)
 
 
-def _parse_dense_file(
+def _iter_dense_file(
     path: Path,
     source: str,
     city: str | None,
     valid_roles: tuple[str, ...],
     stats: ParseStats,
-) -> tuple[list[NumericObservation], list[TextEvent]]:
-    numeric: list[NumericObservation] = []
-    text: list[TextEvent] = []
+) -> Iterator[NumericObservation | TextEvent]:
     for _, row in _read_rows(path, source, stats):
         timestamp = _row_time(row, source)
         node_id = _node_for_row(row, city, valid_roles)
         if timestamp is None:
             stats.record_bad_row(source)
             continue
+        stats.record_timestamp(source, timestamp)
         if node_id is None:
             # Public samples can contain explicitly excluded observation-only
             # roles such as probe-vm. They are valid rows, but cannot become a
             # root-cause candidate under the published element enumeration.
+            stats.record_filtered_row(source)
+            stats.record_unknown_node(source)
             continue
+        stats.record_valid_row(source)
 
         if source == "interface":
             dimensions = _dimensions(
@@ -248,17 +324,15 @@ def _parse_dense_file(
             metric_name = (row.get("metric_name") or "value").strip().lower()
             value = _number(row.get("value"))
             if value is not None:
-                numeric.append(
-                    NumericObservation(
-                        timestamp=timestamp,
-                        source=source,
-                        node_id=node_id,
-                        related_node_ids=(),
-                        metric=f"routing.{metric_name}",
-                        value=value,
-                        dimensions=_label_dimensions(row.get("label")),
-                        direction=_direction(source, metric_name),
-                    )
+                yield NumericObservation(
+                    timestamp=timestamp,
+                    source=source,
+                    node_id=node_id,
+                    related_node_ids=(),
+                    metric=f"routing.{metric_name}",
+                    value=value,
+                    dimensions=_label_dimensions(row.get("label")),
+                    direction=_direction(source, metric_name),
                 )
                 emitted += 1
         else:
@@ -269,36 +343,50 @@ def _parse_dense_file(
                 if value is None:
                     continue
                 metric = f"{source}.{field_name}"
-                numeric.append(
-                    NumericObservation(
-                        timestamp=timestamp,
-                        source=source,
-                        node_id=node_id,
-                        related_node_ids=(),
-                        metric=metric,
-                        value=value,
-                        dimensions=dimensions,
-                        direction=_direction(source, metric),
-                    )
+                yield NumericObservation(
+                    timestamp=timestamp,
+                    source=source,
+                    node_id=node_id,
+                    related_node_ids=(),
+                    metric=metric,
+                    value=value,
+                    dimensions=dimensions,
+                    direction=_direction(source, metric),
                 )
                 emitted += 1
 
         if source == "scrape":
             error = (row.get("scrape_error") or "").strip()
             if error and error.lower() not in {"null", "none"} and error != "\\N":
-                text.append(
-                    TextEvent(
-                        timestamp=timestamp,
-                        source="scrape",
-                        node_id=node_id,
-                        severity="error",
-                        program=(row.get("exporter_type") or "exporter").strip(),
-                        event_family="scrape_error",
-                        message=error,
-                    )
+                yield TextEvent(
+                    timestamp=timestamp,
+                    source="scrape",
+                    node_id=node_id,
+                    severity="error",
+                    program=(row.get("exporter_type") or "exporter").strip(),
+                    event_family="scrape_error",
+                    message=error,
                 )
+                emitted += 1
+        stats.record_emitted(source, emitted)
         # A long-form metric can legitimately be absent for one node/minute.
         # It is missing evidence, not a malformed CSV row.
+
+
+def _parse_dense_file(
+    path: Path,
+    source: str,
+    city: str | None,
+    valid_roles: tuple[str, ...],
+    stats: ParseStats,
+) -> tuple[list[NumericObservation], list[TextEvent]]:
+    numeric: list[NumericObservation] = []
+    text: list[TextEvent] = []
+    for item in _iter_dense_file(path, source, city, valid_roles, stats):
+        if isinstance(item, NumericObservation):
+            numeric.append(item)
+        else:
+            text.append(item)
     return numeric, text
 
 
@@ -334,13 +422,12 @@ def _is_counter(suffix: str) -> bool:
     return suffix.endswith(("_total", "_sum", "_count")) or "_bucket_le_" in suffix
 
 
-def _parse_traffic_file(
+def _iter_traffic_file(
     path: Path,
     valid_roles: tuple[str, ...],
     stats: ParseStats,
-) -> list[NumericObservation]:
-    observations: list[NumericObservation] = []
-    previous: dict[tuple[str, str], float] = {}
+) -> Iterator[NumericObservation]:
+    previous: dict[tuple[str, str], tuple[datetime, float]] = {}
     for _, row in _read_rows(path, "traffic", stats):
         timestamp = _row_time(row, "traffic")
         flow_type = (row.get("flow_type") or "").strip().lower()
@@ -349,10 +436,13 @@ def _parse_traffic_file(
         if timestamp is None or not flow_type or not source_city or not target_city:
             stats.record_bad_row("traffic")
             continue
+        stats.record_timestamp("traffic", timestamp)
         source_node = normalize_node_id("traffic-vm", source_city, valid_roles)
         if source_node is None:
-            stats.record_bad_row("traffic")
+            stats.record_filtered_row("traffic")
+            stats.record_unknown_node("traffic")
             continue
+        stats.record_valid_row("traffic")
         related = _traffic_related_nodes(target_city, valid_roles)
         dimensions = _traffic_dimensions(row)
         prefix = f"{flow_type}_flow_"
@@ -370,14 +460,19 @@ def _parse_traffic_file(
             if _is_counter(suffix):
                 state_key = (identity, field_name)
                 old = previous.get(state_key)
-                previous[state_key] = value
+                previous[state_key] = (timestamp, value)
                 if old is None:
                     continue
-                if value < old:
+                old_time, old_value = old
+                elapsed_minutes = (timestamp - old_time).total_seconds() / 60.0
+                if elapsed_minutes <= 0:
+                    continue
+                if value < old_value:
                     delta = value
                     reset_detected = True
                 else:
-                    delta = value - old
+                    delta = value - old_value
+                delta /= elapsed_minutes
                 metric_suffix = _counter_metric_name(suffix)
                 row_deltas[metric_suffix] = delta
                 metric = f"traffic.{flow_type}.{metric_suffix}"
@@ -385,17 +480,15 @@ def _parse_traffic_file(
             else:
                 metric = f"traffic.{flow_type}.{suffix}"
                 metric_value = value
-            observations.append(
-                NumericObservation(
-                    timestamp=timestamp,
-                    source="traffic",
-                    node_id=source_node,
-                    related_node_ids=related,
-                    metric=metric,
-                    value=metric_value,
-                    dimensions=dimensions,
-                    direction=_direction("traffic", metric),
-                )
+            yield NumericObservation(
+                timestamp=timestamp,
+                source="traffic",
+                node_id=source_node,
+                related_node_ids=related,
+                metric=metric,
+                value=metric_value,
+                dimensions=dimensions,
+                direction=_direction("traffic", metric),
             )
             emitted += 1
 
@@ -408,48 +501,64 @@ def _parse_traffic_file(
                 if numerator_name not in row_deltas:
                     continue
                 metric = f"traffic.{flow_type}.{ratio_name}"
-                observations.append(
-                    NumericObservation(
-                        timestamp=timestamp,
-                        source="traffic",
-                        node_id=source_node,
-                        related_node_ids=related,
-                        metric=metric,
-                        value=row_deltas[numerator_name] / request_delta,
-                        dimensions=dimensions,
-                        direction=_direction("traffic", metric),
-                    )
-                )
-                emitted += 1
-        if reset_detected:
-            observations.append(
-                NumericObservation(
+                yield NumericObservation(
                     timestamp=timestamp,
                     source="traffic",
                     node_id=source_node,
                     related_node_ids=related,
-                    metric=f"traffic.{flow_type}.counter_reset",
-                    value=1.0,
+                    metric=metric,
+                    value=row_deltas[numerator_name] / request_delta,
                     dimensions=dimensions,
-                    direction="state",
+                    direction=_direction("traffic", metric),
                 )
+                emitted += 1
+        if reset_detected:
+            yield NumericObservation(
+                timestamp=timestamp,
+                source="traffic",
+                node_id=source_node,
+                related_node_ids=related,
+                metric=f"traffic.{flow_type}.counter_reset",
+                value=1.0,
+                dimensions=dimensions,
+                direction="state",
             )
             emitted += 1
-        if emitted == 0 and not any(_number(value) is not None for value in row.values()):
-            stats.record_bad_row("traffic")
-    return observations
+        stats.record_emitted("traffic", emitted)
 
 
-def _parse_netflow_file(
+def _parse_traffic_file(
+    path: Path,
+    valid_roles: tuple[str, ...],
+    stats: ParseStats,
+) -> list[NumericObservation]:
+    return list(_iter_traffic_file(path, valid_roles, stats))
+
+
+def _clean_token(value: str | None, default: str = "unknown") -> str:
+    if value is None:
+        return default
+    clean = value.strip()
+    if not clean or clean in NULL_VALUES or clean.lower() in NULL_VALUES:
+        return default
+    return clean
+
+
+def _iter_netflow_file(
     path: Path,
     city: str | None,
     valid_roles: tuple[str, ...],
     stats: ParseStats,
-) -> list[NumericObservation]:
+    *,
+    scratch_dir: Path | None = None,
+) -> Iterator[NumericObservation]:
     """Aggregate unsorted NetFlow rows with a bounded on-disk SQLite spill."""
-    observations: list[NumericObservation] = []
     insert_sql = "INSERT INTO flows VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    with tempfile.TemporaryDirectory(prefix="aiops_netflow_") as directory:
+    if scratch_dir is not None:
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix="aiops_netflow_", dir=scratch_dir
+    ) as directory:
         database = Path(directory) / "aggregate.sqlite3"
         connection = sqlite3.connect(database)
         try:
@@ -481,16 +590,22 @@ def _parse_netflow_file(
                 packets = _number(row.get("packets"))
                 bytes_value = _number(row.get("bytes"))
                 flow_records = _number(row.get("flow_record_count"))
-                if timestamp is None or node_id is None or packets is None or bytes_value is None:
+                if timestamp is None or packets is None or bytes_value is None:
                     stats.record_bad_row("netflow")
                     continue
+                stats.record_timestamp("netflow", timestamp)
+                if node_id is None:
+                    stats.record_filtered_row("netflow")
+                    stats.record_unknown_node("netflow")
+                    continue
+                stats.record_valid_row("netflow")
                 batch.append(
                     (
                         timestamp.isoformat(),
                         node_id,
-                        (row.get("interface_id") or "unknown").strip(),
-                        (row.get("if_role") or "unknown").strip(),
-                        (row.get("protocol") or "unknown").strip(),
+                        _clean_token(row.get("interface_id")),
+                        _clean_token(row.get("if_role")),
+                        _clean_token(row.get("protocol")),
                         packets,
                         bytes_value,
                         flow_records or 0.0,
@@ -544,8 +659,7 @@ def _parse_netflow_file(
             for row in rows:
                 timestamp = parse_time(row[0])
                 if timestamp is None:
-                    stats.record_bad_row("netflow")
-                    continue
+                    raise ValueError(f"netflow aggregate emitted invalid timestamp: {row[0]}")
                 dimensions = _dimensions(
                     interface_id=row[2],
                     if_role=row[3],
@@ -562,21 +676,28 @@ def _parse_netflow_file(
                     "protocol_byte_share": row[12],
                 }
                 for suffix, value in values.items():
-                    observations.append(
-                        NumericObservation(
-                            timestamp=timestamp,
-                            source="netflow",
-                            node_id=row[1],
-                            related_node_ids=(),
-                            metric=f"netflow.{suffix}",
-                            value=float(value),
-                            dimensions=dimensions,
-                            direction="both",
-                        )
+                    yield NumericObservation(
+                        timestamp=timestamp,
+                        source="netflow",
+                        node_id=row[1],
+                        related_node_ids=(),
+                        metric=f"netflow.{suffix}",
+                        value=float(value),
+                        dimensions=dimensions,
+                        direction="both",
                     )
+                    stats.record_emitted("netflow")
         finally:
             connection.close()
-    return observations
+
+
+def _parse_netflow_file(
+    path: Path,
+    city: str | None,
+    valid_roles: tuple[str, ...],
+    stats: ParseStats,
+) -> list[NumericObservation]:
+    return list(_iter_netflow_file(path, city, valid_roles, stats))
 
 
 def _event_family(message: str, program: str) -> str:
@@ -596,13 +717,12 @@ def _event_family(message: str, program: str) -> str:
     return "other"
 
 
-def _parse_frr_file(
+def _iter_frr_file(
     path: Path,
     city: str | None,
     valid_roles: tuple[str, ...],
     stats: ParseStats,
-) -> tuple[list[NumericObservation], list[TextEvent]]:
-    text_events: list[TextEvent] = []
+) -> Iterator[NumericObservation | TextEvent]:
     counts: Counter[tuple[datetime, str | None, str, str, str]] = Counter()
     for _, row in _read_rows(path, "frr", stats):
         timestamp = _row_time(row, "frr")
@@ -614,6 +734,10 @@ def _parse_frr_file(
         if timestamp is None:
             stats.record_bad_row("frr")
             continue
+        stats.record_timestamp("frr", timestamp)
+        stats.record_valid_row("frr")
+        if node_id is None:
+            stats.record_unknown_node("frr")
         family = _event_family(message, program)
         event = TextEvent(
             timestamp=timestamp,
@@ -624,11 +748,14 @@ def _parse_frr_file(
             event_family=family,
             message=message,
         )
-        text_events.append(event)
+        yield event
+        stats.record_emitted("frr")
         minute = timestamp.replace(second=0, microsecond=0)
         counts[(minute, node_id, severity, program, family)] += 1
-    numeric = [
-        NumericObservation(
+    for (minute, node_id, severity, program, family), count in sorted(
+        counts.items(), key=lambda item: (item[0][0], str(item[0][1]), item[0][4])
+    ):
+        yield NumericObservation(
             timestamp=minute,
             source="frr",
             node_id=node_id,
@@ -638,11 +765,48 @@ def _parse_frr_file(
             dimensions=_dimensions(severity=severity, program=program, event_family=family),
             direction="high",
         )
-        for (minute, node_id, severity, program, family), count in sorted(
-            counts.items(), key=lambda item: (item[0][0], str(item[0][1]), item[0][4])
+        stats.record_emitted("frr")
+
+
+def _parse_frr_file(
+    path: Path,
+    city: str | None,
+    valid_roles: tuple[str, ...],
+    stats: ParseStats,
+) -> tuple[list[NumericObservation], list[TextEvent]]:
+    numeric: list[NumericObservation] = []
+    text: list[TextEvent] = []
+    for item in _iter_frr_file(path, city, valid_roles, stats):
+        if isinstance(item, NumericObservation):
+            numeric.append(item)
+        else:
+            text.append(item)
+    return numeric, text
+
+
+def iter_file_observations(
+    path: Path,
+    source: str,
+    city: str | None,
+    valid_roles: Iterable[str],
+    stats: ParseStats,
+    *,
+    scratch_dir: Path | None = None,
+) -> Iterator[NumericObservation | TextEvent]:
+    """Stream canonical observations for one recognized source file."""
+    roles = tuple(valid_roles)
+    if source in {"node", "interface", "routing", "scrape"}:
+        yield from _iter_dense_file(path, source, city, roles, stats)
+    elif source == "traffic":
+        yield from _iter_traffic_file(path, roles, stats)
+    elif source == "netflow":
+        yield from _iter_netflow_file(
+            path, city, roles, stats, scratch_dir=scratch_dir
         )
-    ]
-    return numeric, text_events
+    elif source == "frr":
+        yield from _iter_frr_file(path, city, roles, stats)
+    else:
+        raise ValueError(f"unsupported source: {source}")
 
 
 def load_observations(

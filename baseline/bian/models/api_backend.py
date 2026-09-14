@@ -15,6 +15,12 @@ from .backend import EXPECTED_KEYS
 from .structured_output import parse_and_validate
 
 
+def resolve_api_base(explicit: str | None) -> str | None:
+    """Resolve a vLLM/OpenAI-compatible endpoint without hard-coding servers."""
+    value = explicit or os.environ.get("AIOPS_LLM_API_BASE")
+    return value.rstrip("/") if value else None
+
+
 @dataclass(frozen=True, slots=True)
 class ApiConfig:
     base_url: str

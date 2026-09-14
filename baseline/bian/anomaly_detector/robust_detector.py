@@ -179,8 +179,15 @@ def _text_evidence(bundle: ObservationBundle, config: dict[str, Any]) -> list[An
         "unknown": 5.0,
     }
     threshold = float(config.get("source_thresholds", {}).get("frr", 5.0))
+    noise_patterns = tuple(
+        str(pattern).lower() for pattern in config.get("frr_noise_patterns", [])
+    )
     result: list[AnomalyEvidence] = []
     for event in bundle.text_events:
+        if event.source == "frr" and any(
+            pattern in event.message.lower() for pattern in noise_patterns
+        ):
+            continue
         score = severity_scores.get(event.severity.lower(), 5.0)
         if event.source == "scrape":
             score = max(score, float(config.get("source_thresholds", {}).get("scrape", 7.0)))

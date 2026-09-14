@@ -180,10 +180,15 @@ def classify_event(
         raise ValueError(f"missing fault prototypes: {', '.join(missing)}")
     signals = _event_signals(event, ranking)
     role_prior = float(config.get("role_prior_weight", 0.12))
+    conflict_weight = max(0.0, float(config.get("conflict_weight", 0.0)))
     prototypes = config["prototypes"]
+    conflicts = config.get("conflicts", {})
     scored: list[tuple[int, dict[str, Any], float]] = []
     for index, item in enumerate(taxonomy["fault_categories"]):
         score = _cosine(signals, prototypes[item["fault_name"]])
+        conflict = conflicts.get(item["fault_name"], {})
+        if isinstance(conflict, dict) and conflict:
+            score -= conflict_weight * _cosine(signals, conflict)
         major = item["major_category"]
         if major == "firewall":
             score += role_prior * min(1.0, signals.get("role_firewall", 0.0))

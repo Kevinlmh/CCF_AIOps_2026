@@ -25,6 +25,27 @@ def _sources_with_rows(case: Path) -> set[str]:
 
 
 class PublicSampleTests(unittest.TestCase):
+    def test_streaming_case_001_preserves_direct_cpu_root_cause(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "case_001.jsonl"
+            run(
+                REPO / "sample" / "case_001",
+                output,
+                ingestion_mode="streaming",
+                spatial_split=True,
+            )
+
+            record = json.loads(output.read_text().splitlines()[0])
+
+        self.assertEqual(
+            record["root_cause_top5"][0]["network_element_id"],
+            "xian-service-vm-1",
+        )
+        self.assertEqual(
+            record["fault_category"],
+            {"major_category": "resource", "sub_category": "cpu_pressure"},
+        )
+
     def test_every_public_case_runs_without_reading_ground_truth(self):
         original_open = Path.open
 

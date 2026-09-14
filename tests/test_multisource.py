@@ -4,7 +4,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from baseline.bian.preprocessing.multisource import load_observations
+from baseline.bian.preprocessing.multisource import (
+    iter_source_files,
+    load_observations,
+    validate_source_inventory,
+)
 
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "multisource"
@@ -37,6 +41,62 @@ def load_fixture():
 
 
 class MultiSourceTests(unittest.TestCase):
+    def test_formal_data_directories_are_discovered(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data = Path(directory) / "beida_window" / "beida_window_data"
+            data.mkdir(parents=True)
+            node = data / "node_metrics_20260819_20260902.csv"
+            node.write_text("timestamp,region,node,node_type,cpu_usage\n", encoding="utf-8")
+
+            discovered = list(iter_source_files(Path(directory)))
+
+        self.assertEqual(discovered, [("node", node)])
+
+    def test_strict_inventory_rejects_missing_city_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data = Path(directory) / "beida_window" / "beida_window_data"
+            data.mkdir(parents=True)
+            (data / "node_metrics.csv").write_text(
+                "timestamp,region,node,node_type,cpu_usage\n", encoding="utf-8"
+            )
+
+            with self.assertRaisesRegex(ValueError, "beida.*interface"):
+                validate_source_inventory(
+                    Path(directory),
+                    ALIASES,
+                    expected_cities=("beida",),
+                    expected_sources=("node", "interface"),
+                )
+
+    def test_strict_inventory_rejects_duplicate_city_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for suffix in ("a", "b"):
+                data = Path(directory) / f"beida_{suffix}" / f"beida_{suffix}_data"
+                data.mkdir(parents=True)
+                (data / f"node_metrics_{suffix}.csv").write_text(
+                    "timestamp,region,node,node_type,cpu_usage\n", encoding="utf-8"
+                )
+
+            with self.assertRaisesRegex(ValueError, "duplicate.*beida.*node"):
+                validate_source_inventory(
+                    Path(directory),
+                    ALIASES,
+                    expected_cities=("beida",),
+                    expected_sources=("node",),
+                )
+
+    def test_missing_required_header_fails_instead_of_silently_dropping_rows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            processed = Path(directory) / "xian_window" / "processed"
+            processed.mkdir(parents=True)
+            (processed / "node_metrics.csv").write_text(
+                "timestamp,region,node,node_type\n2026-08-19 04:00:00,xian,br-1,br\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "node.*numeric metric"):
+                load_observations(Path(directory), ALIASES, VALID_ROLES)
+
     def test_all_seven_sources_are_discovered_and_counted(self):
         bundle = load_fixture()
 

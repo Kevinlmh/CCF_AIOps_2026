@@ -151,6 +151,32 @@ class ObservationContractTests(unittest.TestCase):
         self.assertEqual(stats.rows_by_source, {"node": 1})
         self.assertEqual(stats.bad_rows_by_source, {"node": 1})
 
+    def test_parse_stats_conserves_valid_filtered_and_invalid_rows(self):
+        stats = ParseStats()
+        stats.record_row("node")
+        stats.record_valid_row("node")
+        stats.record_emitted("node", 3)
+        stats.record_row("node")
+        stats.record_filtered_row("node")
+        stats.record_unknown_node("node")
+
+        self.assertEqual(stats.valid_rows_by_source, {"node": 1})
+        self.assertEqual(stats.filtered_rows_by_source, {"node": 1})
+        self.assertEqual(stats.emitted_by_source, {"node": 3})
+        self.assertEqual(stats.unknown_nodes_by_source, {"node": 1})
+        self.assertTrue(stats.rows_conserved("node"))
+
+    def test_parse_stats_tracks_source_time_range(self):
+        stats = ParseStats()
+        later = datetime(2026, 8, 19, 5, tzinfo=timezone.utc)
+        earlier = datetime(2026, 8, 19, 4, tzinfo=timezone.utc)
+
+        stats.record_timestamp("node", later)
+        stats.record_timestamp("node", earlier)
+
+        self.assertEqual(stats.first_timestamp_by_source["node"], earlier)
+        self.assertEqual(stats.last_timestamp_by_source["node"], later)
+
 
 if __name__ == "__main__":
     unittest.main()
