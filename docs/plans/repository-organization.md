@@ -10,6 +10,8 @@
 
 **Spec:** `docs/design/repository-organization-design.md`
 
+**执行状态：** 已于 2026-09-14 完成目录整理、全量验证和 GitHub 发布。
+
 ## Global Constraints
 
 - 不提交 `.venv`、API Key、模型权重、构建产物或重复调试输出。
@@ -32,11 +34,11 @@
 - Consumes: 当前 `feature/multisource-hybrid-v1` 提交和已验证输出。
 - Produces: 可独立阅读的项目文档和一组代表性结果。
 
-- [ ] 记录当前 HEAD、官方上游提交和工作区状态。
-- [ ] 创建 `official-baseline` 与 `hybrid-v1` 分支引用。
-- [ ] 移动需求、设计和计划文件并修正文档链接。
-- [ ] 归档最终预测与 evaluator 报告。
-- [ ] 使用 `git diff --check` 验证移动结果并提交。
+- [x] 记录当前 HEAD、官方上游提交和工作区状态。
+- [x] 创建 `official-baseline` 与 `hybrid-v1` 分支引用。
+- [x] 移动需求、设计和计划文件并修正文档链接。
+- [x] 归档最终预测与 evaluator 报告。
+- [x] 使用 `git diff --check` 验证移动结果并提交。
 
 ### Task 2: 提升 Git 根目录并清理生成物
 
@@ -49,11 +51,11 @@
 - Consumes: 已提交且干净的内部仓库。
 - Produces: `/Users/likevin/lmh/CCF_AIOps_2026` 单一仓库根目录。
 
-- [ ] 确认父目录没有与官方源码同名的冲突文件。
-- [ ] 逐项移动 Git 元数据与项目内容，不使用宽泛递归删除。
-- [ ] 用 `rmdir` 删除已确认的空目录。
-- [ ] 删除已归档的可再生成构建物和重复输出。
-- [ ] 验证 `git rev-parse --show-toplevel` 返回父目录且工作区干净。
+- [x] 确认父目录没有与官方源码同名的冲突文件。
+- [x] 逐项移动 Git 元数据与项目内容，不使用宽泛递归删除。
+- [x] 用 `rmdir` 删除已确认的空目录。
+- [x] 删除已归档的可再生成构建物和重复输出。
+- [x] 验证 `git rev-parse --show-toplevel` 返回父目录且工作区干净。
 
 ### Task 3: 重新验证整理后的项目
 
@@ -64,11 +66,11 @@
 - Consumes: 新仓库根目录与父级 `.venv`。
 - Produces: 整理后仍可运行的模型证据。
 
-- [ ] 运行 `python -m unittest discover -s tests -v`。
-- [ ] 运行 `python -m compileall -q baseline aiops_challenge_2026 tools`。
-- [ ] 在临时目录运行三个公开样例。
-- [ ] 使用官方 evaluator 验证 `Total=98.855556`、`TP=3`、`FP=0`、`FN=0`。
-- [ ] 搜索敏感信息和样例答案硬编码。
+- [x] 运行 `python -m unittest discover -s tests -v`。
+- [x] 运行 `python -m compileall -q baseline aiops_challenge_2026 tools`。
+- [x] 在临时目录运行三个公开样例。
+- [x] 使用官方 evaluator 验证 `Total=98.855556`、`TP=3`、`FP=0`、`FN=0`。
+- [x] 搜索敏感信息和样例答案硬编码。
 
 ### Task 4: 配置远端、发布分支并验证
 
@@ -79,9 +81,9 @@
 - Consumes: Gitee 官方地址和用户提供的 GitHub 地址。
 - Produces: GitHub 上的 `official-baseline`、`hybrid-v1` 与 `main`。
 
-- [ ] 把原 `origin` 改名为 `upstream`。
-- [ ] 添加 GitHub 为新的 `origin`。
-- [ ] 将本地 `main` 快进到 `hybrid-v1` 稳定提交。
-- [ ] 推送 `official-baseline`、`hybrid-v1` 和 `main`，不使用强制推送。
-- [ ] 用 `git ls-remote origin` 核对三个远程引用。
-- [ ] 确认工作区干净并记录最终提交。
+- [x] 把原 `origin` 改名为 `upstream`。
+- [x] 添加 GitHub 为新的 `origin`。
+- [x] 将本地 `main` 快进到 `hybrid-v1` 稳定提交。
+- [x] 推送 `official-baseline`、`hybrid-v1` 和 `main`，不使用强制推送。
+- [x] 用 `git ls-remote origin` 核对三个远程引用。
+- [x] 确认工作区干净并记录最终提交。

@@ -2,6 +2,16 @@
 
 本仓库提供 AIOps Challenge 2026 的样例数据、评测工具和参考 Baseline。
 
+GitHub 仓库：`https://github.com/Kevinlmh/CCF_AIOps_2026`
+
+分支说明：
+
+- `official-baseline`：官方 Gitee Baseline 的原始快照；
+- `hybrid-v1`：第一版多源混合模型；
+- `main`：当前稳定版本，与 `hybrid-v1` 保持一致。
+
+远端 `upstream` 指向官方 Gitee，`origin` 指向本项目 GitHub。
+
 ## 第一版多源混合模型
 
 当前分支已在原始 BiAn Baseline 上加入可直接运行的第一版混合模型：
@@ -111,6 +121,8 @@ python -m aiops_challenge_2026.evaluator \
 `examples/predictions.jsonl` 可用于演示评测工具的使用方式，不代表 Baseline 性能。
 
 当前第一版在三个公开样例上的本地评测为 `Total=98.855556`、`AD=38.855556`、`RCA=40`、`Major=10`、`Minor=10`。这只是公开样例回归结果，不代表正式隐藏数据成绩；正式数据需要继续校准长时间窗口、不同故障族和 LLM 后端。
+
+本次代表性输出已归档在 `artifacts/public-sample-v1/`。
 
 时间戳必须包含时区信息，推荐统一使用 UTC。
 
