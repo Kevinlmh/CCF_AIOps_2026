@@ -68,7 +68,7 @@ class ApiBackendTests(unittest.TestCase):
         _Handler.failures_before_success = 0
         _Handler.content = '{"answer":42}'
         _Handler.authorization = None
-        os.environ["AIOPS_TEST_API_KEY"] = "top-secret-value"
+        os.environ["AIOPS_TEST_API_KEY"] = "test-token"
         self.backend = ApiBackend(
             ApiConfig(
                 base_url=f"http://127.0.0.1:{self.server.server_port}/v1",
@@ -94,7 +94,7 @@ class ApiBackendTests(unittest.TestCase):
         )
 
         self.assertEqual(result, {"answer": 42})
-        self.assertEqual(_Handler.authorization, "Bearer top-secret-value")
+        self.assertEqual(_Handler.authorization, "Bearer test-token")
 
     def test_retries_transient_http_500(self):
         _Handler.failures_before_success = 1
@@ -122,7 +122,7 @@ class ApiBackendTests(unittest.TestCase):
                 max_new_tokens=32,
             )
 
-        self.assertNotIn("top-secret-value", str(caught.exception))
+        self.assertNotIn("test-token", str(caught.exception))
 
     def test_multi_gpu_load_options_use_automatic_device_map(self):
         self.assertEqual(model_load_options(cuda_available=True), {"device_map": "auto"})
