@@ -24,6 +24,7 @@ class CheckpointTests(unittest.TestCase):
             direction="low",
             dimensions=(("peer", "fd00::1"),),
             summary="peer down",
+            event_role="support",
         )
         event = DetectedEvent(
             start=start,

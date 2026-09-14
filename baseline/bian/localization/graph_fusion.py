@@ -169,6 +169,7 @@ def _serialize_evidence(point: AnomalyEvidence) -> dict[str, Any]:
         "direction": point.direction,
         "dimensions": dict(point.dimensions),
         "summary": point.summary,
+        "event_role": point.event_role,
     }
 
 
@@ -179,7 +180,26 @@ def rank_candidates(
     config: dict[str, Any],
 ) -> RankingResult:
     """Rank all valid public elements using local, temporal and graph evidence."""
-    candidates = _candidate_ids(network_config)
+    all_candidates = _candidate_ids(network_config)
+    all_valid = set(all_candidates)
+    cities = list(network_config["cities"])
+    observed_ids = {
+        node_id
+        for point in event.evidence
+        for node_id in (point.node_id, *point.related_node_ids)
+        if node_id in all_valid
+    }
+    active_cities = {
+        city
+        for city in cities
+        if any(node_id.startswith(city + "-") for node_id in observed_ids)
+    }
+    candidates = [
+        node_id
+        for node_id in all_candidates
+        if not active_cities
+        or any(node_id.startswith(city + "-") for city in active_cities)
+    ]
     valid = set(candidates)
     direct_by_node: dict[str, list[AnomalyEvidence]] = defaultdict(list)
     related_by_node: dict[str, list[AnomalyEvidence]] = defaultdict(list)
@@ -194,7 +214,6 @@ def rank_candidates(
     weights = config.get("weights", {})
     duration_minutes = max(1.0, (event.end - event.start).total_seconds() / 60.0)
     records: list[dict[str, Any]] = []
-    cities = list(network_config["cities"])
     for node_id in candidates:
         direct = direct_by_node.get(node_id, [])
         related = related_by_node.get(node_id, [])

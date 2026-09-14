@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
+METRIC_SEMANTICS_PATH = HERE / "config" / "metric_semantics.json"
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(HERE))
 
@@ -66,6 +68,21 @@ def _model_config(path: Path | None = None) -> dict[str, Any]:
         if not isinstance(value.get(section), dict):
             raise ValueError(f"model config is missing object section: {section}")
     return value
+
+
+def _pipeline_fingerprint(
+    model_config: dict[str, Any],
+    semantics_path: Path = METRIC_SEMANTICS_PATH,
+) -> str:
+    """Hash every rule that affects the reusable statistical event cache."""
+    semantics = json.loads(semantics_path.read_text(encoding="utf-8"))
+    canonical = json.dumps(
+        {"model": model_config, "metric_semantics": semantics},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def _utc(value) -> str:
@@ -375,13 +392,33 @@ def _diagnostic_log(
     streaming_metrics: dict[str, int] | None = None,
     cached_source_coverage: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    nonzero_energy = []
+    nonzero_energy: list[dict[str, Any]] = []
+    energy_summary: dict[str, Any] = {}
     if diagnostics is not None:
-        nonzero_energy = [
+        all_nonzero = [
             {"timestamp_utc": _utc(minute), "energy": round(energy, 5)}
             for minute, energy in diagnostics.minute_energy.items()
             if energy > 0
-        ][:4096]
+        ]
+        trigger_values = list(diagnostics.trigger_minute_energy.values())
+        trigger_nonzero = [value for value in trigger_values if value > 0]
+        nonzero_energy = sorted(
+            all_nonzero,
+            key=lambda item: (-item["energy"], item["timestamp_utc"]),
+        )[:4096]
+        energy_summary = {
+            "nonzero_minutes": len(all_nonzero),
+            "trigger_nonzero_minutes": len(trigger_nonzero),
+            "trigger_minutes_above_open_threshold": sum(
+                value >= diagnostics.open_threshold for value in trigger_values
+            ),
+            "maximum_trigger_energy": round(max(trigger_values, default=0.0), 5),
+            "mean_nonzero_trigger_energy": round(
+                sum(trigger_nonzero) / len(trigger_nonzero), 5
+            ) if trigger_nonzero else 0.0,
+            "minute_energy_sample_policy": "top_energy_then_timestamp",
+            "minute_energy_sample_size": len(nonzero_energy),
+        }
     coverage = (
         {source: bundle.source_coverage.get(source, 0) for source in SOURCE_ORDER}
         if bundle is not None
@@ -420,6 +457,7 @@ def _diagnostic_log(
         "bad_rows": dict(bundle.stats.bad_rows_by_source) if bundle is not None else {},
         "warnings": list(bundle.stats.warnings[:100]) if bundle is not None else [],
         "evidence_count": diagnostics.evidence_count if diagnostics is not None else None,
+        "energy_summary": energy_summary,
         "minute_energy_nonzero": nonzero_energy,
         "data_audit": data_audit,
         "events": event_logs,
@@ -451,6 +489,10 @@ def run(
 ) -> int:
     config = _config()
     model_config = _model_config(config_path)
+    pipeline_fingerprint = _pipeline_fingerprint(
+        model_config,
+        METRIC_SEMANTICS_PATH,
+    )
     network = load_public_config("network_elements")
     taxonomy = load_public_config("fault_taxonomy")
     topology = public_topology(config)
@@ -472,6 +514,12 @@ def run(
             raise ValueError(
                 "event checkpoint model version differs from the active config: "
                 f"cache={cached_model_version!r}, active={current_model_version!r}"
+            )
+        cached_fingerprint = cache_metadata.get("pipeline_fingerprint")
+        if cached_fingerprint != pipeline_fingerprint:
+            raise ValueError(
+                "event checkpoint pipeline fingerprint differs from the active "
+                "model or metric semantics"
             )
         saved_metrics = cache_metadata.get("streaming_metrics", {})
         if isinstance(saved_metrics, dict):
@@ -499,6 +547,7 @@ def run(
                 config["region_aliases"],
                 network["device_roles"],
                 model_config["detector"],
+                semantics_path=METRIC_SEMANTICS_PATH,
                 scratch_dir=scratch_dir,
                 strict_cities=(network["cities"] if strict_input and formal_layout else None),
             )
@@ -528,6 +577,7 @@ def run(
                 metadata={
                     "dataset_root": str(data_root.resolve()),
                     "model_version": model_config.get("version", "unknown"),
+                    "pipeline_fingerprint": pipeline_fingerprint,
                     "ingestion_mode": selected_ingestion,
                     "source_coverage": bundle.source_coverage if bundle is not None else {},
                     "streaming_metrics": streaming_metrics,

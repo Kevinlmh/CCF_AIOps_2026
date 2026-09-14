@@ -120,6 +120,7 @@ def detect_events_streaming(
     if observation_start is None or observation_end is None:
         diagnostics = DetectionDiagnostics(
             minute_energy={},
+            trigger_minute_energy={},
             source_energy={},
             evidence_count=0,
             source_coverage=coverage,

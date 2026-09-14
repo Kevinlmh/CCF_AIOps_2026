@@ -66,6 +66,44 @@ class MetricSemanticsTests(unittest.TestCase):
         self.assertEqual(result[0].value, 91.0)
         self.assertEqual(result[0].direction, "both")
 
+    def test_workload_scheduler_fields_do_not_enter_anomaly_detection(self):
+        transformer = CounterTransformer(self.semantics)
+
+        self.assertEqual(
+            transformer.transform(observation(0, "traffic.dns.active", 1.0)),
+            (),
+        )
+        self.assertEqual(
+            transformer.transform(
+                observation(0, "traffic.web.batch_concurrency", 4.0)
+            ),
+            (),
+        )
+
+    def test_volume_metrics_are_marked_as_support_not_event_triggers(self):
+        transformer = CounterTransformer(self.semantics)
+
+        interface = transformer.transform(
+            observation(0, "interface.rx_bytes_rate", 4096.0)
+        )
+        netflow = transformer.transform(observation(0, "netflow.bytes", 8192.0))
+
+        self.assertEqual(interface[0].event_role, "support")
+        self.assertEqual(netflow[0].event_role, "support")
+
+    def test_latency_histogram_sum_and_count_rates_are_support_only(self):
+        transformer = CounterTransformer(self.semantics)
+
+        total = transformer.transform(
+            observation(0, "traffic.web.request_latency_seconds_sum_rate", 12.0)
+        )
+        count = transformer.transform(
+            observation(0, "traffic.web.request_latency_seconds_count_rate", 30.0)
+        )
+
+        self.assertEqual(total[0].event_role, "support")
+        self.assertEqual(count[0].event_role, "support")
+
 
 if __name__ == "__main__":
     unittest.main()

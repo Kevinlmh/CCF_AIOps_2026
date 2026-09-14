@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from aiops_challenge_2026.schema import validate_prediction
 from baseline.bian.run import _ordered_parallel_map, _select_llm_candidates, run
@@ -129,6 +130,28 @@ class PipelineTests(unittest.TestCase):
                     event_cache=cache,
                     reuse_event_cache=True,
                 )
+
+    def test_event_checkpoint_rejects_changed_metric_semantics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            cache = directory / "events.json"
+            first_semantics = directory / "semantics-a.json"
+            second_semantics = directory / "semantics-b.json"
+            first_semantics.write_text('{"default":{"kind":"gauge"},"rules":[]}')
+            second_semantics.write_text(
+                '{"default":{"kind":"gauge","event_role":"support"},"rules":[]}'
+            )
+            with patch("baseline.bian.run.METRIC_SEMANTICS_PATH", first_semantics):
+                run(FIXTURE, directory / "first.jsonl", event_cache=cache)
+
+            with patch("baseline.bian.run.METRIC_SEMANTICS_PATH", second_semantics):
+                with self.assertRaisesRegex(ValueError, "pipeline fingerprint"):
+                    run(
+                        Path("unused"),
+                        directory / "second.jsonl",
+                        event_cache=cache,
+                        reuse_event_cache=True,
+                    )
 
 
 if __name__ == "__main__":

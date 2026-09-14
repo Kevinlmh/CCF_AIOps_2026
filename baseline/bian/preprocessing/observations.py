@@ -10,6 +10,7 @@ from typing import Literal
 
 
 AnomalyDirection = Literal["high", "low", "both", "state"]
+EventRole = Literal["trigger", "support"]
 DimensionTuple = tuple[tuple[str, str], ...]
 
 
@@ -82,6 +83,7 @@ class NumericObservation:
     value: float
     dimensions: DimensionTuple
     direction: AnomalyDirection = "both"
+    event_role: EventRole = "trigger"
 
     def __post_init__(self) -> None:
         _validate_timestamp(self.timestamp)
@@ -91,6 +93,8 @@ class NumericObservation:
             raise ValueError("numeric observation value must be finite")
         if self.direction not in {"high", "low", "both", "state"}:
             raise ValueError("invalid anomaly direction")
+        if self.event_role not in {"trigger", "support"}:
+            raise ValueError("invalid event role")
         object.__setattr__(self, "dimensions", _canonical_dimensions(self.dimensions))
         object.__setattr__(self, "related_node_ids", tuple(dict.fromkeys(self.related_node_ids)))
 
@@ -129,6 +133,7 @@ class AnomalyEvidence:
     direction: AnomalyDirection
     dimensions: DimensionTuple
     summary: str | None = None
+    event_role: EventRole = "trigger"
 
     def __post_init__(self) -> None:
         _validate_timestamp(self.timestamp)
@@ -139,6 +144,8 @@ class AnomalyEvidence:
             raise ValueError("evidence score must be in [0, 25]")
         if self.direction not in {"high", "low", "both", "state"}:
             raise ValueError("invalid anomaly direction")
+        if self.event_role not in {"trigger", "support"}:
+            raise ValueError("invalid event role")
         object.__setattr__(self, "dimensions", _canonical_dimensions(self.dimensions))
         object.__setattr__(self, "related_node_ids", tuple(dict.fromkeys(self.related_node_ids)))
         if self.summary is not None:

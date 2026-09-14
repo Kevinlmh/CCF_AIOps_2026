@@ -85,6 +85,27 @@ def event(*points: AnomalyEvidence) -> DetectedEvent:
 
 
 class GraphFusionTests(unittest.TestCase):
+    def test_unrelated_cities_cannot_fill_zero_score_top5_slots(self):
+        network = {"cities": ["xian", "beida"], "device_roles": list(ROLES)}
+        topology = {
+            "directed": False,
+            "nodes": [
+                {"node_id": f"{city}-{role}"}
+                for city in network["cities"]
+                for role in ROLES
+            ],
+            "edges": [],
+        }
+        detected = event(
+            point(1, "xian-cr-1", "routing.ipv6_route_count", source="routing")
+        )
+
+        result = rank_candidates(detected, network, topology, CONFIG)
+
+        self.assertTrue(
+            all(item["network_element_id"].startswith("xian-") for item in result.top5)
+        )
+
     def test_direct_cpu_evidence_ranks_measured_service_first(self):
         detected = event(
             point(1, "xian-service-vm-1", "node.cpu_usage", source="node", score=20.0),

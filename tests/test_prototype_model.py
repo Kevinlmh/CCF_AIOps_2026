@@ -24,6 +24,7 @@ def point(
     source: str = "node",
     direction: str = "high",
     node: str = "xian-service-vm-1",
+    event_role: str = "trigger",
 ) -> AnomalyEvidence:
     return AnomalyEvidence(
         timestamp=BASE + timedelta(minutes=1),
@@ -37,6 +38,7 @@ def point(
         direction=direction,
         dimensions=(),
         summary=None,
+        event_role=event_role,
     )
 
 
@@ -78,6 +80,17 @@ def ranking(role: str = "service-vm-1") -> RankingResult:
 
 
 class PrototypeModelTests(unittest.TestCase):
+    def test_neutral_traffic_activity_does_not_create_service_fault_signals(self):
+        result = classify_event(
+            event(point("traffic.dns.active", source="traffic")),
+            ranking("traffic-vm"),
+            TAXONOMY,
+            MODEL_CONFIG,
+        )
+
+        self.assertNotIn("dns", result.signals)
+        self.assertNotIn("service_error", result.signals)
+
     def test_configured_conflict_signals_penalize_an_incompatible_fault(self):
         taxonomy = {
             "fault_categories": [

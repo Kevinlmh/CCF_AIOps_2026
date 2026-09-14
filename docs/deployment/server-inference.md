@@ -11,7 +11,7 @@ python baseline/bian/run.py \
   --data-root data/stage1/regions \
   --ingestion-mode streaming \
   --scratch-dir /fast-nvme/aiops-scratch \
-  --event-cache outputs/stage1_events_v1_1.json \
+  --event-cache outputs/stage1_events_v1_2.json \
   --decision-backend local \
   --output outputs/stage1_local_predictions.jsonl \
   --inference-log outputs/stage1_local_inference.json
@@ -43,7 +43,7 @@ export AIOPS_LLM_API_KEY='replace-with-runtime-secret'
 
 python baseline/bian/run.py \
   --data-root data/stage1/regions \
-  --event-cache outputs/stage1_events_v1_1.json \
+  --event-cache outputs/stage1_events_v1_2.json \
   --reuse-event-cache \
   --decision-backend api \
   --model aiops-model \

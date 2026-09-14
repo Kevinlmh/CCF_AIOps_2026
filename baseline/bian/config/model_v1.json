@@ -1,5 +1,5 @@
 {
-  "version": "1.1",
+  "version": "1.2",
   "detector": {
     "lookback_points": 60,
     "short_series_min_history": 4,
@@ -85,6 +85,9 @@
     "open_threshold": 7.0,
     "keep_threshold": 3.0,
     "gap_tolerance_minutes": 1,
+    "min_distinct_trigger_series_per_minute": 2,
+    "trigger_persistence_gap_minutes": 1,
+    "minimum_peak_separation_minutes": 20,
     "end_padding_minutes": 1,
     "trim_recovery_reversals": true,
     "recovery_reverse_threshold": 5.0,
@@ -106,6 +109,7 @@
   },
   "classification": {
     "role_prior_weight": 0.12,
+    "support_signal_weight": 0.25,
     "conflict_weight": 0.2,
     "conflicts": {},
     "prototypes": {

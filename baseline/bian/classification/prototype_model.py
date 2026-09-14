@@ -36,8 +36,9 @@ def _add_metric_signals(
     weight: float,
 ) -> None:
     metric = point.metric.lower()
+    summary = (point.summary or "").lower()
     text = " ".join(
-        [metric, point.summary or ""]
+        [metric, summary]
         + [str(value).lower() for _, value in point.dimensions]
     )
 
@@ -64,7 +65,7 @@ def _add_metric_signals(
         add("process", 1.5)
     if "softirq" in text:
         add("softirq_udp", 2.0)
-    if "udp" in text:
+    if "udp" in metric or "udp" in summary:
         add("udp", 0.8)
 
     if point.source == "interface":
@@ -103,8 +104,22 @@ def _add_metric_signals(
     if "route_count" in text or "route_total" in text:
         add("route_table", 1.0)
 
+    service_fault_tokens = (
+        "error",
+        "success",
+        "timeout",
+        "latency",
+        "observed_qps",
+        "loss",
+        "retransmit",
+        "wrong_record",
+        "nxdomain",
+        "servfail",
+        "5xx",
+    )
     for service in ("web", "dns", "auth"):
-        if f".{service}." in metric or service in (point.summary or "").lower():
+        service_named = f".{service}." in metric or service in summary
+        if service_named and any(token in metric or token in summary for token in service_fault_tokens):
             add(service, 1.8)
     if any(token in text for token in ("error_ratio", "5xx", "server_error")):
         add("service_error", 2.0)
@@ -129,7 +144,11 @@ def _add_metric_signals(
         add("rate_limit", 2.0)
 
 
-def _event_signals(event: DetectedEvent, ranking: RankingResult) -> dict[str, float]:
+def _event_signals(
+    event: DetectedEvent,
+    ranking: RankingResult,
+    config: dict[str, Any],
+) -> dict[str, float]:
     signals: dict[str, float] = defaultdict(float)
     root = ranking.top5[0]["network_element_id"] if ranking.top5 else None
     shortlist_weights = {
@@ -144,6 +163,8 @@ def _event_signals(event: DetectedEvent, ranking: RankingResult) -> dict[str, fl
         else:
             node_weight = shortlist_weights.get(point.node_id or "", 0.01)
         strength = min(1.0, point.score / 15.0)
+        if point.event_role == "support":
+            strength *= max(0.0, float(config.get("support_signal_weight", 0.25)))
         _add_metric_signals(signals, point, node_weight * strength)
 
     if ranking.top5:
@@ -178,7 +199,7 @@ def classify_event(
     missing = validate_prototypes(taxonomy, config)
     if missing:
         raise ValueError(f"missing fault prototypes: {', '.join(missing)}")
-    signals = _event_signals(event, ranking)
+    signals = _event_signals(event, ranking, config)
     role_prior = float(config.get("role_prior_weight", 0.12))
     conflict_weight = max(0.0, float(config.get("conflict_weight", 0.0)))
     prototypes = config["prototypes"]

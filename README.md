@@ -7,12 +7,12 @@ GitHub 仓库：`https://github.com/Kevinlmh/CCF_AIOps_2026`
 分支说明：
 
 - `official-baseline`：官方 Gitee Baseline 的原始快照；
-- `hybrid-v1`：多源混合模型开发分支，当前 v1.1 修改位于此分支工作区；
-- `main`：已发布的稳定分支，v1.1 完成团队复核后再合并。
+- `hybrid-v1`：多源混合模型开发分支，当前 v1.2 修改位于此分支工作区；
+- `main`：已发布的稳定分支，v1.2 完成团队复核后再合并。
 
 远端 `upstream` 指向官方 Gitee，`origin` 指向本项目 GitHub。
 
-## 多源混合模型 v1.1
+## 多源混合模型 v1.2
 
 当前分支已在原始 BiAn Baseline 上加入可直接运行的第一版混合模型：
 
@@ -22,7 +22,7 @@ GitHub 仓库：`https://github.com/Kevinlmh/CCF_AIOps_2026`
 4. 用覆盖官方 28 类故障的闭集原型模型完成本地分类；
 5. 可选用本地 Transformers 或 OpenAI-compatible API 对候选进行模型复核。
 
-v1.1 进一步支持正式 `*_data/` 目录、严格八城市七来源清单、受控内存流式检测、Counter/State 指标语义、FRR 去噪、并发城市事件拆分、事件缓存和 API 并行推理。正式数据自动选择 `streaming`；公开样例继续使用内存模式保持回归稳定。
+v1.1 进一步支持正式 `*_data/` 目录、严格八城市七来源清单、受控内存流式检测、Counter/State 指标语义、FRR 去噪、并发城市事件拆分、事件缓存和 API 并行推理。v1.2 将指标划分为故障触发、辅助证据和调度上下文，增加触发可靠性门控、20 分钟峰值抑制、事件城市候选约束与分类去偏。正式数据自动选择 `streaming`；公开样例继续使用内存模式保持回归稳定。
 
 `local` 后端适合本机开发和快速回归。正式提交建议启用 LLM 混合路径，从而让模型在统计证据和图特征基础上完成最终复核，而不是把纯规则脚本作为最终方案。
 
@@ -33,6 +33,8 @@ v1.1 进一步支持正式 `*_data/` 目录、严格八城市七来源清单、�
 - `docs/plans/multisource-hybrid-model-v1.md`
 - `docs/superpowers/specs/2026-09-14-multisource-v1-1-design.md`
 - `docs/superpowers/plans/2026-09-14-multisource-v1-1.md`
+- `docs/superpowers/specs/2026-09-14-formal-noise-calibration-design.md`
+- `docs/superpowers/plans/2026-09-14-formal-noise-calibration.md`
 - `docs/data/model-data-coordination.md`
 - `docs/deployment/server-inference.md`
 
@@ -83,7 +85,7 @@ python baseline/bian/run.py \
 python baseline/bian/run.py \
   --data-root data/stage1/regions \
   --scratch-dir data/stage1/scratch \
-  --event-cache outputs/stage1_events_v1_1.json \
+  --event-cache outputs/stage1_events_v1_2.json \
   --output outputs/stage1_local_predictions.jsonl \
   --inference-log outputs/stage1_local_inference.json
 ```

@@ -25,7 +25,13 @@ CONFIG = {
 }
 
 
-def point(minute: int, value: float, metric: str = "node.cpu_usage") -> NumericObservation:
+def point(
+    minute: int,
+    value: float,
+    metric: str = "node.cpu_usage",
+    *,
+    event_role: str = "trigger",
+) -> NumericObservation:
     return NumericObservation(
         timestamp=datetime(2026, 8, 19, 4, 0, tzinfo=UTC) + timedelta(minutes=minute),
         source="node",
@@ -35,10 +41,23 @@ def point(minute: int, value: float, metric: str = "node.cpu_usage") -> NumericO
         value=value,
         dimensions=(),
         direction="high",
+        event_role=event_role,
     )
 
 
 class StreamingDetectorTests(unittest.TestCase):
+    def test_observation_event_role_is_preserved_in_emitted_evidence(self):
+        detector = OnlineRobustDetector(CONFIG)
+        detector.extend(
+            [point(i, 10.0, "netflow.bytes", event_role="support") for i in range(4)]
+        )
+        detector.add(point(4, 20.0, "netflow.bytes", event_role="support"))
+
+        evidence = detector.finalize()
+
+        self.assertEqual(len(evidence), 1)
+        self.assertEqual(evidence[0].event_role, "support")
+
     def test_long_series_matches_offline_warmup_and_scores(self):
         observations = [point(i, 10.0) for i in range(65)]
         observations[20] = point(20, 20.0)

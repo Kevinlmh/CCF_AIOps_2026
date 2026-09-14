@@ -60,19 +60,28 @@ def observation(minute: int, value: float, *, direction: str = "high") -> Numeri
     )
 
 
-def evidence(minute: int, score: float = 10.0, *, direction: str = "high") -> AnomalyEvidence:
+def evidence(
+    minute: int,
+    score: float = 10.0,
+    *,
+    direction: str = "high",
+    event_role: str = "trigger",
+    metric: str = "node.cpu_usage",
+    source: str = "node",
+) -> AnomalyEvidence:
     return AnomalyEvidence(
         timestamp=BASE + timedelta(minutes=minute),
-        source="node",
+        source=source,
         node_id="xian-service-vm-1",
         related_node_ids=(),
-        metric="node.cpu_usage",
+        metric=metric,
         value=80.0,
         baseline=1.0,
         score=score,
         direction=direction,
         dimensions=(),
         summary=None,
+        event_role=event_role,
     )
 
 
@@ -135,6 +144,123 @@ class TextEvidenceTests(unittest.TestCase):
 
 
 class EventSegmentationTests(unittest.TestCase):
+    def test_support_only_anomalies_cannot_open_an_event(self):
+        points = tuple(
+            evidence(
+                minute,
+                score=25.0,
+                event_role="support",
+                metric="netflow.bytes",
+            )
+            for minute in range(4, 10)
+        )
+
+        events, diagnostics = segment_evidence(
+            points,
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=12),
+            config=CONFIG,
+        )
+
+        self.assertEqual(events, [])
+        self.assertGreater(diagnostics.minute_energy[BASE + timedelta(minutes=5)], 0.0)
+        self.assertEqual(
+            diagnostics.trigger_minute_energy[BASE + timedelta(minutes=5)], 0.0
+        )
+
+    def test_trigger_opens_event_and_support_inside_window_is_retained(self):
+        points = (
+            evidence(4),
+            evidence(5),
+            evidence(
+                5,
+                score=25.0,
+                event_role="support",
+                metric="netflow.bytes",
+            ),
+        )
+
+        events, _ = segment_evidence(
+            points,
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=8),
+            config=CONFIG,
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertTrue(any(item.event_role == "support" for item in events[0].evidence))
+
+    def test_isolated_continuous_gauge_spike_requires_corroboration(self):
+        events, _ = segment_evidence(
+            (evidence(4, score=25.0),),
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=8),
+            config=CONFIG,
+        )
+
+        self.assertEqual(events, [])
+
+    def test_correlated_service_outcome_derivatives_count_as_one_trigger_family(self):
+        points = (
+            evidence(
+                4,
+                score=25.0,
+                metric="traffic.web.success_ratio",
+                source="traffic",
+                direction="low",
+            ),
+            evidence(
+                4,
+                score=25.0,
+                metric="traffic.web.error_ratio",
+                source="traffic",
+            ),
+            evidence(
+                4,
+                score=25.0,
+                metric="traffic.web.error_rate",
+                source="traffic",
+            ),
+        )
+
+        events, _ = segment_evidence(
+            points,
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=8),
+            config=CONFIG,
+        )
+
+        self.assertEqual(events, [])
+
+    def test_state_change_can_open_a_single_minute_event(self):
+        events, _ = segment_evidence(
+            (evidence(4, score=12.0, direction="state", metric="routing.bgp_peer_up"),),
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=8),
+            config=CONFIG,
+        )
+
+        self.assertEqual(len(events), 1)
+
+    def test_close_candidate_peaks_keep_only_strongest_event(self):
+        config = {**CONFIG, "minimum_peak_separation_minutes": 20}
+        points = (
+            evidence(4, score=10.0),
+            evidence(5, score=10.0),
+            evidence(14, score=20.0),
+            evidence(15, score=20.0),
+        )
+
+        events, _ = segment_evidence(
+            points,
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=20),
+            config=config,
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].peak_time, BASE + timedelta(minutes=14))
+
     def test_short_internal_gap_is_bridged_and_quiet_period_separates_events(self):
         points = tuple(
             evidence(minute)
@@ -263,6 +389,28 @@ class EventSegmentationTests(unittest.TestCase):
         self.assertEqual(events[0].start, BASE + timedelta(minutes=4))
         self.assertEqual(events[0].end, BASE + timedelta(minutes=9))
         self.assertTrue(all(item.direction == "high" for item in events[0].evidence))
+
+    def test_support_direction_reversal_does_not_trim_trigger_event(self):
+        triggers = tuple(evidence(minute) for minute in range(4, 9))
+        support = tuple(
+            evidence(
+                minute,
+                direction="high" if minute < 7 else "low",
+                event_role="support",
+                metric="node.disk_write_rate",
+            )
+            for minute in range(4, 9)
+        )
+
+        events, _ = segment_evidence(
+            triggers + support,
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=10),
+            config=CONFIG,
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].end, BASE + timedelta(minutes=9))
 
 
 if __name__ == "__main__":

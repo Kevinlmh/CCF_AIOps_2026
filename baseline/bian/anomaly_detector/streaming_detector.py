@@ -113,6 +113,7 @@ class OnlineRobustDetector:
                     score=score,
                     direction=observed_direction,
                     dimensions=item.dimensions,
+                    event_role=item.event_role,
                 )
 
         history.append(item.value)

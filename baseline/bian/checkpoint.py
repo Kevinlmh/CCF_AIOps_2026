@@ -31,6 +31,7 @@ def _serialize_evidence(item: AnomalyEvidence) -> dict[str, Any]:
         "direction": item.direction,
         "dimensions": [list(pair) for pair in item.dimensions],
         "summary": item.summary,
+        "event_role": item.event_role,
     }
 
 
@@ -106,6 +107,7 @@ def load_event_checkpoint(path: Path) -> tuple[list[DetectedEvent], dict[str, An
                 direction=item.get("direction"),
                 dimensions=tuple(tuple(pair) for pair in item.get("dimensions", [])),
                 summary=item.get("summary"),
+                event_role=str(item.get("event_role", "trigger")),
             )
             for item in raw["evidence"]
         )

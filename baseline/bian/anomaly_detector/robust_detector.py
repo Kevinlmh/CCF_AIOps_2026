@@ -17,6 +17,7 @@ from ..preprocessing.observations import AnomalyEvidence, DetectedEvent, Numeric
 @dataclass(frozen=True, slots=True)
 class DetectionDiagnostics:
     minute_energy: dict[datetime, float]
+    trigger_minute_energy: dict[datetime, float]
     source_energy: dict[datetime, dict[str, float]]
     evidence_count: int
     source_coverage: dict[str, int]
@@ -88,6 +89,7 @@ def _consolidate_series(
                     value=float(median(item.value for item in same_time)),
                     dimensions=reference.dimensions,
                     direction=reference.direction,
+                    event_role=reference.event_role,
                 )
             )
         consolidated.sort(key=lambda item: item.timestamp)
@@ -157,6 +159,7 @@ def _numeric_evidence(
                             direction=observed_direction,
                             dimensions=item.dimensions,
                             summary=None,
+                            event_role=item.event_role,
                         )
                     )
             history.append(item.value)
@@ -206,6 +209,7 @@ def _text_evidence(bundle: ObservationBundle, config: dict[str, Any]) -> list[An
                 direction="state",
                 dimensions=(("program", event.program), ("severity", event.severity)),
                 summary=event.message,
+                event_role="trigger",
             )
         )
     return result
@@ -290,6 +294,113 @@ def _windows_from_energy(
     return windows
 
 
+def _qualified_trigger_evidence(
+    evidence: tuple[AnomalyEvidence, ...],
+    config: dict[str, Any],
+) -> tuple[AnomalyEvidence, ...]:
+    """Reject isolated gauge spikes while preserving state/log incidents.
+
+    A gauge point becomes an event trigger when another independent trigger is
+    present in the same minute or the same series persists in a neighboring
+    minute. Support evidence is intentionally excluded from this decision.
+    """
+    triggers = tuple(point for point in evidence if point.event_role == "trigger")
+    if not triggers:
+        return ()
+    required = max(1, int(config.get("min_distinct_trigger_series_per_minute", 2)))
+    persistence_gap = max(0, int(config.get("trigger_persistence_gap_minutes", 1)))
+    by_minute: dict[datetime, list[AnomalyEvidence]] = defaultdict(list)
+    series_minutes: dict[tuple[object, ...], set[datetime]] = defaultdict(set)
+
+    def series_key(point: AnomalyEvidence) -> tuple[object, ...]:
+        return (
+            point.source,
+            point.node_id,
+            point.metric,
+            point.dimensions,
+        )
+
+    def trigger_family(point: AnomalyEvidence) -> tuple[object, ...]:
+        metric = point.metric.lower()
+        parts = metric.split(".")
+        if point.source == "traffic" and len(parts) >= 3:
+            service = parts[1]
+            suffix = ".".join(parts[2:])
+            if "success" in suffix or "error" in suffix:
+                family = "outcome"
+            elif "latency_mean" in suffix or "latency_p95" in suffix:
+                family = "latency"
+            elif "observed_qps" in suffix or "throughput" in suffix:
+                family = "availability"
+            else:
+                family = suffix
+            return point.source, point.node_id, service, family
+        return point.source, point.node_id, point.metric
+
+    for point in triggers:
+        minute = _minute(point.timestamp)
+        by_minute[minute].append(point)
+        series_minutes[series_key(point)].add(minute)
+
+    qualified: list[AnomalyEvidence] = []
+    for minute, points in by_minute.items():
+        keys = {series_key(point) for point in points}
+        families = {trigger_family(point) for point in points}
+        immediate = any(
+            point.direction == "state" or point.source == "frr" for point in points
+        )
+        corroborated = len(families) >= required
+        persistent = False
+        if persistence_gap > 0:
+            persistent = any(
+                any(
+                    minute + timedelta(minutes=offset) in series_minutes[key]
+                    for offset in range(-persistence_gap, persistence_gap + 1)
+                    if offset != 0
+                )
+                for key in keys
+            )
+        if immediate or corroborated or persistent:
+            qualified.extend(points)
+    return tuple(
+        sorted(
+            qualified,
+            key=lambda item: (item.timestamp, item.source, item.metric, item.dimensions),
+        )
+    )
+
+
+def _suppress_nearby_events(
+    events: list[DetectedEvent],
+    trigger_energy: dict[datetime, float],
+    config: dict[str, Any],
+) -> list[DetectedEvent]:
+    """Keep the strongest peak when candidate incidents violate the gap prior."""
+    separation = max(0, int(config.get("minimum_peak_separation_minutes", 0)))
+    if separation == 0 or len(events) < 2:
+        return events
+
+    def quality(event: DetectedEvent) -> tuple[float, int, int, float, float]:
+        return (
+            trigger_energy.get(event.peak_time, 0.0),
+            len({point.source for point in event.evidence if point.event_role == "trigger"}),
+            sum(point.event_role == "trigger" for point in event.evidence),
+            event.confidence,
+            -event.peak_time.timestamp(),
+        )
+
+    selected: list[DetectedEvent] = []
+    for event in sorted(events, key=quality, reverse=True):
+        if any(
+            abs((event.peak_time - kept.peak_time).total_seconds())
+            < separation * 60
+            for kept in selected
+        ):
+            continue
+        selected.append(event)
+    return sorted(selected, key=lambda item: (item.start, item.end, item.peak_time))
+
+
 def _split_window(
     start: datetime,
     end: datetime,
@@ -316,7 +427,7 @@ def _event_from_window(
     start: datetime,
     end: datetime,
     evidence: tuple[AnomalyEvidence, ...],
-    minute_energy: dict[datetime, float],
+    trigger_energy: dict[datetime, float],
     open_threshold: float,
     config: dict[str, Any],
 ) -> DetectedEvent | None:
@@ -337,11 +448,15 @@ def _event_from_window(
         if not selected:
             return None
     peak_time = max(
-        (minute for minute in minute_energy if start <= minute < end),
-        key=lambda minute: (minute_energy[minute], -minute.timestamp()),
+        (minute for minute in trigger_energy if start <= minute < end),
+        key=lambda minute: (trigger_energy[minute], -minute.timestamp()),
     )
     counts = Counter(point.source for point in selected)
-    confidence = min(1.0, minute_energy[peak_time] / max(open_threshold, 1e-9) / 1.5)
+    excess = max(0.0, trigger_energy[peak_time] - open_threshold)
+    confidence = min(
+        0.95,
+        0.5 + 0.45 * (1.0 - math.exp(-excess / max(open_threshold, 1e-9))),
+    )
     return DetectedEvent(
         start=start,
         end=end,
@@ -373,7 +488,11 @@ def _recovery_start(
     for minute in sorted(by_minute):
         reverse_score = 0.0
         for point in by_minute[minute]:
-            if point.source not in direct_sources or point.direction not in {"high", "low"}:
+            if (
+                point.event_role != "trigger"
+                or point.source not in direct_sources
+                or point.direction not in {"high", "low"}
+            ):
                 continue
             key = (point.source, point.node_id, point.metric, point.dimensions)
             first = initial.setdefault(key, point.direction)
@@ -401,13 +520,15 @@ def segment_evidence(
     points = tuple(sorted(evidence, key=lambda item: (item.timestamp, item.source, item.metric)))
     minutes = _minute_range(observation_start, observation_end)
     minute_energy, source_energy = _energies(points, minutes, config)
-    raw_windows = _windows_from_energy(minute_energy, config)
+    qualified_triggers = _qualified_trigger_evidence(points, config)
+    trigger_minute_energy, _ = _energies(qualified_triggers, minutes, config)
+    raw_windows = _windows_from_energy(trigger_minute_energy, config)
     max_minutes = max(1, int(config.get("max_event_minutes", 30)))
     min_minutes = max(1, int(config.get("min_event_minutes", 1)))
     windows = [
         split
         for start, end in raw_windows
-        for split in _split_window(start, end, minute_energy, max_minutes)
+        for split in _split_window(start, end, trigger_minute_energy, max_minutes)
         if split[1] - split[0] >= timedelta(minutes=min_minutes)
     ]
     open_threshold = float(config.get("open_threshold", 7.0))
@@ -416,13 +537,15 @@ def segment_evidence(
         for start, end in windows
         if (
             event := _event_from_window(
-                start, end, points, minute_energy, open_threshold, config
+                start, end, points, trigger_minute_energy, open_threshold, config
             )
         )
         is not None
     ]
+    events = _suppress_nearby_events(events, trigger_minute_energy, config)
     diagnostics = DetectionDiagnostics(
         minute_energy=minute_energy,
+        trigger_minute_energy=trigger_minute_energy,
         source_energy=source_energy,
         evidence_count=len(points),
         source_coverage=dict(source_coverage or {}),
@@ -444,6 +567,7 @@ def detect_events(
     if not all_times:
         diagnostics = DetectionDiagnostics(
             minute_energy={},
+            trigger_minute_energy={},
             source_energy={},
             evidence_count=0,
             source_coverage=dict(bundle.source_coverage),

@@ -16,6 +16,8 @@ class MetricRule:
     direction: str
     normal_value: float | None = None
     scoring_direction: str | None = None
+    detect: bool = True
+    event_role: str = "trigger"
 
 
 class MetricSemantics:
@@ -41,6 +43,8 @@ class MetricSemantics:
                     if value.get("scoring_direction") is not None
                     else None
                 ),
+                detect=bool(value.get("detect", True)),
+                event_role=str(value.get("event_role", "trigger")),
             )
 
         return cls(
@@ -70,11 +74,15 @@ class CounterTransformer:
 
     def transform(self, item: NumericObservation) -> tuple[NumericObservation, ...]:
         rule = self.semantics.rule_for(item.metric)
+        if not rule.detect:
+            return ()
+        if rule.event_role not in {"trigger", "support"}:
+            raise ValueError(f"invalid event_role for metric {item.metric}: {rule.event_role}")
         scoring_direction = rule.scoring_direction or rule.direction
-        directed = (
-            item
-            if item.direction == scoring_direction
-            else replace(item, direction=scoring_direction)
+        directed = replace(
+            item,
+            direction=scoring_direction,
+            event_role=rule.event_role,
         )
         if rule.kind != "counter":
             return (directed,)
