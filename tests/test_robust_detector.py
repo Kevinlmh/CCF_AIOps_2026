@@ -5,6 +5,7 @@ import math
 import unittest
 
 from baseline.bian.anomaly_detector.robust_detector import (
+    _numeric_evidence,
     _text_evidence,
     detect_events,
     robust_score,
@@ -68,12 +69,15 @@ def evidence(
     event_role: str = "trigger",
     metric: str = "node.cpu_usage",
     source: str = "node",
+    semantic_score: float = 0.0,
+    node_id: str = "xian-service-vm-1",
+    related_node_ids: tuple[str, ...] = (),
 ) -> AnomalyEvidence:
     return AnomalyEvidence(
         timestamp=BASE + timedelta(minutes=minute),
         source=source,
-        node_id="xian-service-vm-1",
-        related_node_ids=(),
+        node_id=node_id,
+        related_node_ids=related_node_ids,
         metric=metric,
         value=80.0,
         baseline=1.0,
@@ -82,6 +86,7 @@ def evidence(
         dimensions=(),
         summary=None,
         event_role=event_role,
+        semantic_score=semantic_score,
     )
 
 
@@ -144,6 +149,48 @@ class TextEvidenceTests(unittest.TestCase):
 
 
 class EventSegmentationTests(unittest.TestCase):
+    def test_immediate_state_does_not_increase_trigger_energy_with_unrelated_gauge(self):
+        minute = BASE + timedelta(minutes=4)
+        points = (
+            evidence(4, score=12.0, direction="state", metric="routing.bgp_peer_up"),
+            evidence(4, score=25.0, metric="node.disk_io_util"),
+        )
+
+        events, diagnostics = segment_evidence(
+            points,
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=8),
+            config=CONFIG,
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(diagnostics.trigger_minute_energy[minute], 12.0)
+
+    def test_cpu_and_load_are_one_causal_family(self):
+        points = (
+            evidence(4, score=25.0, metric="node.cpu_usage"),
+            evidence(4, score=25.0, metric="node.load1"),
+        )
+
+        events, _ = segment_evidence(
+            points,
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=8),
+            config=CONFIG,
+        )
+
+        self.assertEqual(events, [])
+
+    def test_extreme_semantic_position_can_open_one_minute_gauge_event(self):
+        events, _ = segment_evidence(
+            (evidence(4, score=9.0, semantic_score=1.0),),
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=8),
+            config={**CONFIG, "semantic_single_minute_threshold": 0.9},
+        )
+
+        self.assertEqual(len(events), 1)
+
     def test_support_only_anomalies_cannot_open_an_event(self):
         points = tuple(
             evidence(
@@ -193,6 +240,21 @@ class EventSegmentationTests(unittest.TestCase):
     def test_isolated_continuous_gauge_spike_requires_corroboration(self):
         events, _ = segment_evidence(
             (evidence(4, score=25.0),),
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=8),
+            config=CONFIG,
+        )
+
+        self.assertEqual(events, [])
+
+    def test_unrelated_cross_node_spikes_do_not_corroborate_each_other(self):
+        points = (
+            evidence(4, metric="node.cpu_usage", node_id="xian-service-vm-1"),
+            evidence(4, metric="node.disk_io_util", node_id="beida-service-vm-1"),
+        )
+
+        events, _ = segment_evidence(
+            points,
             observation_start=BASE,
             observation_end=BASE + timedelta(minutes=8),
             config=CONFIG,
@@ -261,6 +323,32 @@ class EventSegmentationTests(unittest.TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].peak_time, BASE + timedelta(minutes=14))
 
+    def test_nearby_event_quality_prefers_sustained_signal_over_derivative_volume(self):
+        config = {**CONFIG, "minimum_peak_separation_minutes": 20}
+        noisy = tuple(
+            evidence(
+                minute,
+                score=25.0,
+                metric=f"node.metric_{metric_index}",
+            )
+            for minute in (4, 5)
+            for metric_index in range(8)
+        )
+        sustained = tuple(
+            evidence(minute, score=12.0, metric="node.cpu_usage")
+            for minute in (14, 15, 16, 17)
+        )
+
+        events, _ = segment_evidence(
+            noisy + sustained,
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=22),
+            config=config,
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].peak_time, BASE + timedelta(minutes=14))
+
     def test_short_internal_gap_is_bridged_and_quiet_period_separates_events(self):
         points = tuple(
             evidence(minute)
@@ -314,6 +402,33 @@ class EventSegmentationTests(unittest.TestCase):
         self.assertEqual(events[0].start, BASE + timedelta(minutes=4))
         self.assertGreater(diagnostics.evidence_count, 0)
         self.assertEqual(diagnostics.source_coverage, {"node": len(values)})
+
+    def test_semantic_range_is_recorded_as_independent_evidence_dimension(self):
+        values = tuple(observation(index, value) for index, value in enumerate([1.0] * 15 + [90.0]))
+        config = {
+            **CONFIG,
+            "metric_semantic_ranges": {
+                "node.cpu_usage": {"high_start": 70.0, "high_full": 90.0}
+            },
+        }
+
+        points = _numeric_evidence(values, config)
+
+        self.assertEqual(len(points), 1)
+        self.assertEqual(points[0].semantic_score, 1.0)
+
+    def test_short_history_fault_does_not_contaminate_frozen_baseline(self):
+        values = tuple(
+            observation(index, value)
+            for index, value in enumerate([1.0] * 15 + [100.0] * 30)
+        )
+
+        points = _numeric_evidence(
+            values,
+            {**CONFIG, "baseline_freeze_anomaly_points": 30},
+        )
+
+        self.assertEqual(len([item for item in points if item.value == 100.0]), 30)
 
     def test_metric_scale_floor_suppresses_tiny_sparse_interface_toggles(self):
         interface = tuple(

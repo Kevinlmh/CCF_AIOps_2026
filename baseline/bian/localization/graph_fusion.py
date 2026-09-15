@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -15,6 +15,7 @@ class RankingResult:
     top5: list[dict[str, Any]]
     candidates: tuple[dict[str, Any], ...]
     by_node: dict[str, dict[str, Any]]
+    scope: dict[str, Any] = field(default_factory=dict)
 
 
 DIRECT_SOURCE_WEIGHTS = {
@@ -71,34 +72,72 @@ def _distances(start: str, graph: dict[str, set[str]]) -> dict[str, int]:
     return result
 
 
-def _severity(points: list[AnomalyEvidence]) -> float:
+def _role_weight(point: AnomalyEvidence, support_weight: float) -> float:
+    return 1.0 if point.event_role == "trigger" else support_weight
+
+
+def _severity(points: list[AnomalyEvidence], support_weight: float = 0.25) -> float:
     if not points:
         return 0.0
-    scores = sorted((point.score / 25.0 for point in points), reverse=True)[:3]
+    scores = sorted(
+        (
+            (0.8 * point.score / 25.0 + 0.2 * point.semantic_score)
+            * _role_weight(point, support_weight)
+            for point in points
+        ),
+        reverse=True,
+    )[:3]
     strongest = scores[0]
     support = sum(scores[1:]) / max(1, len(scores) - 1)
     return min(1.0, strongest * 0.8 + support * 0.2)
 
 
-def _persistence(points: list[AnomalyEvidence], duration_minutes: float) -> float:
+def _persistence(
+    points: list[AnomalyEvidence],
+    duration_minutes: float,
+    support_weight: float = 0.25,
+) -> float:
     if not points:
         return 0.0
-    minutes = {point.timestamp.replace(second=0, microsecond=0) for point in points}
-    return min(1.0, len(minutes) / max(1.0, duration_minutes))
+    minute_weights: dict[datetime, float] = {}
+    for point in points:
+        minute = point.timestamp.replace(second=0, microsecond=0)
+        minute_weights[minute] = max(
+            minute_weights.get(minute, 0.0),
+            _role_weight(point, support_weight),
+        )
+    return min(1.0, sum(minute_weights.values()) / max(1.0, duration_minutes))
 
 
-def _precedence(points: list[AnomalyEvidence], event: DetectedEvent) -> float:
+def _precedence(
+    points: list[AnomalyEvidence],
+    event: DetectedEvent,
+    support_weight: float = 0.25,
+) -> float:
     if not points:
         return 0.0
-    earliest = min(point.timestamp for point in points)
     duration = max(60.0, (event.end - event.start).total_seconds())
-    delay = max(0.0, (earliest - event.start).total_seconds())
-    return max(0.0, 1.0 - delay / duration)
+    return max(
+        max(
+            0.0,
+            1.0
+            - max(0.0, (point.timestamp - event.start).total_seconds()) / duration,
+        )
+        * _role_weight(point, support_weight)
+        for point in points
+    )
 
 
-def _source_diversity(points: list[AnomalyEvidence]) -> float:
-    sources = {point.source for point in points}
-    return min(1.0, len(sources) / 3.0)
+def _source_diversity(
+    points: list[AnomalyEvidence], support_weight: float = 0.25
+) -> float:
+    sources: dict[str, float] = {}
+    for point in points:
+        sources[point.source] = max(
+            sources.get(point.source, 0.0),
+            _role_weight(point, support_weight),
+        )
+    return min(1.0, sum(sources.values()) / 3.0)
 
 
 def _point_directness(point: AnomalyEvidence) -> float:
@@ -126,22 +165,28 @@ def _point_directness(point: AnomalyEvidence) -> float:
     return base
 
 
-def _directness(points: list[AnomalyEvidence]) -> float:
+def _directness(points: list[AnomalyEvidence], support_weight: float = 0.25) -> float:
     if not points:
         return 0.0
-    weighted = sum(_point_directness(point) * point.score for point in points)
+    weighted = sum(
+        _point_directness(point) * point.score * _role_weight(point, support_weight)
+        for point in points
+    )
     total = sum(point.score for point in points)
     return weighted / total if total > 0 else 0.0
 
 
-def _relational_support(points: list[AnomalyEvidence]) -> float:
-    return min(1.0, _severity(points) * 0.8) if points else 0.0
+def _relational_support(
+    points: list[AnomalyEvidence], support_weight: float = 0.25
+) -> float:
+    return min(1.0, _severity(points, support_weight) * 0.8) if points else 0.0
 
 
 def _topology_explanation(
     node_id: str,
     direct_by_node: dict[str, list[AnomalyEvidence]],
     graph: dict[str, set[str]],
+    support_weight: float = 0.25,
 ) -> float:
     distances = _distances(node_id, graph)
     contributions = []
@@ -151,7 +196,9 @@ def _topology_explanation(
         # rewarding an isolated candidate for reaching itself at distance zero.
         if observed_node == node_id or observed_node not in distances or not points:
             continue
-        contributions.append(_severity(points) / (1.0 + distances[observed_node]))
+        contributions.append(
+            _severity(points, support_weight) / (1.0 + distances[observed_node])
+        )
     if not contributions:
         return 0.0
     contributions.sort(reverse=True)
@@ -170,6 +217,7 @@ def _serialize_evidence(point: AnomalyEvidence) -> dict[str, Any]:
         "dimensions": dict(point.dimensions),
         "summary": point.summary,
         "event_role": point.event_role,
+        "semantic_score": round(point.semantic_score, 5),
     }
 
 
@@ -189,17 +237,51 @@ def rank_candidates(
         for node_id in (point.node_id, *point.related_node_ids)
         if node_id in all_valid
     }
-    active_cities = {
-        city
-        for city in cities
-        if any(node_id.startswith(city + "-") for node_id in observed_ids)
+    direct_ids = {
+        point.node_id for point in event.evidence if point.node_id in all_valid
     }
+    related_ids = {
+        node_id
+        for point in event.evidence
+        for node_id in point.related_node_ids
+        if node_id in all_valid
+    }
+
+    def city_for(node_id: str) -> str | None:
+        return next(
+            (city for city in cities if node_id.startswith(city + "-")),
+            None,
+        )
+
+    direct_cities = {city for node_id in direct_ids if (city := city_for(node_id))}
+    related_cities = {city for node_id in related_ids if (city := city_for(node_id))}
+    active_cities = set(direct_cities | related_cities)
+    topology_expanded_cities: set[str] = set()
+    for edge in topology.get("edges", []):
+        source = edge.get("source")
+        target = edge.get("target")
+        if source in observed_ids and target in all_valid:
+            city = city_for(target)
+            if city is not None and city not in active_cities:
+                topology_expanded_cities.add(city)
+        if target in observed_ids and source in all_valid:
+            city = city_for(source)
+            if city is not None and city not in active_cities:
+                topology_expanded_cities.add(city)
+    active_cities.update(topology_expanded_cities)
     candidates = [
         node_id
         for node_id in all_candidates
-        if not active_cities
-        or any(node_id.startswith(city + "-") for city in active_cities)
+        if active_cities and city_for(node_id) in active_cities
     ]
+    scope = {
+        "direct_cities": sorted(direct_cities),
+        "related_cities": sorted(related_cities),
+        "topology_expanded_cities": sorted(topology_expanded_cities),
+        "candidate_cities": sorted(active_cities),
+        "candidate_count": len(candidates),
+        "excluded_candidate_count": len(all_candidates) - len(candidates),
+    }
     valid = set(candidates)
     direct_by_node: dict[str, list[AnomalyEvidence]] = defaultdict(list)
     related_by_node: dict[str, list[AnomalyEvidence]] = defaultdict(list)
@@ -212,18 +294,21 @@ def rank_candidates(
 
     graph = _adjacency(topology, candidates)
     weights = config.get("weights", {})
+    support_weight = min(1.0, max(0.0, float(config.get("support_evidence_weight", 0.25))))
     duration_minutes = max(1.0, (event.end - event.start).total_seconds() / 60.0)
     records: list[dict[str, Any]] = []
     for node_id in candidates:
         direct = direct_by_node.get(node_id, [])
         related = related_by_node.get(node_id, [])
-        severity = _severity(direct)
-        persistence = _persistence(direct, duration_minutes)
-        precedence = _precedence(direct, event)
-        diversity = _source_diversity(direct)
-        directness = _directness(direct)
-        relational = _relational_support(related)
-        topology_score = _topology_explanation(node_id, direct_by_node, graph)
+        severity = _severity(direct, support_weight)
+        persistence = _persistence(direct, duration_minutes, support_weight)
+        precedence = _precedence(direct, event, support_weight)
+        diversity = _source_diversity(direct, support_weight)
+        directness = _directness(direct, support_weight)
+        relational = _relational_support(related, support_weight)
+        topology_score = _topology_explanation(
+            node_id, direct_by_node, graph, support_weight
+        )
         symptom_penalty = 0.0
         if related and not direct:
             symptom_penalty = 0.8
@@ -240,7 +325,15 @@ def rank_candidates(
             "symptom_penalty": symptom_penalty,
         }
         score = sum(float(weights.get(name, 0.0)) * value for name, value in components.items())
-        strongest = sorted(direct, key=lambda point: (-point.score, point.timestamp, point.metric))[:8]
+        strongest = sorted(
+            direct,
+            key=lambda point: (
+                point.event_role != "trigger",
+                -point.score,
+                point.timestamp,
+                point.metric,
+            ),
+        )[:8]
         records.append(
             {
                 "node_id": node_id,
@@ -248,6 +341,12 @@ def rank_candidates(
                 "score": max(0.0, score),
                 **{name: round(value, 6) for name, value in components.items()},
                 "anomaly_count": len(direct),
+                "trigger_anomaly_count": sum(
+                    point.event_role == "trigger" for point in direct
+                ),
+                "support_anomaly_count": sum(
+                    point.event_role == "support" for point in direct
+                ),
                 "related_anomaly_count": len(related),
                 "sources": sorted({point.source for point in direct}),
                 "first_anomaly": (
@@ -275,4 +374,9 @@ def rank_candidates(
         for rank, item in enumerate(records[:5], 1)
     ]
     by_node = {item["node_id"]: item for item in records}
-    return RankingResult(top5=top5, candidates=tuple(records), by_node=by_node)
+    return RankingResult(
+        top5=top5,
+        candidates=tuple(records),
+        by_node=by_node,
+        scope=scope,
+    )

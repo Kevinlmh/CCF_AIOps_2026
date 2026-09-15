@@ -7,14 +7,15 @@ GitHub 仓库：`https://github.com/Kevinlmh/CCF_AIOps_2026`
 分支说明：
 
 - `official-baseline`：官方 Gitee Baseline 的原始快照；
-- `hybrid-v1`：多源混合模型开发分支，当前 v1.2 修改位于此分支工作区；
-- `main`：已发布的稳定分支，v1.2 完成团队复核后再合并。
+- `hybrid-v1`：多源混合模型 v1.2 的稳定开发基线；
+- `feature/multisource-hybrid-v1.3`：当前 P0/P1/P2 修复分支；
+- `main`：已发布的稳定分支，功能分支完成团队复核后再合并。
 
 远端 `upstream` 指向官方 Gitee，`origin` 指向本项目 GitHub。
 
-## 多源混合模型 v1.2
+## 多源混合模型 v1.3
 
-当前分支已在原始 BiAn Baseline 上加入可直接运行的第一版混合模型：
+当前分支已在原始 BiAn Baseline 上加入可直接运行的多源混合模型：
 
 1. 统一读取 node、interface、routing、scrape health、traffic flow、NetFlow、FRR syslog 七类数据；
 2. 用滚动中位数与 MAD 完成无监督异常检测，并按赛事 1～30 分钟先验切分事件；
@@ -24,7 +25,7 @@ GitHub 仓库：`https://github.com/Kevinlmh/CCF_AIOps_2026`
 
 v1.1 进一步支持正式 `*_data/` 目录、严格八城市七来源清单、受控内存流式检测、Counter/State 指标语义、FRR 去噪、并发城市事件拆分、事件缓存和 API 并行推理。v1.2 将指标划分为故障触发、辅助证据和调度上下文，增加触发可靠性门控、20 分钟峰值抑制、事件城市候选约束与分类去偏。正式数据自动选择 `streaming`；公开样例继续使用内存模式保持回归稳定。
 
-`local` 后端适合本机开发和快速回归。正式提交建议启用 LLM 混合路径，从而让模型在统计证据和图特征基础上完成最终复核，而不是把纯规则脚本作为最终方案。
+v1.3 修复了吞吐语义遮蔽、support 挤占 trigger、state 正常值未生效和 RCA 证据角色等问题，并加入语义量程、30 点异常基线冻结、因果族持续性、实现指纹、证据缓存和带分母的诊断日志。工作量 QPS 与滞后的 load average 只作辅助证据；分类按分钟去重相关信号，并以根因节点的主要连续触发段细化时间边界。`local` 后端适合本机开发和快速回归；正式提交建议启用 LLM 混合路径，在统计证据和图特征基础上完成最终复核。
 
 详细设计和实施计划见：
 
@@ -85,7 +86,8 @@ python baseline/bian/run.py \
 python baseline/bian/run.py \
   --data-root data/stage1/regions \
   --scratch-dir data/stage1/scratch \
-  --event-cache outputs/stage1_events_v1_2.json \
+  --evidence-cache outputs/stage1_evidence_v1_3.json \
+  --event-cache outputs/stage1_events_v1_3.json \
   --output outputs/stage1_local_predictions.jsonl \
   --inference-log outputs/stage1_local_inference.json
 ```
@@ -141,7 +143,7 @@ python -m aiops_challenge_2026.evaluator \
 
 `examples/predictions.jsonl` 可用于演示评测工具的使用方式，不代表 Baseline 性能。
 
-当前第一版在三个公开样例上的本地评测为 `Total=98.855556`、`AD=38.855556`、`RCA=40`、`Major=10`、`Minor=10`。这只是公开样例回归结果，不代表正式隐藏数据成绩；正式数据需要继续校准长时间窗口、不同故障族和 LLM 后端。
+v1.3 在三个公开样例上的本地评测为 `Total=96.677778`、`AD=36.677778`、`RCA=40`、`Major=10`、`Minor=10`，3 个根因 Top1 和细分类全部正确。v1.2 的历史样例分数为 `98.855556`，但其滚动基线会在约 30 分钟长故障时翻转；因此不能只根据三个短样例分数选择版本。这些结果不代表正式隐藏数据成绩。
 
 本次代表性输出已归档在 `artifacts/public-sample-v1/`。
 

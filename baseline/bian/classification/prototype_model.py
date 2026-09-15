@@ -150,6 +150,7 @@ def _event_signals(
     config: dict[str, Any],
 ) -> dict[str, float]:
     signals: dict[str, float] = defaultdict(float)
+    minute_signal_max: dict[tuple[object, str], float] = {}
     root = ranking.top5[0]["network_element_id"] if ranking.top5 else None
     shortlist_weights = {
         item["network_element_id"]: max(0.03, 0.10 - 0.015 * (item["rank"] - 1))
@@ -165,7 +166,22 @@ def _event_signals(
         strength = min(1.0, point.score / 15.0)
         if point.event_role == "support":
             strength *= max(0.0, float(config.get("support_signal_weight", 0.25)))
-        _add_metric_signals(signals, point, node_weight * strength)
+        strength *= 1.0 + max(
+            0.0, float(config.get("semantic_signal_bonus", 0.0))
+        ) * max(0.0, point.semantic_score)
+        point_signals: dict[str, float] = defaultdict(float)
+        _add_metric_signals(point_signals, point, node_weight * strength)
+        minute = point.timestamp.replace(second=0, microsecond=0)
+        for name, value in point_signals.items():
+            key = (minute, name)
+            minute_signal_max[key] = max(minute_signal_max.get(key, 0.0), value)
+
+    # Metrics such as CPU and load, or disk util/read/write, are correlated
+    # measurements of the same underlying condition.  Counting every metric
+    # row lets derivative multiplicity and event length dominate the class.
+    # Retain the strongest contribution per semantic signal and minute instead.
+    for (_, name), value in minute_signal_max.items():
+        signals[name] += value
 
     if ranking.top5:
         role = ranking.by_node[ranking.top5[0]["network_element_id"]].get("device_role", "")

@@ -117,6 +117,25 @@ class ObservationContractTests(unittest.TestCase):
         evidence = AnomalyEvidence(score=25.0, **common)
         self.assertTrue(math.isfinite(evidence.score))
 
+    def test_evidence_rejects_invalid_semantic_score(self):
+        common = {
+            "timestamp": datetime(2026, 7, 28, 12, 40, tzinfo=timezone.utc),
+            "source": "node",
+            "node_id": "xian-service-vm-1",
+            "related_node_ids": (),
+            "metric": "node.cpu_usage",
+            "value": 99.0,
+            "baseline": 1.0,
+            "score": 25.0,
+            "direction": "high",
+            "dimensions": (),
+        }
+        for invalid_score in (float("nan"), -0.1, 1.1):
+            with self.subTest(semantic_score=invalid_score), self.assertRaises(ValueError):
+                AnomalyEvidence(semantic_score=invalid_score, **common)
+
+        self.assertEqual(AnomalyEvidence(semantic_score=0.75, **common).semantic_score, 0.75)
+
     def test_detected_event_requires_ordered_interval_and_evidence(self):
         point = AnomalyEvidence(
             timestamp=datetime(2026, 7, 28, 12, 40, tzinfo=timezone.utc),

@@ -57,6 +57,8 @@ def point(
     source: str,
     score: float = 15.0,
     related: tuple[str, ...] = (),
+    event_role: str = "trigger",
+    semantic_score: float = 0.0,
 ) -> AnomalyEvidence:
     return AnomalyEvidence(
         timestamp=BASE + timedelta(minutes=minute),
@@ -70,6 +72,8 @@ def point(
         direction="high",
         dimensions=(),
         summary=None,
+        event_role=event_role,
+        semantic_score=semantic_score,
     )
 
 
@@ -85,6 +89,88 @@ def event(*points: AnomalyEvidence) -> DetectedEvent:
 
 
 class GraphFusionTests(unittest.TestCase):
+    def test_high_score_support_does_not_outrank_direct_trigger(self):
+        detected = event(
+            point(
+                1,
+                "xian-service-vm-1",
+                "node.cpu_usage",
+                source="node",
+                score=15.0,
+            ),
+            point(
+                1,
+                "xian-monitor-vm",
+                "node.disk_read_rate",
+                source="node",
+                score=25.0,
+                event_role="support",
+            ),
+            point(
+                2,
+                "xian-monitor-vm",
+                "node.disk_write_rate",
+                source="node",
+                score=25.0,
+                event_role="support",
+            ),
+            point(
+                3,
+                "xian-monitor-vm",
+                "netflow.bytes",
+                source="netflow",
+                score=25.0,
+                event_role="support",
+            ),
+        )
+
+        result = rank_candidates(
+            detected,
+            NETWORK,
+            TOPOLOGY,
+            {**CONFIG, "support_evidence_weight": 0.25},
+        )
+
+        self.assertEqual(
+            result.top5[0]["network_element_id"], "xian-service-vm-1"
+        )
+        self.assertEqual(
+            result.by_node["xian-monitor-vm"]["support_anomaly_count"], 3
+        )
+        self.assertEqual(
+            result.by_node["xian-monitor-vm"]["trigger_anomaly_count"], 0
+        )
+
+    def test_explicit_cross_city_topology_edge_expands_candidate_scope(self):
+        network = {
+            "cities": ["xian", "beida", "wuhan"],
+            "device_roles": list(ROLES),
+        }
+        topology = {
+            "directed": False,
+            "nodes": [
+                {"node_id": f"{city}-{role}"}
+                for city in network["cities"]
+                for role in ROLES
+            ],
+            "edges": [
+                {
+                    "source": "xian-cr-1",
+                    "target": "beida-cr-1",
+                    "relation": "wan_peer",
+                }
+            ],
+        }
+        detected = event(
+            point(1, "xian-cr-1", "routing.bgp_peer_up", source="routing")
+        )
+
+        result = rank_candidates(detected, network, topology, CONFIG)
+
+        self.assertEqual(result.scope["direct_cities"], ["xian"])
+        self.assertEqual(result.scope["topology_expanded_cities"], ["beida"])
+        self.assertEqual(result.scope["candidate_cities"], ["beida", "xian"])
+        self.assertEqual(result.scope["excluded_candidate_count"], len(ROLES))
     def test_unrelated_cities_cannot_fill_zero_score_top5_slots(self):
         network = {"cities": ["xian", "beida"], "device_roles": list(ROLES)}
         topology = {
@@ -136,6 +222,42 @@ class GraphFusionTests(unittest.TestCase):
             result.by_node["xian-br-1"]["precedence"],
             result.by_node["xian-br-2"]["precedence"],
         )
+
+    def test_precedence_applies_support_weight_to_each_point_before_aggregation(self):
+        detected = event(
+            point(
+                0,
+                "xian-br-1",
+                "routing.route_count",
+                source="routing",
+                event_role="support",
+            ),
+            point(9, "xian-br-1", "routing.bgp_peer_up", source="routing"),
+            point(5, "xian-br-2", "routing.bgp_peer_up", source="routing"),
+        )
+
+        result = rank_candidates(
+            detected,
+            NETWORK,
+            TOPOLOGY,
+            {**CONFIG, "support_evidence_weight": 0.25},
+        )
+
+        self.assertGreater(
+            result.by_node["xian-br-2"]["precedence"],
+            result.by_node["xian-br-1"]["precedence"],
+        )
+
+    def test_event_without_candidate_evidence_does_not_emit_zero_score_top5(self):
+        detected = event(
+            point(1, None, "frr.bgp_event", source="frr")
+        )
+
+        result = rank_candidates(detected, NETWORK, TOPOLOGY, CONFIG)
+
+        self.assertEqual(result.top5, [])
+        self.assertEqual(result.candidates, ())
+        self.assertEqual(result.scope["candidate_count"], 0)
 
     def test_relational_symptoms_support_but_do_not_override_direct_evidence(self):
         detected = event(

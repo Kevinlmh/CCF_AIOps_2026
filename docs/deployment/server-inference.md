@@ -11,13 +11,26 @@ python baseline/bian/run.py \
   --data-root data/stage1/regions \
   --ingestion-mode streaming \
   --scratch-dir /fast-nvme/aiops-scratch \
-  --event-cache outputs/stage1_events_v1_2.json \
+  --evidence-cache outputs/stage1_evidence_v1_3.json \
+  --event-cache outputs/stage1_events_v1_3.json \
   --decision-backend local \
   --output outputs/stage1_local_predictions.jsonl \
   --inference-log outputs/stage1_local_inference.json
 ```
 
-`--scratch-dir` 必须位于空间充足的本地 NVMe。严格模式默认要求八城市七来源全部存在；仅调试单城市时显式添加 `--allow-partial-input`。
+`--scratch-dir` 必须位于空间充足的本地 NVMe。严格模式默认要求八城市七来源全部存在；仅调试单城市时显式添加 `--allow-partial-input`。`--evidence-cache` 保存事件切分前的有界异常证据，可用于反复调整准入、切分和 NMS；`--event-cache` 保存已经切分好的事件，适合只重复运行 RCA/LLM。v1.2 缓存不能用于 v1.3。
+
+从证据缓存重新切分时，可以同时输出新的事件缓存，无需再次读取 CSV：
+
+```bash
+python baseline/bian/run.py \
+  --data-root data/stage1/regions \
+  --evidence-cache outputs/stage1_evidence_v1_3.json \
+  --reuse-evidence-cache \
+  --event-cache outputs/stage1_events_v1_3_resegmented.json \
+  --decision-backend local \
+  --output outputs/stage1_resegmented_predictions.jsonl
+```
 
 ## 阶段二：OpenAI-compatible/vLLM 服务
 
@@ -43,7 +56,7 @@ export AIOPS_LLM_API_KEY='replace-with-runtime-secret'
 
 python baseline/bian/run.py \
   --data-root data/stage1/regions \
-  --event-cache outputs/stage1_events_v1_2.json \
+  --event-cache outputs/stage1_events_v1_3.json \
   --reuse-event-cache \
   --decision-backend api \
   --model aiops-model \

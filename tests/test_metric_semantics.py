@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import tempfile
 import unittest
 
 from baseline.bian.preprocessing.metric_semantics import (
     CounterTransformer,
     MetricSemantics,
 )
+from baseline.bian.preprocessing import metric_semantics as metric_semantics_module
 from baseline.bian.preprocessing.observations import NumericObservation
 
 
@@ -103,6 +105,86 @@ class MetricSemanticsTests(unittest.TestCase):
 
         self.assertEqual(total[0].event_role, "support")
         self.assertEqual(count[0].event_role, "support")
+
+    def test_duplicate_metric_patterns_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "semantics.json"
+            path.write_text(
+                '{"default":{},"rules":['
+                '{"pattern":"traffic.*.*throughput*"},'
+                '{"pattern":"traffic.*.*throughput*","event_role":"support"}'
+                "]}",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "duplicate metric pattern"):
+                MetricSemantics.from_json(path)
+
+    def test_known_state_carries_normal_value_and_state_direction(self):
+        result = CounterTransformer(self.semantics).transform(
+            observation(0, "routing.bgp_peer_up", 0.0)
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].direction, "state")
+        self.assertEqual(result[0].normal_value, 1.0)
+
+    def test_configuration_dependent_state_does_not_assume_enabled_is_normal(self):
+        enabled = CounterTransformer(self.semantics).transform(
+            observation(0, "routing.ospf6_interface_enabled", 0.0)
+        )
+        route = CounterTransformer(self.semantics).transform(
+            observation(0, "routing.ipv6_route_exists", 0.0)
+        )
+
+        self.assertEqual(enabled[0].direction, "state")
+        self.assertIsNone(enabled[0].normal_value)
+        self.assertEqual(route[0].direction, "state")
+        self.assertIsNone(route[0].normal_value)
+
+    def test_throughput_is_support_only(self):
+        result = CounterTransformer(self.semantics).transform(
+            observation(0, "traffic.web.throughput_bps", 0.0)
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].event_role, "support")
+
+    def test_observed_qps_is_support_only(self):
+        result = CounterTransformer(self.semantics).transform(
+            observation(0, "traffic.web.observed_qps", 5.0)
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].event_role, "support")
+
+    def test_load_average_is_support_only(self):
+        result = CounterTransformer(self.semantics).transform(
+            observation(0, "node.load5", 2.0)
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].event_role, "support")
+
+    def test_shared_transform_applies_counter_and_role_semantics_in_order(self):
+        transformed = tuple(
+            metric_semantics_module.transform_observations(
+                (
+                    observation(0, "interface.carrier_changes", 10.0),
+                    observation(1, "interface.carrier_changes", 12.0),
+                    observation(1, "traffic.web.throughput_bps", 1000.0),
+                ),
+                self.semantics,
+            )
+        )
+
+        self.assertEqual(
+            [(item.metric, item.event_role) for item in transformed],
+            [
+                ("interface.carrier_changes_rate", "trigger"),
+                ("traffic.web.throughput_bps", "support"),
+            ],
+        )
 
 
 if __name__ == "__main__":

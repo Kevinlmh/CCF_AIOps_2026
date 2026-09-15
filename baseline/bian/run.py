@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timezone
+from datetime import timedelta, timezone
 import hashlib
 import json
 import os
@@ -21,10 +21,19 @@ sys.path.insert(0, str(HERE))
 
 from aiops_challenge_2026.config import load_public_config
 from aiops_challenge_2026.schema import validate_prediction
-from baseline.bian.checkpoint import load_event_checkpoint, save_event_checkpoint
+from baseline.bian.checkpoint import (
+    load_event_checkpoint,
+    load_evidence_checkpoint,
+    save_event_checkpoint,
+    save_evidence_checkpoint,
+)
 from baseline.bian.anomaly_detector.five_sigma import detect as detect_five_sigma
 from baseline.bian.anomaly_detector.event_clustering import split_concurrent_events
-from baseline.bian.anomaly_detector.robust_detector import DetectionDiagnostics, detect_events
+from baseline.bian.anomaly_detector.robust_detector import (
+    DetectionDiagnostics,
+    detect_events_with_evidence,
+    segment_evidence,
+)
 from baseline.bian.classification.classifier import (
     classification_taxonomy,
     classify_with_llm,
@@ -46,7 +55,15 @@ from baseline.bian.preprocessing.multisource import (
     iter_source_files,
     load_observations,
 )
-from baseline.bian.preprocessing.observations import AnomalyEvidence, DetectedEvent
+from baseline.bian.preprocessing.observations import (
+    AnomalyEvidence,
+    DetectedEvent,
+    parse_time,
+)
+from baseline.bian.preprocessing.metric_semantics import (
+    MetricSemantics,
+    transform_observations,
+)
 from baseline.bian.preprocessing.streaming import detect_events_streaming
 
 
@@ -73,6 +90,8 @@ def _model_config(path: Path | None = None) -> dict[str, Any]:
 def _pipeline_fingerprint(
     model_config: dict[str, Any],
     semantics_path: Path = METRIC_SEMANTICS_PATH,
+    *,
+    implementation_paths: tuple[Path, ...] | None = None,
 ) -> str:
     """Hash every rule that affects the reusable statistical event cache."""
     semantics = json.loads(semantics_path.read_text(encoding="utf-8"))
@@ -82,7 +101,26 @@ def _pipeline_fingerprint(
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
-    return hashlib.sha256(canonical).hexdigest()
+    digest = hashlib.sha256(canonical)
+    paths = implementation_paths or (
+        HERE / "anomaly_detector" / "robust_detector.py",
+        HERE / "anomaly_detector" / "streaming_detector.py",
+        HERE / "anomaly_detector" / "event_clustering.py",
+        HERE / "preprocessing" / "metric_semantics.py",
+        HERE / "preprocessing" / "multisource.py",
+        HERE / "preprocessing" / "observations.py",
+        HERE / "preprocessing" / "streaming.py",
+    )
+    for path in sorted(paths, key=lambda item: item.as_posix()):
+        try:
+            label = path.resolve().relative_to(REPO.resolve()).as_posix()
+        except ValueError:
+            label = path.name
+        digest.update(label.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def _utc(value) -> str:
@@ -323,6 +361,8 @@ def _hybrid_context(
             "source": point.source,
             "metric": point.metric,
             "score": round(point.score, 5),
+            "semantic_score": round(point.semantic_score, 5),
+            "event_role": point.event_role,
         }
         for point in sorted(event.evidence, key=lambda item: (item.timestamp, -item.score))
         if point.node_id in selected_nodes
@@ -391,6 +431,7 @@ def _diagnostic_log(
     ingestion_mode: str = "memory",
     streaming_metrics: dict[str, int] | None = None,
     cached_source_coverage: dict[str, Any] | None = None,
+    model_version: str = "unknown",
 ) -> dict[str, Any]:
     nonzero_energy: list[dict[str, Any]] = []
     energy_summary: dict[str, Any] = {}
@@ -402,13 +443,37 @@ def _diagnostic_log(
         ]
         trigger_values = list(diagnostics.trigger_minute_energy.values())
         trigger_nonzero = [value for value in trigger_values if value > 0]
+        total_minutes = len(diagnostics.minute_energy)
+        observation_minutes = set(diagnostics.minute_energy)
+        covered_minutes = set()
+        for event in event_logs:
+            start = parse_time(event.get("start_time"))
+            end = parse_time(event.get("end_time"))
+            if start is None or end is None:
+                continue
+            current = start.replace(second=0, microsecond=0)
+            while current < end:
+                if current in observation_minutes:
+                    covered_minutes.add(current)
+                current += timedelta(minutes=1)
         nonzero_energy = sorted(
             all_nonzero,
             key=lambda item: (-item["energy"], item["timestamp_utc"]),
         )[:4096]
         energy_summary = {
+            "total_minutes": total_minutes,
             "nonzero_minutes": len(all_nonzero),
+            "nonzero_minute_ratio": round(
+                len(all_nonzero) / total_minutes, 8
+            ) if total_minutes else 0.0,
             "trigger_nonzero_minutes": len(trigger_nonzero),
+            "trigger_nonzero_minute_ratio": round(
+                len(trigger_nonzero) / total_minutes, 8
+            ) if total_minutes else 0.0,
+            "event_covered_minutes": len(covered_minutes),
+            "event_coverage_ratio": round(
+                len(covered_minutes) / total_minutes, 8
+            ) if total_minutes else 0.0,
             "trigger_minutes_above_open_threshold": sum(
                 value >= diagnostics.open_threshold for value in trigger_values
             ),
@@ -422,6 +487,11 @@ def _diagnostic_log(
     coverage = (
         {source: bundle.source_coverage.get(source, 0) for source in SOURCE_ORDER}
         if bundle is not None
+        else {
+            source: diagnostics.source_coverage.get(source, 0)
+            for source in SOURCE_ORDER
+        }
+        if diagnostics is not None and diagnostics.source_coverage
         else {
             source: int((cached_source_coverage or {}).get(source, 0))
             for source in SOURCE_ORDER
@@ -450,6 +520,7 @@ def _diagnostic_log(
         **(streaming_metrics or {}),
     }
     return {
+        "model_version": model_version,
         "detector": detector_name,
         "backend": backend_name,
         "ingestion_mode": ingestion_mode,
@@ -462,6 +533,60 @@ def _diagnostic_log(
         "data_audit": data_audit,
         "events": event_logs,
     }
+
+
+def _localized_event_bounds(
+    event: DetectedEvent,
+    root_node_id: str | None,
+    config: dict[str, Any],
+) -> tuple[datetime, datetime]:
+    """Bound an incident by direct root triggers, not unrelated global tails."""
+    if not root_node_id:
+        return event.start, event.end
+    direct = [
+        point
+        for point in event.evidence
+        if point.event_role == "trigger" and point.node_id == root_node_id
+    ]
+    if not direct:
+        return event.start, event.end
+    gap = max(0, int(config.get("localized_gap_tolerance_minutes", 1)))
+    by_minute: dict[datetime, list[AnomalyEvidence]] = {}
+    for point in direct:
+        minute = point.timestamp.replace(second=0, microsecond=0)
+        by_minute.setdefault(minute, []).append(point)
+    clusters: list[list[datetime]] = []
+    for minute in sorted(by_minute):
+        if not clusters or minute - clusters[-1][-1] > timedelta(minutes=gap + 1):
+            clusters.append([minute])
+        else:
+            clusters[-1].append(minute)
+
+    def cluster_quality(cluster: list[datetime]) -> tuple[float, ...]:
+        points = [point for minute in cluster for point in by_minute[minute]]
+        minute_strength = sum(
+            max(point.score for point in by_minute[minute]) for minute in cluster
+        )
+        return (
+            float(len(cluster)),
+            max((point.semantic_score for point in points), default=0.0),
+            minute_strength,
+            -cluster[0].timestamp(),
+        )
+
+    primary = max(clusters, key=cluster_quality)
+    start_padding = max(0, int(config.get("localized_start_padding_minutes", 1)))
+    end_padding = max(1, int(config.get("localized_end_padding_minutes", 1)))
+    first, last = primary[0], primary[-1]
+    localized_start = max(
+        event.start,
+        first - timedelta(minutes=start_padding),
+    )
+    localized_end = min(event.end, last + timedelta(minutes=end_padding))
+    maximum = timedelta(minutes=max(1, int(config.get("max_event_minutes", 30))))
+    if localized_end - localized_start > maximum:
+        localized_end = localized_start + maximum
+    return localized_start, localized_end
 
 
 def run(
@@ -486,6 +611,8 @@ def run(
     event_cache: Path | None = None,
     reuse_event_cache: bool = False,
     llm_workers: int = 1,
+    evidence_cache: Path | None = None,
+    reuse_evidence_cache: bool = False,
 ) -> int:
     config = _config()
     model_config = _model_config(config_path)
@@ -503,8 +630,46 @@ def run(
     diagnostics: DetectionDiagnostics | None = None
     streaming_metrics: dict[str, int] = {}
     cache_metadata: dict[str, Any] = {}
-    selected_ingestion = "checkpoint" if reuse_event_cache else ingestion_mode
-    if reuse_event_cache:
+    if reuse_event_cache and reuse_evidence_cache:
+        raise ValueError("event and evidence checkpoints cannot both be reused")
+    selected_ingestion = (
+        "checkpoint"
+        if reuse_event_cache
+        else "evidence_checkpoint"
+        if reuse_evidence_cache
+        else ingestion_mode
+    )
+    evidence_points: tuple[AnomalyEvidence, ...] = ()
+    if reuse_evidence_cache:
+        if evidence_cache is None:
+            raise ValueError("--reuse-evidence-cache requires --evidence-cache")
+        (
+            evidence_points,
+            (observation_start, observation_end),
+            cached_coverage,
+            cache_metadata,
+        ) = load_evidence_checkpoint(evidence_cache)
+        cached_model_version = cache_metadata.get("model_version")
+        current_model_version = model_config.get("version", "unknown")
+        if cached_model_version != current_model_version:
+            raise ValueError(
+                "evidence checkpoint model version differs from the active config: "
+                f"cache={cached_model_version!r}, active={current_model_version!r}"
+            )
+        if cache_metadata.get("pipeline_fingerprint") != pipeline_fingerprint:
+            raise ValueError(
+                "evidence checkpoint pipeline fingerprint differs from the active pipeline"
+            )
+        events, diagnostics = segment_evidence(
+            evidence_points,
+            observation_start=observation_start,
+            observation_end=observation_end,
+            config=model_config["detector"],
+            source_coverage=cached_coverage,
+        )
+        if spatial_split:
+            events = split_concurrent_events(events, network["cities"])
+    elif reuse_event_cache:
         if event_cache is None:
             raise ValueError("--reuse-event-cache requires --event-cache")
         events, cache_metadata = load_event_checkpoint(event_cache)
@@ -553,6 +718,7 @@ def run(
             )
             bundle = streamed.bundle
             diagnostics = streamed.diagnostics
+            evidence_points = streamed.evidence
             events = list(streamed.events)
             streaming_metrics = {
                 "observations_evaluated": streamed.observation_count,
@@ -567,22 +733,58 @@ def run(
                 config["region_aliases"],
                 network["device_roles"],
             )
-            events, diagnostics = detect_events(bundle, model_config["detector"])
+            semantics = MetricSemantics.from_json(METRIC_SEMANTICS_PATH)
+            bundle = ObservationBundle(
+                tuple(transform_observations(bundle.numeric, semantics)),
+                bundle.text_events,
+                bundle.stats,
+                bundle.source_coverage,
+            )
+            events, diagnostics, evidence_points = detect_events_with_evidence(
+                bundle, model_config["detector"]
+            )
         else:
             events = _legacy_events(data_root, config["region_aliases"])
-        if event_cache is not None:
-            save_event_checkpoint(
-                events,
-                event_cache,
+        if evidence_cache is not None:
+            if detector != "robust" or diagnostics is None:
+                raise ValueError("evidence checkpoints require the robust detector")
+            if diagnostics.observation_start is None or diagnostics.observation_end is None:
+                raise ValueError("cannot save evidence checkpoint without observation bounds")
+            save_evidence_checkpoint(
+                evidence_points,
+                evidence_cache,
+                observation_start=diagnostics.observation_start,
+                observation_end=diagnostics.observation_end,
+                source_coverage=diagnostics.source_coverage,
                 metadata={
                     "dataset_root": str(data_root.resolve()),
                     "model_version": model_config.get("version", "unknown"),
                     "pipeline_fingerprint": pipeline_fingerprint,
                     "ingestion_mode": selected_ingestion,
-                    "source_coverage": bundle.source_coverage if bundle is not None else {},
-                    "streaming_metrics": streaming_metrics,
                 },
             )
+    if event_cache is not None and not reuse_event_cache:
+        coverage = (
+            diagnostics.source_coverage
+            if diagnostics is not None
+            else bundle.source_coverage
+            if bundle is not None
+            else {}
+        )
+        save_event_checkpoint(
+            events,
+            event_cache,
+            metadata={
+                "dataset_root": cache_metadata.get(
+                    "dataset_root", str(data_root.resolve())
+                ),
+                "model_version": model_config.get("version", "unknown"),
+                "pipeline_fingerprint": pipeline_fingerprint,
+                "ingestion_mode": selected_ingestion,
+                "source_coverage": coverage,
+                "streaming_metrics": streaming_metrics,
+            },
+        )
     if max_events is not None:
         events = events[:max_events]
 
@@ -634,23 +836,30 @@ def run(
                     f"BiAn LLM inference failed for event {index}: "
                     f"{type(exc).__name__}: {reason}"
                 ) from None
+        root_node_id = top5[0]["network_element_id"] if top5 else None
+        localized_start, localized_end = _localized_event_bounds(
+            event, root_node_id, model_config["detector"]
+        )
         record = {
             "prediction_id": f"{prediction_prefix}{index:06d}",
-            "start_time": _utc(event.start),
-            "end_time": _utc(event.end),
+            "start_time": _utc(localized_start),
+            "end_time": _utc(localized_end),
             "root_cause_top5": top5,
             "fault_category": category,
         }
         event_log = {
             "prediction_id": f"{prediction_prefix}{index:06d}",
-            "start_time": _utc(event.start),
-            "end_time": _utc(event.end),
+            "start_time": _utc(localized_start),
+            "end_time": _utc(localized_end),
+            "detected_start_time": _utc(event.start),
+            "detected_end_time": _utc(event.end),
             "peak_time": _utc(event.peak_time),
             "confidence": event.confidence,
             "source_counts": event.source_counts,
             "candidates": list(ranking.candidates[:10]),
             "prototype_top3": list(prototype.top3),
             "prototype_signals": prototype.signals,
+            "candidate_scope": ranking.scope,
         }
         return record, event_log
 
@@ -675,6 +884,7 @@ def run(
                     if reuse_event_cache
                     else None
                 ),
+                model_version=str(model_config.get("version", "unknown")),
             ),
             inference_log,
         )
@@ -721,6 +931,12 @@ def main() -> int:
     )
     parser.add_argument("--reuse-event-cache", action="store_true")
     parser.add_argument(
+        "--evidence-cache",
+        type=Path,
+        help="save/load bounded anomaly evidence before event segmentation",
+    )
+    parser.add_argument("--reuse-evidence-cache", action="store_true")
+    parser.add_argument(
         "--llm-workers",
         type=int,
         default=1,
@@ -749,6 +965,8 @@ def main() -> int:
             event_cache=args.event_cache,
             reuse_event_cache=args.reuse_event_cache,
             llm_workers=args.llm_workers,
+            evidence_cache=args.evidence_cache,
+            reuse_evidence_cache=args.reuse_evidence_cache,
         )
     except Exception as exc:
         print(f"Baseline failed: {type(exc).__name__}: {exc}", file=sys.stderr)

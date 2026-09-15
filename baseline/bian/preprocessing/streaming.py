@@ -36,6 +36,7 @@ class StreamingDetectionResult:
     observation_count: int
     series_state_count: int
     dropped_evidence_count: int
+    evidence: tuple
 
 
 def _deduplicate_text_events(events: Iterable[TextEvent]) -> tuple[TextEvent, ...]:
@@ -145,4 +146,5 @@ def detect_events_streaming(
         observation_count=detector.observation_count,
         series_state_count=detector.series_state_count,
         dropped_evidence_count=detector.dropped_evidence_count,
+        evidence=tuple(evidence),
     )

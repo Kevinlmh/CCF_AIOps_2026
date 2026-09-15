@@ -6,7 +6,7 @@ from collections import defaultdict, deque
 from fnmatch import fnmatch
 from typing import Any, Iterable
 
-from .robust_detector import robust_score
+from .robust_detector import score_numeric_observation
 from ..preprocessing.observations import AnomalyEvidence, NumericObservation
 
 
@@ -28,7 +28,9 @@ class OnlineRobustDetector:
         )
         self._history: dict[tuple[object, ...], deque[float]] = {}
         self._counts: dict[tuple[object, ...], int] = defaultdict(int)
-        self._pending_short: dict[tuple[object, ...], list[AnomalyEvidence]] = defaultdict(list)
+        self._undecided: dict[tuple[object, ...], list[NumericObservation]] = defaultdict(list)
+        self._long_series: set[tuple[object, ...]] = set()
+        self._anomaly_runs: dict[tuple[object, ...], int] = defaultdict(int)
         self._buckets: dict[tuple[object, ...], list[AnomalyEvidence]] = defaultdict(list)
         self._metric_config_cache: dict[str, dict[str, Any]] = {}
         self.observation_count = 0
@@ -68,7 +70,15 @@ class OnlineRobustDetector:
         key = (minute, evidence.source, evidence.node_id)
         values = self._buckets[key]
         values.append(evidence)
-        values.sort(key=lambda item: (-item.score, item.timestamp, item.metric, item.dimensions))
+        values.sort(
+            key=lambda item: (
+                item.event_role != "trigger",
+                -item.score,
+                item.timestamp,
+                item.metric,
+                item.dimensions,
+            )
+        )
         if len(values) > self.maximum_per_bucket:
             del values[self.maximum_per_bucket :]
             self.dropped_evidence_count += 1
@@ -83,25 +93,40 @@ class OnlineRobustDetector:
             raise RuntimeError("detector is already finalized")
         self.observation_count += 1
         key = item.series_key
+        self._counts[key] += 1
+        known_state = item.direction == "state" and item.normal_value is not None
+        if known_state:
+            self._process(item, minimum_history=0)
+            return
+        if key in self._long_series:
+            self._process(item, minimum_history=self.long_history)
+            return
+        buffered = self._undecided[key]
+        buffered.append(item)
+        if len(buffered) == self.long_threshold:
+            self._long_series.add(key)
+            del self._undecided[key]
+            for pending in buffered:
+                self._process(pending, minimum_history=self.long_history)
+
+    def _process(self, item: NumericObservation, *, minimum_history: int) -> None:
+        key = item.series_key
         history = self._history.setdefault(key, deque(maxlen=self.lookback))
-        count_before = self._counts[key]
         threshold = float(
             self.config.get("source_thresholds", {}).get(
                 item.source, self.config.get("evidence_threshold", 6.0)
             )
         )
         evidence = None
-        if len(history) >= self.short_history:
-            baseline, score = robust_score(
-                item.value,
+        known_state = item.direction == "state" and item.normal_value is not None
+        score = 0.0
+        if known_state or len(history) >= minimum_history:
+            baseline, score, observed_direction, semantic_score = score_numeric_observation(
+                item,
                 history,
                 self._metric_config(item.metric),
-                direction=item.direction,
             )
             if score >= threshold:
-                observed_direction = item.direction
-                if item.direction == "both":
-                    observed_direction = "high" if item.value > baseline else "low"
                 evidence = AnomalyEvidence(
                     timestamp=item.timestamp,
                     source=item.source,
@@ -114,17 +139,21 @@ class OnlineRobustDetector:
                     direction=observed_direction,
                     dimensions=item.dimensions,
                     event_role=item.event_role,
+                    semantic_score=semantic_score,
                 )
 
-        history.append(item.value)
-        self._counts[key] = count_before + 1
         if evidence is not None:
-            if count_before < self.long_history:
-                self._pending_short[key].append(evidence)
-            else:
-                self._retain(evidence)
-        if self._counts[key] == self.long_threshold:
-            self._pending_short.pop(key, None)
+            self._anomaly_runs[key] += 1
+            freeze_points = max(
+                0, int(self.config.get("baseline_freeze_anomaly_points", 30))
+            )
+            if self._anomaly_runs[key] > freeze_points:
+                history.append(item.value)
+        else:
+            self._anomaly_runs[key] = 0
+            history.append(item.value)
+        if evidence is not None:
+            self._retain(evidence)
 
     def extend(self, observations: Iterable[NumericObservation]) -> None:
         for item in observations:
@@ -132,11 +161,10 @@ class OnlineRobustDetector:
 
     def finalize(self) -> tuple[AnomalyEvidence, ...]:
         if not self._finalized:
-            for key, pending in self._pending_short.items():
-                if self._counts[key] < self.long_threshold:
-                    for evidence in pending:
-                        self._retain(evidence)
-            self._pending_short.clear()
+            for pending in self._undecided.values():
+                for item in pending:
+                    self._process(item, minimum_history=self.short_history)
+            self._undecided.clear()
             self._finalized = True
         return tuple(
             sorted(

@@ -25,9 +25,11 @@ def point(
     direction: str = "high",
     node: str = "xian-service-vm-1",
     event_role: str = "trigger",
+    minute: int = 1,
+    semantic_score: float = 0.0,
 ) -> AnomalyEvidence:
     return AnomalyEvidence(
-        timestamp=BASE + timedelta(minutes=1),
+        timestamp=BASE + timedelta(minutes=minute),
         source=source,
         node_id=node,
         related_node_ids=(),
@@ -39,6 +41,7 @@ def point(
         dimensions=(),
         summary=None,
         event_role=event_role,
+        semantic_score=semantic_score,
     )
 
 
@@ -186,6 +189,31 @@ class PrototypeModelTests(unittest.TestCase):
         self.assertEqual(
             result.category,
             {"major_category": "resource", "sub_category": "memory_pressure"},
+        )
+
+    def test_sustained_semantic_disk_saturation_outweighs_correlated_cpu_load(self):
+        evidence = []
+        for minute in range(1, 9):
+            evidence.extend(
+                (
+                    point("node.disk_io_util", minute=minute, semantic_score=1.0),
+                    point("node.cpu_usage", minute=minute),
+                    point("node.load1", minute=minute),
+                )
+            )
+        for minute in range(9, 14):
+            evidence.extend(
+                (
+                    point("node.cpu_usage", minute=minute),
+                    point("node.load1", minute=minute),
+                )
+            )
+
+        result = classify_event(event(*evidence), ranking(), TAXONOMY, MODEL_CONFIG)
+
+        self.assertEqual(
+            result.category,
+            {"major_category": "resource", "sub_category": "disk_io_pressure"},
         )
 
     def test_all_taxonomy_entries_have_prototypes_and_result_is_a_legal_pair(self):

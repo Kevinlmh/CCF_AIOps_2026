@@ -84,6 +84,7 @@ class NumericObservation:
     dimensions: DimensionTuple
     direction: AnomalyDirection = "both"
     event_role: EventRole = "trigger"
+    normal_value: float | None = None
 
     def __post_init__(self) -> None:
         _validate_timestamp(self.timestamp)
@@ -95,6 +96,8 @@ class NumericObservation:
             raise ValueError("invalid anomaly direction")
         if self.event_role not in {"trigger", "support"}:
             raise ValueError("invalid event role")
+        if self.normal_value is not None and not math.isfinite(self.normal_value):
+            raise ValueError("normal value must be finite")
         object.__setattr__(self, "dimensions", _canonical_dimensions(self.dimensions))
         object.__setattr__(self, "related_node_ids", tuple(dict.fromkeys(self.related_node_ids)))
 
@@ -134,6 +137,7 @@ class AnomalyEvidence:
     dimensions: DimensionTuple
     summary: str | None = None
     event_role: EventRole = "trigger"
+    semantic_score: float = 0.0
 
     def __post_init__(self) -> None:
         _validate_timestamp(self.timestamp)
@@ -146,6 +150,8 @@ class AnomalyEvidence:
             raise ValueError("invalid anomaly direction")
         if self.event_role not in {"trigger", "support"}:
             raise ValueError("invalid event role")
+        if not math.isfinite(self.semantic_score) or not 0.0 <= self.semantic_score <= 1.0:
+            raise ValueError("evidence semantic_score must be in [0, 1]")
         object.__setattr__(self, "dimensions", _canonical_dimensions(self.dimensions))
         object.__setattr__(self, "related_node_ids", tuple(dict.fromkeys(self.related_node_ids)))
         if self.summary is not None:

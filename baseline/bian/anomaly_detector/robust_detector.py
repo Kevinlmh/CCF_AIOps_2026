@@ -62,6 +62,55 @@ def robust_score(
     return center, min(maximum, difference / scale)
 
 
+def semantic_range_score(metric: str, value: float, config: dict[str, Any]) -> float:
+    """Return a bounded physical-range severity independent of baseline drift."""
+    for pattern, configured in config.get("metric_semantic_ranges", {}).items():
+        if not fnmatch(metric, pattern):
+            continue
+        if "high_start" in configured and "high_full" in configured:
+            start = float(configured["high_start"])
+            full = float(configured["high_full"])
+            if full <= start:
+                raise ValueError(f"invalid high semantic range for metric pattern: {pattern}")
+            return min(1.0, max(0.0, (value - start) / (full - start)))
+        if "low_start" in configured and "low_full" in configured:
+            start = float(configured["low_start"])
+            full = float(configured["low_full"])
+            if full >= start:
+                raise ValueError(f"invalid low semantic range for metric pattern: {pattern}")
+            return min(1.0, max(0.0, (start - value) / (start - full)))
+        raise ValueError(f"semantic range requires high_* or low_* bounds: {pattern}")
+    return 0.0
+
+
+def score_numeric_observation(
+    item: NumericObservation,
+    history: Iterable[float | None],
+    config: dict[str, Any],
+) -> tuple[float, float, str, float]:
+    """Score one canonical observation, including known-normal state metrics."""
+    if item.direction == "state" and item.normal_value is not None:
+        tolerance = max(0.0, float(config.get("state_value_tolerance", 1e-9)))
+        difference = abs(item.value - item.normal_value)
+        score = float(config.get("max_score", 25.0)) if difference > tolerance else 0.0
+        return item.normal_value, score, "state", 1.0 if score > 0 else 0.0
+    baseline, score = robust_score(
+        item.value,
+        history,
+        config,
+        direction=item.direction,
+    )
+    observed_direction = item.direction
+    if item.direction == "both":
+        observed_direction = "high" if item.value > baseline else "low"
+    return (
+        baseline,
+        score,
+        observed_direction,
+        semantic_range_score(item.metric, item.value, config),
+    )
+
+
 def _consolidate_series(
     observations: Iterable[NumericObservation],
 ) -> dict[tuple[object, ...], list[NumericObservation]]:
@@ -90,6 +139,7 @@ def _consolidate_series(
                     dimensions=reference.dimensions,
                     direction=reference.direction,
                     event_role=reference.event_role,
+                    normal_value=reference.normal_value,
                 )
             )
         consolidated.sort(key=lambda item: item.timestamp)
@@ -108,6 +158,7 @@ def _numeric_evidence(
     long_threshold = max(long_history, int(config.get("long_series_threshold", 60)))
     source_thresholds = config.get("source_thresholds", {})
     default_threshold = float(config.get("evidence_threshold", 6.0))
+    freeze_points = max(0, int(config.get("baseline_freeze_anomaly_points", 30)))
 
     def metric_config(metric: str) -> dict[str, Any]:
         absolute_floor = float(config.get("absolute_scale_floor", 0.01))
@@ -133,19 +184,18 @@ def _numeric_evidence(
     for values in _consolidate_series(observations).values():
         minimum_history = long_history if len(values) >= long_threshold else short_history
         history: list[float] = []
+        anomaly_run = 0
         for item in values:
-            if len(history) >= minimum_history:
-                baseline, score = robust_score(
-                    item.value,
+            known_state = item.direction == "state" and item.normal_value is not None
+            threshold = float(source_thresholds.get(item.source, default_threshold))
+            score = 0.0
+            if known_state or len(history) >= minimum_history:
+                baseline, score, observed_direction, semantic_score = score_numeric_observation(
+                    item,
                     history[-lookback:],
                     metric_config(item.metric),
-                    direction=item.direction,
                 )
-                threshold = float(source_thresholds.get(item.source, default_threshold))
                 if score >= threshold:
-                    observed_direction = item.direction
-                    if item.direction == "both":
-                        observed_direction = "high" if item.value > baseline else "low"
                     evidence.append(
                         AnomalyEvidence(
                             timestamp=item.timestamp,
@@ -160,9 +210,16 @@ def _numeric_evidence(
                             dimensions=item.dimensions,
                             summary=None,
                             event_role=item.event_role,
+                            semantic_score=semantic_score,
                         )
                     )
-            history.append(item.value)
+            if score >= threshold:
+                anomaly_run += 1
+                if anomaly_run > freeze_points:
+                    history.append(item.value)
+            else:
+                anomaly_run = 0
+                history.append(item.value)
     return evidence
 
 
@@ -227,6 +284,31 @@ def _minute_range(start: datetime, end: datetime) -> list[datetime]:
         values.append(current)
         current += timedelta(minutes=1)
     return values
+
+
+def _trigger_family(point: AnomalyEvidence) -> tuple[object, ...]:
+    metric = point.metric.lower()
+    parts = metric.split(".")
+    if point.source == "node":
+        if "cpu" in metric or ".load" in metric:
+            return point.source, point.node_id, "resource_cpu"
+        if "memory" in metric or "swap" in metric:
+            return point.source, point.node_id, "resource_memory"
+        if any(token in metric for token in ("disk_io", "disk_read", "disk_write")):
+            return point.source, point.node_id, "resource_disk_io"
+    if point.source == "traffic" and len(parts) >= 3:
+        service = parts[1]
+        suffix = ".".join(parts[2:])
+        if "success" in suffix or "error" in suffix:
+            family = "outcome"
+        elif "latency_mean" in suffix or "latency_p95" in suffix:
+            family = "latency"
+        elif "observed_qps" in suffix or "throughput" in suffix:
+            family = "availability"
+        else:
+            family = suffix
+        return point.source, point.node_id, service, family
+    return point.source, point.node_id, point.metric
 
 
 def _energies(
@@ -320,48 +402,50 @@ def _qualified_trigger_evidence(
             point.dimensions,
         )
 
-    def trigger_family(point: AnomalyEvidence) -> tuple[object, ...]:
-        metric = point.metric.lower()
-        parts = metric.split(".")
-        if point.source == "traffic" and len(parts) >= 3:
-            service = parts[1]
-            suffix = ".".join(parts[2:])
-            if "success" in suffix or "error" in suffix:
-                family = "outcome"
-            elif "latency_mean" in suffix or "latency_p95" in suffix:
-                family = "latency"
-            elif "observed_qps" in suffix or "throughput" in suffix:
-                family = "availability"
-            else:
-                family = suffix
-            return point.source, point.node_id, service, family
-        return point.source, point.node_id, point.metric
-
     for point in triggers:
         minute = _minute(point.timestamp)
         by_minute[minute].append(point)
         series_minutes[series_key(point)].add(minute)
 
     qualified: list[AnomalyEvidence] = []
+    minimum_persistent = max(2, int(config.get("min_persistent_trigger_minutes", 2)))
+    require_cross = bool(config.get("corroboration_requires_cross_source_or_node", True))
+    semantic_threshold = float(config.get("semantic_single_minute_threshold", 0.9))
     for minute, points in by_minute.items():
-        keys = {series_key(point) for point in points}
-        families = {trigger_family(point) for point in points}
-        immediate = any(
-            point.direction == "state" or point.source == "frr" for point in points
-        )
-        corroborated = len(families) >= required
-        persistent = False
-        if persistence_gap > 0:
-            persistent = any(
-                any(
-                    minute + timedelta(minutes=offset) in series_minutes[key]
-                    for offset in range(-persistence_gap, persistence_gap + 1)
-                    if offset != 0
-                )
-                for key in keys
+        for point in points:
+            point_family = _trigger_family(point)
+            corroborating_families = {point_family}
+            for other in points:
+                other_family = _trigger_family(other)
+                if other is point or other_family == point_family:
+                    continue
+                if require_cross:
+                    same_node_cross_source = (
+                        point.node_id is not None
+                        and point.node_id == other.node_id
+                        and point.source != other.source
+                    )
+                    explicitly_related = (
+                        other.node_id is not None
+                        and other.node_id in point.related_node_ids
+                    ) or (
+                        point.node_id is not None
+                        and point.node_id in other.related_node_ids
+                    )
+                    if not (same_node_cross_source or explicitly_related):
+                        continue
+                corroborating_families.add(other_family)
+            corroborated = len(corroborating_families) >= required
+            key = series_key(point)
+            persistent_minutes = sum(
+                minute + timedelta(minutes=offset) in series_minutes[key]
+                for offset in range(-persistence_gap, persistence_gap + 1)
             )
-        if immediate or corroborated or persistent:
-            qualified.extend(points)
+            immediate = point.direction == "state" or point.source == "frr"
+            persistent = persistent_minutes >= minimum_persistent
+            semantically_extreme = point.semantic_score >= semantic_threshold
+            if immediate or corroborated or persistent or semantically_extreme:
+                qualified.append(point)
     return tuple(
         sorted(
             qualified,
@@ -380,11 +464,27 @@ def _suppress_nearby_events(
     if separation == 0 or len(events) < 2:
         return events
 
-    def quality(event: DetectedEvent) -> tuple[float, int, int, float, float]:
+    def quality(event: DetectedEvent) -> tuple[float, ...]:
+        triggers = [
+            point for point in event.evidence if point.event_role == "trigger"
+        ]
+        trigger_minutes = {
+            point.timestamp.replace(second=0, microsecond=0) for point in triggers
+        }
+        family_minute_scores: dict[tuple[datetime, tuple[object, ...]], float] = {}
+        for point in triggers:
+            key = (_minute(point.timestamp), _trigger_family(point))
+            family_minute_scores[key] = max(
+                family_minute_scores.get(key, 0.0), point.score
+            )
         return (
+            float(any(point.direction == "state" or point.source == "frr" for point in triggers)),
+            max((point.semantic_score for point in triggers), default=0.0),
+            float(len(trigger_minutes)),
+            float(len({point.source for point in triggers})),
+            float(len({_trigger_family(point) for point in triggers})),
+            sum(family_minute_scores.values()) / 25.0,
             trigger_energy.get(event.peak_time, 0.0),
-            len({point.source for point in event.evidence if point.event_role == "trigger"}),
-            sum(point.event_role == "trigger" for point in event.evidence),
             event.confidence,
             -event.peak_time.timestamp(),
         )
@@ -557,11 +657,11 @@ def segment_evidence(
     return events, diagnostics
 
 
-def detect_events(
+def detect_events_with_evidence(
     bundle: ObservationBundle,
     config: dict[str, Any],
-) -> tuple[list[DetectedEvent], DetectionDiagnostics]:
-    """Detect events from canonical numeric and textual observations."""
+) -> tuple[list[DetectedEvent], DetectionDiagnostics, tuple[AnomalyEvidence, ...]]:
+    """Detect events and retain the bounded pre-segmentation evidence."""
     all_times = [item.timestamp for item in bundle.numeric]
     all_times.extend(item.timestamp for item in bundle.text_events)
     if not all_times:
@@ -576,13 +676,26 @@ def detect_events(
             open_threshold=float(config.get("open_threshold", 7.0)),
             keep_threshold=float(config.get("keep_threshold", 3.0)),
         )
-        return [], diagnostics
+        return [], diagnostics, ()
     points = _numeric_evidence(bundle.numeric, config)
     points.extend(_text_evidence(bundle, config))
-    return segment_evidence(
-        points,
+    ordered_points = tuple(
+        sorted(points, key=lambda item: (item.timestamp, item.source, item.metric))
+    )
+    events, diagnostics = segment_evidence(
+        ordered_points,
         observation_start=min(all_times),
         observation_end=max(all_times),
         config=config,
         source_coverage=bundle.source_coverage,
     )
+    return events, diagnostics, ordered_points
+
+
+def detect_events(
+    bundle: ObservationBundle,
+    config: dict[str, Any],
+) -> tuple[list[DetectedEvent], DetectionDiagnostics]:
+    """Detect events from canonical numeric and textual observations."""
+    events, diagnostics, _ = detect_events_with_evidence(bundle, config)
+    return events, diagnostics
