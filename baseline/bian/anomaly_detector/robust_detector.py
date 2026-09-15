@@ -83,6 +83,28 @@ def semantic_range_score(metric: str, value: float, config: dict[str, Any]) -> f
     return 0.0
 
 
+def evidence_event_role(
+    item: NumericObservation,
+    semantic_score: float,
+    config: dict[str, Any],
+) -> str:
+    """Demote bounded metrics that are far from their hazardous range."""
+    if item.event_role != "trigger":
+        return item.event_role
+    for pattern, configured in config.get(
+        "trigger_semantic_minimums", {}
+    ).items():
+        if not fnmatch(item.metric, pattern):
+            continue
+        minimum = float(configured)
+        if not 0.0 <= minimum <= 1.0:
+            raise ValueError(
+                f"invalid trigger semantic minimum for metric pattern: {pattern}"
+            )
+        return "trigger" if semantic_score >= minimum else "support"
+    return item.event_role
+
+
 def score_numeric_observation(
     item: NumericObservation,
     history: Iterable[float | None],
@@ -209,7 +231,9 @@ def _numeric_evidence(
                             direction=observed_direction,
                             dimensions=item.dimensions,
                             summary=None,
-                            event_role=item.event_role,
+                            event_role=evidence_event_role(
+                                item, semantic_score, config
+                            ),
                             semantic_score=semantic_score,
                         )
                     )
@@ -409,6 +433,7 @@ def _qualified_trigger_evidence(
 
     qualified: list[AnomalyEvidence] = []
     minimum_persistent = max(2, int(config.get("min_persistent_trigger_minutes", 2)))
+    metric_persistence = config.get("metric_min_persistent_trigger_minutes", {})
     require_cross = bool(config.get("corroboration_requires_cross_source_or_node", True))
     semantic_threshold = float(config.get("semantic_single_minute_threshold", 0.9))
     for minute, points in by_minute.items():
@@ -441,8 +466,13 @@ def _qualified_trigger_evidence(
                 minute + timedelta(minutes=offset) in series_minutes[key]
                 for offset in range(-persistence_gap, persistence_gap + 1)
             )
+            point_minimum_persistent = minimum_persistent
+            for pattern, configured in metric_persistence.items():
+                if fnmatch(point.metric, pattern):
+                    point_minimum_persistent = max(2, int(configured))
+                    break
             immediate = point.direction == "state" or point.source == "frr"
-            persistent = persistent_minutes >= minimum_persistent
+            persistent = persistent_minutes >= point_minimum_persistent
             semantically_extreme = point.semantic_score >= semantic_threshold
             if immediate or corroborated or persistent or semantically_extreme:
                 qualified.append(point)
@@ -552,10 +582,8 @@ def _event_from_window(
         key=lambda minute: (trigger_energy[minute], -minute.timestamp()),
     )
     counts = Counter(point.source for point in selected)
-    excess = max(0.0, trigger_energy[peak_time] - open_threshold)
-    confidence = min(
-        0.95,
-        0.5 + 0.45 * (1.0 - math.exp(-excess / max(open_threshold, 1e-9))),
+    confidence = confidence_from_peak_energy(
+        trigger_energy[peak_time], open_threshold
     )
     return DetectedEvent(
         start=start,
@@ -564,6 +592,15 @@ def _event_from_window(
         confidence=confidence,
         evidence=tuple(sorted(selected, key=lambda item: (-item.score, item.timestamp, item.metric))),
         source_counts=dict(sorted(counts.items())),
+    )
+
+
+def confidence_from_peak_energy(peak_energy: float, open_threshold: float) -> float:
+    """Map locally supported trigger energy to a bounded event confidence."""
+    excess = max(0.0, peak_energy - open_threshold)
+    return min(
+        0.95,
+        0.5 + 0.45 * (1.0 - math.exp(-excess / max(open_threshold, 1e-9))),
     )
 
 

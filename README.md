@@ -7,13 +7,12 @@ GitHub 仓库：`https://github.com/Kevinlmh/CCF_AIOps_2026`
 分支说明：
 
 - `official-baseline`：官方 Gitee Baseline 的原始快照；
-- `hybrid-v1`：多源混合模型 v1.2 的稳定开发基线；
-- `feature/multisource-hybrid-v1.3`：当前 P0/P1/P2 修复分支；
+- `hybrid-v1`：当前多源混合模型 v1.4 开发分支；
 - `main`：已发布的稳定分支，功能分支完成团队复核后再合并。
 
 远端 `upstream` 指向官方 Gitee，`origin` 指向本项目 GitHub。
 
-## 多源混合模型 v1.3
+## 多源混合模型 v1.4
 
 当前分支已在原始 BiAn Baseline 上加入可直接运行的多源混合模型：
 
@@ -26,6 +25,8 @@ GitHub 仓库：`https://github.com/Kevinlmh/CCF_AIOps_2026`
 v1.1 进一步支持正式 `*_data/` 目录、严格八城市七来源清单、受控内存流式检测、Counter/State 指标语义、FRR 去噪、并发城市事件拆分、事件缓存和 API 并行推理。v1.2 将指标划分为故障触发、辅助证据和调度上下文，增加触发可靠性门控、20 分钟峰值抑制、事件城市候选约束与分类去偏。正式数据自动选择 `streaming`；公开样例继续使用内存模式保持回归稳定。
 
 v1.3 修复了吞吐语义遮蔽、support 挤占 trigger、state 正常值未生效和 RCA 证据角色等问题，并加入语义量程、30 点异常基线冻结、因果族持续性、实现指纹、证据缓存和带分母的诊断日志。工作量 QPS 与滞后的 load average 只作辅助证据；分类按分钟去重相关信号，并以根因节点的主要连续触发段细化时间边界。`local` 后端适合本机开发和快速回归；正式提交建议启用 LLM 混合路径，在统计证据和图特征基础上完成最终复核。
+
+v1.4 针对正式数据暴露的证据质量问题继续收敛：服务成功率和错误率使用原始 Counter 增量并进行可配置的贝叶斯收缩；低量程 `disk_io_util` 只保留为辅助证据；CPU 的低语义异常需要更强持续性；跨城市切分只允许 trigger 关系建立连接，并在切分后重新执行 trigger 准入、能量阈值与 confidence 计算。该版本不按目标事件数量删减结果，也没有设置统一的最小请求量或最小故障时长。
 
 详细设计和实施计划见：
 
@@ -86,8 +87,8 @@ python baseline/bian/run.py \
 python baseline/bian/run.py \
   --data-root data/stage1/regions \
   --scratch-dir data/stage1/scratch \
-  --evidence-cache outputs/stage1_evidence_v1_3.json \
-  --event-cache outputs/stage1_events_v1_3.json \
+  --evidence-cache outputs/stage1_evidence_v1_4.json \
+  --event-cache outputs/stage1_events_v1_4.json \
   --output outputs/stage1_local_predictions.jsonl \
   --inference-log outputs/stage1_local_inference.json
 ```
@@ -143,7 +144,7 @@ python -m aiops_challenge_2026.evaluator \
 
 `examples/predictions.jsonl` 可用于演示评测工具的使用方式，不代表 Baseline 性能。
 
-v1.3 在三个公开样例上的本地评测为 `Total=96.677778`、`AD=36.677778`、`RCA=40`、`Major=10`、`Minor=10`，3 个根因 Top1 和细分类全部正确。v1.2 的历史样例分数为 `98.855556`，但其滚动基线会在约 30 分钟长故障时翻转；因此不能只根据三个短样例分数选择版本。这些结果不代表正式隐藏数据成绩。
+v1.4 在三个公开样例上的本地评测为 `Total=96.011111`、`AD=36.011111`、`RCA=40`、`Major=10`、`Minor=10`，3 个根因 Top1 和细分类全部正确。成都正式数据由 v1.3 的 167 条事件降至 104 条，无 trigger 事件为 0；被审计脚本判为“极小样本 ratio 驱动且被 30 分钟窗口推翻”的事件由 68 条降至 1 条。剩余 1 条同时存在连续三分钟的原始错误计数 trigger，不能仅依据 ratio 审计结果直接删除。八城市 v1.4 全量结果仍需重新扫描原始 CSV 验证，且这些无标签结果不代表正式隐藏数据成绩。
 
 本次代表性输出已归档在 `artifacts/public-sample-v1/`。
 

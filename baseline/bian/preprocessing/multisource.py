@@ -426,7 +426,11 @@ def _iter_traffic_file(
     path: Path,
     valid_roles: tuple[str, ...],
     stats: ParseStats,
+    *,
+    ratio_prior_weight: float = 0.0,
 ) -> Iterator[NumericObservation]:
+    if ratio_prior_weight < 0:
+        raise ValueError("traffic_ratio_prior_weight must be non-negative")
     previous: dict[tuple[str, str], tuple[datetime, float]] = {}
     for _, row in _read_rows(path, "traffic", stats):
         timestamp = _row_time(row, "traffic")
@@ -448,6 +452,7 @@ def _iter_traffic_file(
         prefix = f"{flow_type}_flow_"
         identity = row.get("series_key") or "|".join(value for _, value in dimensions)
         row_deltas: dict[str, float] = {}
+        row_counts: dict[str, float] = {}
         emitted = 0
         reset_detected = False
         for field_name, raw_value in row.items():
@@ -468,12 +473,13 @@ def _iter_traffic_file(
                 if elapsed_minutes <= 0:
                     continue
                 if value < old_value:
-                    delta = value
+                    count_delta = value
                     reset_detected = True
                 else:
-                    delta = value - old_value
-                delta /= elapsed_minutes
+                    count_delta = value - old_value
                 metric_suffix = _counter_metric_name(suffix)
+                row_counts[metric_suffix] = count_delta
+                delta = count_delta / elapsed_minutes
                 row_deltas[metric_suffix] = delta
                 metric = f"traffic.{flow_type}.{metric_suffix}"
                 metric_value = delta
@@ -492,14 +498,19 @@ def _iter_traffic_file(
             )
             emitted += 1
 
-        request_delta = row_deltas.get("requests_rate")
-        if request_delta is not None and request_delta > 0:
+        request_count = row_counts.get("requests_rate")
+        if request_count is not None and request_count > 0:
             for numerator_name, ratio_name in (
                 ("success_rate", "success_ratio"),
                 ("error_rate", "error_ratio"),
             ):
-                if numerator_name not in row_deltas:
+                numerator_count = row_counts.get(numerator_name)
+                if numerator_count is None:
                     continue
+                prior_probability = 1.0 if ratio_name == "success_ratio" else 0.0
+                adjusted_ratio = (
+                    numerator_count + ratio_prior_weight * prior_probability
+                ) / (request_count + ratio_prior_weight)
                 metric = f"traffic.{flow_type}.{ratio_name}"
                 yield NumericObservation(
                     timestamp=timestamp,
@@ -507,7 +518,7 @@ def _iter_traffic_file(
                     node_id=source_node,
                     related_node_ids=related,
                     metric=metric,
-                    value=row_deltas[numerator_name] / request_delta,
+                    value=min(1.0, max(0.0, adjusted_ratio)),
                     dimensions=dimensions,
                     direction=_direction("traffic", metric),
                 )
@@ -531,8 +542,17 @@ def _parse_traffic_file(
     path: Path,
     valid_roles: tuple[str, ...],
     stats: ParseStats,
+    *,
+    ratio_prior_weight: float = 0.0,
 ) -> list[NumericObservation]:
-    return list(_iter_traffic_file(path, valid_roles, stats))
+    return list(
+        _iter_traffic_file(
+            path,
+            valid_roles,
+            stats,
+            ratio_prior_weight=ratio_prior_weight,
+        )
+    )
 
 
 def _clean_token(value: str | None, default: str = "unknown") -> str:
@@ -792,13 +812,21 @@ def iter_file_observations(
     stats: ParseStats,
     *,
     scratch_dir: Path | None = None,
+    detector_config: dict[str, object] | None = None,
 ) -> Iterator[NumericObservation | TextEvent]:
     """Stream canonical observations for one recognized source file."""
     roles = tuple(valid_roles)
     if source in {"node", "interface", "routing", "scrape"}:
         yield from _iter_dense_file(path, source, city, roles, stats)
     elif source == "traffic":
-        yield from _iter_traffic_file(path, roles, stats)
+        yield from _iter_traffic_file(
+            path,
+            roles,
+            stats,
+            ratio_prior_weight=float(
+                (detector_config or {}).get("traffic_ratio_prior_weight", 0.0)
+            ),
+        )
     elif source == "netflow":
         yield from _iter_netflow_file(
             path, city, roles, stats, scratch_dir=scratch_dir
@@ -813,6 +841,8 @@ def load_observations(
     root: Path,
     aliases: dict[str, str],
     valid_roles: Iterable[str],
+    *,
+    detector_config: dict[str, object] | None = None,
 ) -> ObservationBundle:
     """Load all recognized public sources without retaining raw flow rows."""
     roles = tuple(valid_roles)
@@ -830,7 +860,18 @@ def load_observations(
             numeric.extend(values)
             text_events.extend(text)
         elif source == "traffic":
-            numeric.extend(_parse_traffic_file(path, roles, stats))
+            numeric.extend(
+                _parse_traffic_file(
+                    path,
+                    roles,
+                    stats,
+                    ratio_prior_weight=float(
+                        (detector_config or {}).get(
+                            "traffic_ratio_prior_weight", 0.0
+                        )
+                    ),
+                )
+            )
         elif source == "netflow":
             numeric.extend(_parse_netflow_file(path, city, roles, stats))
         elif source == "frr":

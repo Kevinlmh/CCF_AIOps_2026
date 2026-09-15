@@ -119,6 +119,25 @@ class StreamingDetectorTests(unittest.TestCase):
         self.assertEqual(len(evidence), 1)
         self.assertEqual(evidence[0].event_role, "support")
 
+    def test_streaming_detector_demotes_low_semantic_trigger_to_support(self):
+        config = {
+            **CONFIG,
+            "metric_semantic_ranges": {
+                "node.disk_io_util": {"high_start": 70.0, "high_full": 90.0}
+            },
+            "trigger_semantic_minimums": {"node.disk_io_util": 0.1},
+        }
+        detector = OnlineRobustDetector(config)
+        detector.extend(
+            [point(i, 1.0, "node.disk_io_util") for i in range(4)]
+        )
+        detector.add(point(4, 20.0, "node.disk_io_util"))
+
+        evidence = detector.finalize()
+
+        self.assertEqual(len(evidence), 1)
+        self.assertEqual(evidence[0].event_role, "support")
+
     def test_long_series_matches_offline_warmup_and_scores(self):
         observations = [point(i, 10.0) for i in range(65)]
         observations[20] = point(20, 20.0)

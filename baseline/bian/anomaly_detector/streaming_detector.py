@@ -6,7 +6,7 @@ from collections import defaultdict, deque
 from fnmatch import fnmatch
 from typing import Any, Iterable
 
-from .robust_detector import score_numeric_observation
+from .robust_detector import evidence_event_role, score_numeric_observation
 from ..preprocessing.observations import AnomalyEvidence, NumericObservation
 
 
@@ -138,7 +138,9 @@ class OnlineRobustDetector:
                     score=score,
                     direction=observed_direction,
                     dimensions=item.dimensions,
-                    event_role=item.event_role,
+                    event_role=evidence_event_role(
+                        item, semantic_score, self.config
+                    ),
                     semantic_score=semantic_score,
                 )
 

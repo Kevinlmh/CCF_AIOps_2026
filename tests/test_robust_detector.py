@@ -247,6 +247,32 @@ class EventSegmentationTests(unittest.TestCase):
 
         self.assertEqual(events, [])
 
+    def test_metric_specific_persistence_rejects_two_minute_low_range_cpu_burst(self):
+        events, _ = segment_evidence(
+            (evidence(4, score=10.0), evidence(5, score=10.0)),
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=8),
+            config={
+                **CONFIG,
+                "metric_min_persistent_trigger_minutes": {"node.cpu_usage": 3},
+            },
+        )
+
+        self.assertEqual(events, [])
+
+    def test_metric_specific_persistence_keeps_three_minute_cpu_incident(self):
+        events, _ = segment_evidence(
+            tuple(evidence(minute, score=10.0) for minute in (4, 5, 6)),
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=9),
+            config={
+                **CONFIG,
+                "metric_min_persistent_trigger_minutes": {"node.cpu_usage": 3},
+            },
+        )
+
+        self.assertEqual(len(events), 1)
+
     def test_unrelated_cross_node_spikes_do_not_corroborate_each_other(self):
         points = (
             evidence(4, metric="node.cpu_usage", node_id="xian-service-vm-1"),
@@ -416,6 +442,60 @@ class EventSegmentationTests(unittest.TestCase):
 
         self.assertEqual(len(points), 1)
         self.assertEqual(points[0].semantic_score, 1.0)
+
+    def test_low_semantic_disk_util_anomaly_is_demoted_to_support(self):
+        values = tuple(
+            NumericObservation(
+                timestamp=BASE + timedelta(minutes=index),
+                source="node",
+                node_id="xian-service-vm-1",
+                related_node_ids=(),
+                metric="node.disk_io_util",
+                value=value,
+                dimensions=(),
+                direction="high",
+            )
+            for index, value in enumerate([1.0] * 15 + [20.0])
+        )
+        config = {
+            **CONFIG,
+            "metric_semantic_ranges": {
+                "node.disk_io_util": {"high_start": 70.0, "high_full": 90.0}
+            },
+            "trigger_semantic_minimums": {"node.disk_io_util": 0.1},
+        }
+
+        points = _numeric_evidence(values, config)
+
+        self.assertEqual(len(points), 1)
+        self.assertEqual(points[0].event_role, "support")
+
+    def test_high_semantic_disk_util_anomaly_remains_a_trigger(self):
+        values = tuple(
+            NumericObservation(
+                timestamp=BASE + timedelta(minutes=index),
+                source="node",
+                node_id="xian-service-vm-1",
+                related_node_ids=(),
+                metric="node.disk_io_util",
+                value=value,
+                dimensions=(),
+                direction="high",
+            )
+            for index, value in enumerate([1.0] * 15 + [80.0])
+        )
+        config = {
+            **CONFIG,
+            "metric_semantic_ranges": {
+                "node.disk_io_util": {"high_start": 70.0, "high_full": 90.0}
+            },
+            "trigger_semantic_minimums": {"node.disk_io_util": 0.1},
+        }
+
+        points = _numeric_evidence(values, config)
+
+        self.assertEqual(len(points), 1)
+        self.assertEqual(points[0].event_role, "trigger")
 
     def test_short_history_fault_does_not_contaminate_frozen_baseline(self):
         values = tuple(

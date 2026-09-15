@@ -96,6 +96,7 @@ def detect_events_streaming(
             roles,
             stats,
             scratch_dir=scratch_dir,
+            detector_config=detector_config,
         ):
             if observation_start is None or item.timestamp < observation_start:
                 observation_start = item.timestamp

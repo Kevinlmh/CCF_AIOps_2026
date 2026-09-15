@@ -668,7 +668,9 @@ def run(
             source_coverage=cached_coverage,
         )
         if spatial_split:
-            events = split_concurrent_events(events, network["cities"])
+            events = split_concurrent_events(
+                events, network["cities"], config=model_config["detector"]
+            )
     elif reuse_event_cache:
         if event_cache is None:
             raise ValueError("--reuse-event-cache requires --event-cache")
@@ -726,12 +728,15 @@ def run(
                 "dropped_evidence": streamed.dropped_evidence_count,
             }
             if spatial_split:
-                events = split_concurrent_events(events, network["cities"])
+                events = split_concurrent_events(
+                    events, network["cities"], config=model_config["detector"]
+                )
         elif detector == "robust":
             bundle = load_observations(
                 data_root,
                 config["region_aliases"],
                 network["device_roles"],
+                detector_config=model_config["detector"],
             )
             semantics = MetricSemantics.from_json(METRIC_SEMANTICS_PATH)
             bundle = ObservationBundle(

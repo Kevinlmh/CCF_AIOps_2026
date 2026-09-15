@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from datetime import timedelta
-from typing import Iterable
+from typing import Any, Iterable
 
 from ..preprocessing.observations import AnomalyEvidence, DetectedEvent
+from .robust_detector import (
+    _energies,
+    _qualified_trigger_evidence,
+    confidence_from_peak_energy,
+)
 
 
 def _city(node_id: str | None, cities: tuple[str, ...]) -> str | None:
@@ -21,9 +25,13 @@ def _city(node_id: str | None, cities: tuple[str, ...]) -> str | None:
 def split_concurrent_events(
     events: Iterable[DetectedEvent],
     cities: Iterable[str],
+    *,
+    config: dict[str, Any] | None = None,
 ) -> list[DetectedEvent]:
     """Split independent city components while preserving relational bridges."""
     city_values = tuple(cities)
+    detector_config = config or {}
+    open_threshold = float(detector_config.get("open_threshold", 7.0))
     result: list[DetectedEvent] = []
     for original in events:
         present = {
@@ -50,7 +58,7 @@ def split_concurrent_events(
 
         for point in original.evidence:
             source_city = _city(point.node_id, city_values)
-            if source_city not in present:
+            if source_city not in present or point.event_role != "trigger":
                 continue
             for related in point.related_node_ids:
                 related_city = _city(related, city_values)
@@ -74,24 +82,47 @@ def split_concurrent_events(
         for points in grouped.values():
             points.extend(unassigned)
             points.sort(key=lambda point: (point.timestamp, -point.score, point.metric))
-            start = max(
-                original.start,
-                min(point.timestamp for point in points).replace(second=0, microsecond=0),
+            raw_triggers = tuple(
+                point for point in points if point.event_role == "trigger"
             )
-            end = min(
-                original.end,
-                max(point.timestamp for point in points).replace(second=0, microsecond=0)
-                + timedelta(minutes=1),
+            if not raw_triggers:
+                continue
+            triggers = (
+                _qualified_trigger_evidence(raw_triggers, detector_config)
+                if config is not None
+                else raw_triggers
             )
-            if end <= start:
-                end = start + timedelta(minutes=1)
-            peak = max(points, key=lambda point: (point.score, -point.timestamp.timestamp()))
+            if not triggers:
+                continue
+            trigger_minutes = sorted(
+                {
+                    point.timestamp.replace(second=0, microsecond=0)
+                    for point in triggers
+                }
+            )
+            trigger_energy, _ = _energies(
+                triggers, trigger_minutes, detector_config
+            )
+            peak_time = max(
+                trigger_minutes,
+                key=lambda minute: (
+                    trigger_energy[minute],
+                    -minute.timestamp(),
+                ),
+            )
+            peak_energy = trigger_energy[peak_time]
+            if peak_energy < open_threshold:
+                continue
+            start = original.start
+            end = original.end
             result.append(
                 DetectedEvent(
                     start=start,
                     end=end,
-                    peak_time=min(max(peak.timestamp, start), end),
-                    confidence=original.confidence,
+                    peak_time=min(max(peak_time, start), end),
+                    confidence=confidence_from_peak_energy(
+                        peak_energy, open_threshold
+                    ),
                     evidence=tuple(points),
                     source_counts=dict(sorted(Counter(point.source for point in points).items())),
                 )

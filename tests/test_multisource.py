@@ -165,6 +165,42 @@ class MultiSourceTests(unittest.TestCase):
             ),
         )
 
+    def test_traffic_ratio_prior_uses_counter_counts_not_per_minute_rates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            processed = Path(directory) / "xian_window" / "processed"
+            processed.mkdir(parents=True)
+            (processed / "traffic_flow_metrics.csv").write_text(
+                "timestamp_utc,series_key,flow_type,source_region,target_region,"
+                "target_domain,protocol,web_flow_requests_total,"
+                "web_flow_success_total,web_flow_error_total\n"
+                "2026-07-28 12:00:00,flow-a,web,xian,shanghai,"
+                "web01.shanghai.aiops.local,http,100,95,5\n"
+                "2026-07-28 12:02:00,flow-a,web,xian,shanghai,"
+                "web01.shanghai.aiops.local,http,130,120,10\n",
+                encoding="utf-8",
+            )
+
+            bundle = load_observations(
+                Path(directory),
+                ALIASES,
+                VALID_ROLES,
+                detector_config={"traffic_ratio_prior_weight": 30.0},
+            )
+
+        traffic = [item for item in bundle.numeric if item.source == "traffic"]
+        request_rate = next(
+            item for item in traffic if item.metric == "traffic.web.requests_rate"
+        )
+        success_ratio = next(
+            item for item in traffic if item.metric == "traffic.web.success_ratio"
+        )
+        error_ratio = next(
+            item for item in traffic if item.metric == "traffic.web.error_ratio"
+        )
+        self.assertEqual(request_rate.value, 15.0)
+        self.assertAlmostEqual(success_ratio.value, 55.0 / 60.0)
+        self.assertAlmostEqual(error_ratio.value, 5.0 / 60.0)
+
     def test_netflow_rows_are_aggregated_per_minute_observer_and_protocol(self):
         bundle = load_fixture()
         netflow = [
