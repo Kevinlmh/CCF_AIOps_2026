@@ -163,6 +163,19 @@ class MetricSemanticsTests(unittest.TestCase):
         self.assertEqual(success_rate[0].event_role, "support")
         self.assertEqual(success_ratio[0].event_role, "trigger")
 
+    def test_error_volume_rate_is_support_but_error_ratio_is_trigger(self):
+        transformer = CounterTransformer(self.semantics)
+
+        error_rate = transformer.transform(
+            observation(0, "traffic.web.error_rate", 30.0)
+        )
+        error_ratio = transformer.transform(
+            observation(0, "traffic.web.error_ratio", 0.5)
+        )
+
+        self.assertEqual(error_rate[0].event_role, "support")
+        self.assertEqual(error_ratio[0].event_role, "trigger")
+
     def test_observed_qps_is_support_only(self):
         result = CounterTransformer(self.semantics).transform(
             observation(0, "traffic.web.observed_qps", 5.0)

@@ -5,11 +5,14 @@ import math
 import unittest
 
 from baseline.bian.anomaly_detector.robust_detector import (
+    _energies,
+    _qualified_trigger_evidence,
     _numeric_evidence,
     _text_evidence,
     detect_events,
     robust_score,
     segment_evidence,
+    segment_evidence_by_city,
 )
 from baseline.bian.preprocessing.multisource import ObservationBundle
 from baseline.bian.preprocessing.observations import (
@@ -72,6 +75,7 @@ def evidence(
     semantic_score: float = 0.0,
     node_id: str = "xian-service-vm-1",
     related_node_ids: tuple[str, ...] = (),
+    value: float = 80.0,
 ) -> AnomalyEvidence:
     return AnomalyEvidence(
         timestamp=BASE + timedelta(minutes=minute),
@@ -79,7 +83,7 @@ def evidence(
         node_id=node_id,
         related_node_ids=related_node_ids,
         metric=metric,
-        value=80.0,
+        value=value,
         baseline=1.0,
         score=score,
         direction=direction,
@@ -149,6 +153,154 @@ class TextEvidenceTests(unittest.TestCase):
 
 
 class EventSegmentationTests(unittest.TestCase):
+    def test_energy_counts_correlated_service_outcomes_once_per_source(self):
+        minute = BASE + timedelta(minutes=4)
+        points = (
+            evidence(4, score=25.0, metric="traffic.web.success_ratio", source="traffic"),
+            evidence(4, score=20.0, metric="traffic.web.error_ratio", source="traffic"),
+            evidence(4, score=18.0, metric="traffic.web.error_rate", source="traffic"),
+        )
+
+        energy, per_source = _energies(points, [minute], CONFIG)
+
+        self.assertEqual(per_source[minute]["traffic"], 25.0)
+        self.assertEqual(energy[minute], 25.0)
+
+    def test_city_local_segmentation_prevents_cross_city_corroboration(self):
+        points = (
+            evidence(
+                4,
+                metric="node.cpu_usage",
+                node_id="xian-service-vm-1",
+                related_node_ids=("beida-service-vm-1",),
+            ),
+            evidence(
+                4,
+                metric="node.disk_io_util",
+                node_id="beida-service-vm-1",
+                related_node_ids=("xian-service-vm-1",),
+            ),
+        )
+
+        events, _ = segment_evidence_by_city(
+            points,
+            cities=("xian", "beida"),
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=8),
+            config=CONFIG,
+        )
+
+        self.assertEqual(events, [])
+
+    def test_cpu_trigger_tiers_use_absolute_value_and_persistence(self):
+        config = {
+            **CONFIG,
+            "metric_trigger_tiers": {
+                "node.cpu_usage": [
+                    {"min_value": 35.0, "min_persistent_minutes": 3},
+                    {"min_value": 20.0, "min_persistent_minutes": 5},
+                ]
+            },
+        }
+
+        low, _ = segment_evidence(
+            tuple(evidence(minute, value=10.0) for minute in range(4, 10)),
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=12),
+            config=config,
+        )
+        medium_short, _ = segment_evidence(
+            tuple(evidence(minute, value=25.0) for minute in range(4, 8)),
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=12),
+            config=config,
+        )
+        medium_long, _ = segment_evidence(
+            tuple(evidence(minute, value=25.0) for minute in range(4, 9)),
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=12),
+            config=config,
+        )
+        high, _ = segment_evidence(
+            tuple(evidence(minute, value=40.0) for minute in range(4, 7)),
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=12),
+            config=config,
+        )
+
+        self.assertEqual(low, [])
+        self.assertEqual(medium_short, [])
+        self.assertEqual(len(medium_long), 1)
+        self.assertEqual(len(high), 1)
+
+    def test_below_minimum_cpu_is_not_rescued_by_related_traffic_node(self):
+        config = {
+            **CONFIG,
+            "metric_trigger_tiers": {
+                "node.cpu_usage": [
+                    {"min_value": 20.0, "min_persistent_minutes": 5}
+                ]
+            },
+        }
+        cpu = evidence(
+            4,
+            value=10.0,
+            node_id="xian-service-vm-1",
+            related_node_ids=("xian-traffic-vm",),
+        )
+        traffic = evidence(
+            4,
+            source="traffic",
+            metric="traffic.web.error_ratio",
+            node_id="xian-traffic-vm",
+            related_node_ids=("xian-service-vm-1",),
+        )
+
+        qualified = _qualified_trigger_evidence((cpu, traffic), config)
+
+        self.assertNotIn(cpu, qualified)
+
+    def test_traffic_symptom_needs_two_families_unless_semantically_extreme(self):
+        config = {
+            **CONFIG,
+            "sources_require_independent_family_corroboration": ["traffic"],
+        }
+        outcome = tuple(
+            evidence(
+                minute,
+                source="traffic",
+                metric="traffic.web.error_ratio",
+                node_id="xian-traffic-vm",
+                semantic_score=0.3,
+            )
+            for minute in range(4, 9)
+        )
+        latency = evidence(
+            4,
+            source="traffic",
+            metric="traffic.web.latency_p95_seconds",
+            node_id="xian-traffic-vm",
+        )
+
+        outcome_only = _qualified_trigger_evidence(outcome, config)
+        corroborated = _qualified_trigger_evidence(outcome + (latency,), config)
+        extreme = _qualified_trigger_evidence(
+            (
+                evidence(
+                    4,
+                    source="traffic",
+                    metric="traffic.web.error_ratio",
+                    node_id="xian-traffic-vm",
+                    semantic_score=1.0,
+                ),
+            ),
+            config,
+        )
+
+        self.assertEqual(outcome_only, ())
+        self.assertIn(outcome[0], corroborated)
+        self.assertEqual(len(extreme), 1)
+
     def test_immediate_state_does_not_increase_trigger_energy_with_unrelated_gauge(self):
         minute = BASE + timedelta(minutes=4)
         points = (
@@ -165,6 +317,12 @@ class EventSegmentationTests(unittest.TestCase):
 
         self.assertEqual(len(events), 1)
         self.assertEqual(diagnostics.trigger_minute_energy[minute], 12.0)
+        disk = next(
+            point
+            for point in events[0].evidence
+            if point.metric == "node.disk_io_util"
+        )
+        self.assertEqual(disk.event_role, "support")
 
     def test_cpu_and_load_are_one_causal_family(self):
         points = (
@@ -272,6 +430,51 @@ class EventSegmentationTests(unittest.TestCase):
         )
 
         self.assertEqual(len(events), 1)
+
+    def test_recovery_direction_does_not_satisfy_trigger_persistence(self):
+        points = (
+            evidence(4, value=40.0, direction="high"),
+            evidence(5, value=40.0, direction="high"),
+            evidence(6, value=20.0, direction="low"),
+        )
+
+        events, _ = segment_evidence(
+            points,
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=8),
+            config={
+                **CONFIG,
+                "metric_trigger_tiers": {
+                    "node.cpu_usage": [
+                        {"min_value": 35.0, "min_persistent_minutes": 3}
+                    ]
+                },
+            },
+        )
+
+        self.assertEqual(events, [])
+
+    def test_values_below_cpu_tier_do_not_count_toward_tier_persistence(self):
+        points = tuple(
+            evidence(minute, value=value, direction="high")
+            for minute, value in enumerate((8.0, 12.0, 40.0), start=4)
+        )
+
+        events, _ = segment_evidence(
+            points,
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=8),
+            config={
+                **CONFIG,
+                "metric_trigger_tiers": {
+                    "node.cpu_usage": [
+                        {"min_value": 35.0, "min_persistent_minutes": 3}
+                    ]
+                },
+            },
+        )
+
+        self.assertEqual(events, [])
 
     def test_unrelated_cross_node_spikes_do_not_corroborate_each_other(self):
         points = (
@@ -469,6 +672,32 @@ class EventSegmentationTests(unittest.TestCase):
 
         self.assertEqual(len(points), 1)
         self.assertEqual(points[0].event_role, "support")
+
+    def test_configured_zero_support_metric_is_not_retained_as_evidence(self):
+        values = tuple(
+            NumericObservation(
+                timestamp=BASE + timedelta(minutes=index),
+                source="node",
+                node_id="xian-service-vm-1",
+                related_node_ids=(),
+                metric="node.disk_write_rate",
+                value=value,
+                dimensions=(),
+                direction="both",
+                event_role="support",
+            )
+            for index, value in enumerate([100.0] * 4 + [0.0])
+        )
+
+        points = _numeric_evidence(
+            values,
+            {
+                **CONFIG,
+                "support_zero_suppression_patterns": ["node.disk_*_rate"],
+            },
+        )
+
+        self.assertEqual(points, [])
 
     def test_high_semantic_disk_util_anomaly_remains_a_trigger(self):
         values = tuple(

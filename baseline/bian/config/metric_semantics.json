@@ -36,6 +36,7 @@
     {"pattern": "traffic.*.request_latency_seconds_sum_rate", "kind": "gauge", "direction": "both", "event_role": "support"},
     {"pattern": "traffic.*.request_latency_seconds_count_rate", "kind": "gauge", "direction": "both", "event_role": "support"},
     {"pattern": "traffic.*.*success*_ratio", "kind": "gauge", "direction": "low"},
+    {"pattern": "traffic.*.*error_rate", "kind": "gauge", "direction": "high", "event_role": "support"},
     {"pattern": "traffic.*.*throughput*", "kind": "gauge", "direction": "low", "event_role": "support"},
     {"pattern": "traffic.*.*observed_qps*", "kind": "gauge", "direction": "low", "event_role": "support"},
     {"pattern": "traffic.*.*error*", "kind": "gauge", "direction": "high"},

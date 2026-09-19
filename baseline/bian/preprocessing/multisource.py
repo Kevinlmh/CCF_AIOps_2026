@@ -350,7 +350,7 @@ def _iter_dense_file(
                     related_node_ids=(),
                     metric=metric,
                     value=value,
-                    dimensions=dimensions,
+            dimensions=dimensions,
                     direction=_direction(source, metric),
                 )
                 emitted += 1
@@ -519,7 +519,7 @@ def _iter_traffic_file(
                     related_node_ids=related,
                     metric=metric,
                     value=min(1.0, max(0.0, adjusted_ratio)),
-                    dimensions=dimensions,
+                    dimensions=dimensions + (("window_requests", str(request_count)),),
                     direction=_direction("traffic", metric),
                 )
                 emitted += 1

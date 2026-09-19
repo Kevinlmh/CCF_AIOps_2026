@@ -154,6 +154,7 @@ class MultiSourceTests(unittest.TestCase):
         self.assertEqual(request_rate.value, 30.0)
         self.assertAlmostEqual(success_ratio.value, 25.0 / 30.0)
         self.assertAlmostEqual(error_ratio.value, 5.0 / 30.0)
+        self.assertIn(("window_requests", "30.0"), error_ratio.dimensions)
         self.assertEqual(reset.value, 1.0)
         self.assertEqual(request_rate.node_id, "xian-traffic-vm")
         self.assertEqual(

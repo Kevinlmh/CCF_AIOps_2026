@@ -6,7 +6,7 @@ from collections import defaultdict, deque
 from fnmatch import fnmatch
 from typing import Any, Iterable
 
-from .robust_detector import evidence_event_role, score_numeric_observation
+from .robust_detector import evidence_event_role, retain_evidence, score_numeric_observation
 from ..preprocessing.observations import AnomalyEvidence, NumericObservation
 
 
@@ -155,7 +155,8 @@ class OnlineRobustDetector:
             self._anomaly_runs[key] = 0
             history.append(item.value)
         if evidence is not None:
-            self._retain(evidence)
+            if retain_evidence(evidence, self.config):
+                self._retain(evidence)
 
     def extend(self, observations: Iterable[NumericObservation]) -> None:
         for item in observations:

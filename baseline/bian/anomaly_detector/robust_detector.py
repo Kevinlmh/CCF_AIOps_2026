@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from fnmatch import fnmatch
 import math
@@ -103,6 +103,16 @@ def evidence_event_role(
             )
         return "trigger" if semantic_score >= minimum else "support"
     return item.event_role
+
+
+def retain_evidence(point: AnomalyEvidence, config: dict[str, Any]) -> bool:
+    """Return whether an evidence point carries non-trivial diagnostic value."""
+    if point.event_role != "support" or point.value != 0.0:
+        return True
+    return not any(
+        fnmatch(point.metric, pattern)
+        for pattern in config.get("support_zero_suppression_patterns", ())
+    )
 
 
 def score_numeric_observation(
@@ -218,8 +228,7 @@ def _numeric_evidence(
                     metric_config(item.metric),
                 )
                 if score >= threshold:
-                    evidence.append(
-                        AnomalyEvidence(
+                    point = AnomalyEvidence(
                             timestamp=item.timestamp,
                             source=item.source,
                             node_id=item.node_id,
@@ -236,7 +245,8 @@ def _numeric_evidence(
                             ),
                             semantic_score=semantic_score,
                         )
-                    )
+                    if retain_evidence(point, config):
+                        evidence.append(point)
             if score >= threshold:
                 anomaly_run += 1
                 if anomaly_run > freeze_points:
@@ -340,9 +350,13 @@ def _energies(
     minutes: list[datetime],
     config: dict[str, Any],
 ) -> tuple[dict[datetime, float], dict[datetime, dict[str, float]]]:
-    by_minute_source: dict[datetime, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+    by_minute_source_family: dict[
+        datetime, dict[str, dict[tuple[object, ...], float]]
+    ] = defaultdict(lambda: defaultdict(dict))
     for point in evidence:
-        by_minute_source[_minute(point.timestamp)][point.source].append(point.score)
+        families = by_minute_source_family[_minute(point.timestamp)][point.source]
+        family = _trigger_family(point)
+        families[family] = max(families.get(family, 0.0), point.score)
 
     top_k = max(1, int(config.get("top_k_per_source", 3)))
     source_weights = config.get("source_weights", {})
@@ -351,7 +365,8 @@ def _energies(
     source_energy: dict[datetime, dict[str, float]] = {}
     for minute in minutes:
         per_source: dict[str, float] = {}
-        for source, scores in by_minute_source.get(minute, {}).items():
+        for source, families in by_minute_source_family.get(minute, {}).items():
+            scores = list(families.values())
             strongest = sorted(scores, reverse=True)[:top_k]
             base = strongest[0]
             support = sum(strongest[1:]) / max(1, len(strongest) - 1)
@@ -417,6 +432,9 @@ def _qualified_trigger_evidence(
     persistence_gap = max(0, int(config.get("trigger_persistence_gap_minutes", 1)))
     by_minute: dict[datetime, list[AnomalyEvidence]] = defaultdict(list)
     series_minutes: dict[tuple[object, ...], set[datetime]] = defaultdict(set)
+    series_points: dict[
+        tuple[object, ...], dict[datetime, AnomalyEvidence]
+    ] = defaultdict(dict)
 
     def series_key(point: AnomalyEvidence) -> tuple[object, ...]:
         return (
@@ -424,18 +442,83 @@ def _qualified_trigger_evidence(
             point.node_id,
             point.metric,
             point.dimensions,
+            point.direction,
         )
 
     for point in triggers:
         minute = _minute(point.timestamp)
         by_minute[minute].append(point)
         series_minutes[series_key(point)].add(minute)
+        series_points[series_key(point)][minute] = point
 
     qualified: list[AnomalyEvidence] = []
     minimum_persistent = max(2, int(config.get("min_persistent_trigger_minutes", 2)))
     metric_persistence = config.get("metric_min_persistent_trigger_minutes", {})
     require_cross = bool(config.get("corroboration_requires_cross_source_or_node", True))
     semantic_threshold = float(config.get("semantic_single_minute_threshold", 0.9))
+    family_corroboration_sources = set(
+        config.get("sources_require_independent_family_corroboration", ())
+    )
+    family_corroboration_minimum = max(
+        1, int(config.get("source_family_corroboration_min_minutes", 1))
+    )
+    grouped_families: dict[
+        tuple[object, ...], dict[datetime, set[tuple[object, ...]]]
+    ] = defaultdict(lambda: defaultdict(set))
+    for point in triggers:
+        if point.source not in family_corroboration_sources:
+            continue
+        family = _trigger_family(point)
+        grouped_families[family[:-1]][_minute(point.timestamp)].add(family)
+
+    def semantic_immediate_allowed(point: AnomalyEvidence) -> bool:
+        for pattern, configured in config.get(
+            "semantic_single_minimum_samples", {}
+        ).items():
+            if not fnmatch(point.metric, pattern):
+                continue
+            values = dict(point.dimensions)
+            try:
+                samples = float(values.get("window_requests", "nan"))
+            except ValueError:
+                return False
+            return math.isfinite(samples) and samples >= float(configured)
+        return True
+
+    def consecutive_minutes(values: set[datetime], center: datetime) -> int:
+        count = 1
+        previous = center - timedelta(minutes=1)
+        while previous in values:
+            count += 1
+            previous -= timedelta(minutes=1)
+        following = center + timedelta(minutes=1)
+        while following in values:
+            count += 1
+            following += timedelta(minutes=1)
+        return count
+
+    def trigger_tier(
+        point: AnomalyEvidence,
+    ) -> tuple[int | None, bool, float | None]:
+        """Return required run length and whether persistence may qualify it."""
+        for pattern, configured in config.get("metric_trigger_tiers", {}).items():
+            if not fnmatch(point.metric, pattern):
+                continue
+            tiers = sorted(
+                configured,
+                key=lambda value: float(value["min_value"]),
+                reverse=True,
+            )
+            for tier in tiers:
+                if point.value >= float(tier["min_value"]):
+                    return (
+                        max(1, int(tier["min_persistent_minutes"])),
+                        True,
+                        float(tier["min_value"]),
+                    )
+            return None, False, None
+        return None, True, None
+
     for minute, points in by_minute.items():
         for point in points:
             point_family = _trigger_family(point)
@@ -461,19 +544,51 @@ def _qualified_trigger_evidence(
                         continue
                 corroborating_families.add(other_family)
             corroborated = len(corroborating_families) >= required
+            if point.source in family_corroboration_sources:
+                family_minutes = {
+                    candidate_minute
+                    for candidate_minute, families in grouped_families[
+                        point_family[:-1]
+                    ].items()
+                    if len(families) >= required
+                }
+                corroborated = (
+                    minute in family_minutes
+                    and consecutive_minutes(family_minutes, minute)
+                    >= family_corroboration_minimum
+                )
             key = series_key(point)
-            persistent_minutes = sum(
-                minute + timedelta(minutes=offset) in series_minutes[key]
-                for offset in range(-persistence_gap, persistence_gap + 1)
-            )
+            persistent_minutes = consecutive_minutes(series_minutes[key], minute)
             point_minimum_persistent = minimum_persistent
             for pattern, configured in metric_persistence.items():
                 if fnmatch(point.metric, pattern):
                     point_minimum_persistent = max(2, int(configured))
                     break
+            tier_minimum, persistence_allowed, tier_value_minimum = trigger_tier(point)
+            if tier_minimum is not None:
+                point_minimum_persistent = tier_minimum
+                tier_minutes = {
+                    candidate_minute
+                    for candidate_minute, candidate in series_points[key].items()
+                    if candidate.value >= tier_value_minimum
+                }
+                persistent_minutes = consecutive_minutes(tier_minutes, minute)
             immediate = point.direction == "state" or point.source == "frr"
-            persistent = persistent_minutes >= point_minimum_persistent
-            semantically_extreme = point.semantic_score >= semantic_threshold
+            persistent = (
+                persistence_allowed
+                and persistent_minutes >= point_minimum_persistent
+            )
+            if point.source in family_corroboration_sources:
+                persistent = False
+            semantically_extreme = (
+                point.semantic_score >= semantic_threshold
+                and semantic_immediate_allowed(point)
+            )
+            if tier_minimum is not None:
+                corroborated = False
+            if not persistence_allowed:
+                corroborated = False
+                semantically_extreme = False
             if immediate or corroborated or persistent or semantically_extreme:
                 qualified.append(point)
     return tuple(
@@ -659,6 +774,13 @@ def segment_evidence(
     minute_energy, source_energy = _energies(points, minutes, config)
     qualified_triggers = _qualified_trigger_evidence(points, config)
     trigger_minute_energy, _ = _energies(qualified_triggers, minutes, config)
+    qualified_ids = {id(point) for point in qualified_triggers}
+    event_points = tuple(
+        replace(point, event_role="support")
+        if point.event_role == "trigger" and id(point) not in qualified_ids
+        else point
+        for point in points
+    )
     raw_windows = _windows_from_energy(trigger_minute_energy, config)
     max_minutes = max(1, int(config.get("max_event_minutes", 30)))
     min_minutes = max(1, int(config.get("min_event_minutes", 1)))
@@ -674,7 +796,12 @@ def segment_evidence(
         for start, end in windows
         if (
             event := _event_from_window(
-                start, end, points, trigger_minute_energy, open_threshold, config
+                start,
+                end,
+                event_points,
+                trigger_minute_energy,
+                open_threshold,
+                config,
             )
         )
         is not None
@@ -692,6 +819,74 @@ def segment_evidence(
         keep_threshold=float(config.get("keep_threshold", 3.0)),
     )
     return events, diagnostics
+
+
+def _point_city(point: AnomalyEvidence, cities: tuple[str, ...]) -> str | None:
+    candidates = (point.node_id, *point.related_node_ids)
+    for node_id in candidates:
+        if node_id is None:
+            continue
+        lowered = node_id.lower()
+        for city in cities:
+            if lowered == city or lowered.startswith(city + "-"):
+                return city
+    return None
+
+
+def segment_evidence_by_city(
+    evidence: Iterable[AnomalyEvidence],
+    *,
+    cities: Iterable[str],
+    observation_start: datetime,
+    observation_end: datetime,
+    config: dict[str, Any],
+    source_coverage: dict[str, int] | None = None,
+) -> tuple[list[DetectedEvent], DetectionDiagnostics]:
+    """Generate incidents independently per city to prevent spatial pooling."""
+    points = tuple(
+        sorted(evidence, key=lambda item: (item.timestamp, item.source, item.metric))
+    )
+    city_ids = tuple(dict.fromkeys(str(city).lower() for city in cities))
+    grouped: dict[str, list[AnomalyEvidence]] = defaultdict(list)
+    for point in points:
+        city = _point_city(point, city_ids)
+        if city is not None:
+            grouped[city].append(point)
+
+    events: list[DetectedEvent] = []
+    city_diagnostics: list[DetectionDiagnostics] = []
+    for city in city_ids:
+        city_events, city_diagnostic = segment_evidence(
+            grouped.get(city, ()),
+            observation_start=observation_start,
+            observation_end=observation_end,
+            config=config,
+            source_coverage=source_coverage,
+        )
+        events.extend(city_events)
+        city_diagnostics.append(city_diagnostic)
+
+    minutes = _minute_range(observation_start, observation_end)
+    minute_energy, source_energy = _energies(points, minutes, config)
+    trigger_minute_energy = {
+        minute: max(
+            (item.trigger_minute_energy.get(minute, 0.0) for item in city_diagnostics),
+            default=0.0,
+        )
+        for minute in minutes
+    }
+    diagnostics = DetectionDiagnostics(
+        minute_energy=minute_energy,
+        trigger_minute_energy=trigger_minute_energy,
+        source_energy=source_energy,
+        evidence_count=len(points),
+        source_coverage=dict(source_coverage or {}),
+        observation_start=observation_start,
+        observation_end=observation_end,
+        open_threshold=float(config.get("open_threshold", 7.0)),
+        keep_threshold=float(config.get("keep_threshold", 3.0)),
+    )
+    return sorted(events, key=lambda item: (item.start, item.end, item.peak_time)), diagnostics
 
 
 def detect_events_with_evidence(

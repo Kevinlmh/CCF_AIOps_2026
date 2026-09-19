@@ -237,6 +237,26 @@ def classify_event(
             )
         scored.append((index, item, max(0.0, score)))
     scored.sort(key=lambda row: (-row[2], row[0]))
+    if (
+        signals.get("role_firewall", 0.0) > 0.0
+        and signals.get("cpu", 0.0) > 0.0
+        and scored
+        and scored[0][1]["major_category"] == "resource"
+        and scored[0][1]["sub_category"] == "cpu_pressure"
+    ):
+        target = next(
+            (
+                row
+                for row in scored
+                if row[1]["major_category"] == "firewall"
+                and row[1]["sub_category"] == "cpu_pressure"
+            ),
+            None,
+        )
+        if target is not None:
+            scored = [row for row in scored if row is not target]
+            scored.append((target[0], target[1], scored[0][2] + 1e-6))
+            scored.sort(key=lambda row: (-row[2], row[0]))
     best = scored[0]
     runner_up = scored[1][2] if len(scored) > 1 else 0.0
     confidence = 0.0 if best[2] <= 0 else min(1.0, 0.5 * best[2] + 0.5 * (best[2] - runner_up) / best[2])

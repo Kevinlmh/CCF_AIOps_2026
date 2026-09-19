@@ -128,6 +128,19 @@ class PrototypeModelTests(unittest.TestCase):
             {"major_category": "resource", "sub_category": "cpu_pressure"},
         )
 
+    def test_firewall_root_with_cpu_signal_classifies_as_firewall_cpu_pressure(self):
+        result = classify_event(
+            event(point("node.cpu_usage", node="xian-fw")),
+            ranking("fw"),
+            TAXONOMY,
+            MODEL_CONFIG,
+        )
+
+        self.assertEqual(
+            result.category,
+            {"major_category": "firewall", "sub_category": "cpu_pressure"},
+        )
+
     def test_bgp_peer_down_classifies_as_bgp_session_down(self):
         result = classify_event(
             event(

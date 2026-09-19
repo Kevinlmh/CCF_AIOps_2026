@@ -33,6 +33,7 @@ from baseline.bian.anomaly_detector.robust_detector import (
     DetectionDiagnostics,
     detect_events_with_evidence,
     segment_evidence,
+    segment_evidence_by_city,
 )
 from baseline.bian.classification.classifier import (
     classification_taxonomy,
@@ -660,12 +661,15 @@ def run(
             raise ValueError(
                 "evidence checkpoint pipeline fingerprint differs from the active pipeline"
             )
-        events, diagnostics = segment_evidence(
+        segmentation = segment_evidence_by_city if spatial_split else segment_evidence
+        segmentation_kwargs = {"cities": network["cities"]} if spatial_split else {}
+        events, diagnostics = segmentation(
             evidence_points,
             observation_start=observation_start,
             observation_end=observation_end,
             config=model_config["detector"],
             source_coverage=cached_coverage,
+            **segmentation_kwargs,
         )
         if spatial_split:
             events = split_concurrent_events(
@@ -717,6 +721,7 @@ def run(
                 semantics_path=METRIC_SEMANTICS_PATH,
                 scratch_dir=scratch_dir,
                 strict_cities=(network["cities"] if strict_input and formal_layout else None),
+                segment_cities=(network["cities"] if spatial_split else None),
             )
             bundle = streamed.bundle
             diagnostics = streamed.diagnostics
@@ -748,6 +753,15 @@ def run(
             events, diagnostics, evidence_points = detect_events_with_evidence(
                 bundle, model_config["detector"]
             )
+            if spatial_split and diagnostics.observation_start is not None and diagnostics.observation_end is not None:
+                events, diagnostics = segment_evidence_by_city(
+                    evidence_points,
+                    cities=network["cities"],
+                    observation_start=diagnostics.observation_start,
+                    observation_end=diagnostics.observation_end,
+                    config=model_config["detector"],
+                    source_coverage=diagnostics.source_coverage,
+                )
         else:
             events = _legacy_events(data_root, config["region_aliases"])
         if evidence_cache is not None:

@@ -1,5 +1,5 @@
 {
-  "version": "1.4",
+  "version": "1.5",
   "detector": {
     "lookback_points": 60,
     "short_series_min_history": 4,
@@ -106,7 +106,22 @@
     "metric_min_persistent_trigger_minutes": {
       "node.cpu_usage": 3
     },
+    "metric_trigger_tiers": {
+      "node.cpu_usage": [
+        {"min_value": 35.0, "min_persistent_minutes": 3},
+        {"min_value": 20.0, "min_persistent_minutes": 5}
+      ]
+    },
+    "support_zero_suppression_patterns": [
+      "node.disk_read_rate",
+      "node.disk_write_rate"
+    ],
     "corroboration_requires_cross_source_or_node": true,
+    "sources_require_independent_family_corroboration": ["traffic"],
+    "source_family_corroboration_min_minutes": 3,
+    "semantic_single_minimum_samples": {
+      "traffic.*.*_ratio": 30
+    },
     "semantic_single_minute_threshold": 0.9,
     "baseline_freeze_anomaly_points": 30,
     "minimum_peak_separation_minutes": 20,

@@ -66,6 +66,7 @@ def detect_events_streaming(
     scratch_dir: Path | None = None,
     strict_cities: Iterable[str] | None = None,
     strict_sources: Iterable[str] = SOURCE_ORDER,
+    segment_cities: Iterable[str] | None = None,
 ) -> StreamingDetectionResult:
     """Scan all source rows, retaining rolling state and abnormal evidence only."""
     if strict_cities is not None:
@@ -133,13 +134,25 @@ def detect_events_streaming(
         )
         events = []
     else:
-        events, diagnostics = segment_evidence(
-            evidence,
-            observation_start=observation_start,
-            observation_end=observation_end,
-            config=detector_config,
-            source_coverage=coverage,
-        )
+        if segment_cities is None:
+            events, diagnostics = segment_evidence(
+                evidence,
+                observation_start=observation_start,
+                observation_end=observation_end,
+                config=detector_config,
+                source_coverage=coverage,
+            )
+        else:
+            from ..anomaly_detector.robust_detector import segment_evidence_by_city
+
+            events, diagnostics = segment_evidence_by_city(
+                evidence,
+                cities=segment_cities,
+                observation_start=observation_start,
+                observation_end=observation_end,
+                config=detector_config,
+                source_coverage=coverage,
+            )
     return StreamingDetectionResult(
         events=tuple(events),
         diagnostics=diagnostics,

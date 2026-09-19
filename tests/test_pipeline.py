@@ -232,7 +232,7 @@ class PipelineTests(unittest.TestCase):
             )
             self.assertEqual(report["backend"], "local")
             self.assertEqual(len(report["events"]), 1)
-            self.assertEqual(report["model_version"], "1.4")
+            self.assertEqual(report["model_version"], "1.5")
             summary = report["energy_summary"]
             self.assertGreater(summary["total_minutes"], 0)
             for field in (
