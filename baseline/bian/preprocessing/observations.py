@@ -113,12 +113,6 @@ class NumericObservation:
             not math.isfinite(self.numerator_count) or self.numerator_count < 0
         ):
             raise ValueError("numerator count must be finite and non-negative")
-        if (
-            self.sample_count is not None
-            and self.numerator_count is not None
-            and self.numerator_count > self.sample_count
-        ):
-            raise ValueError("numerator count cannot exceed sample count")
         object.__setattr__(self, "dimensions", _canonical_dimensions(self.dimensions))
         object.__setattr__(self, "related_node_ids", tuple(dict.fromkeys(self.related_node_ids)))
 
@@ -183,12 +177,6 @@ class AnomalyEvidence:
             not math.isfinite(self.numerator_count) or self.numerator_count < 0
         ):
             raise ValueError("evidence numerator count must be finite and non-negative")
-        if (
-            self.sample_count is not None
-            and self.numerator_count is not None
-            and self.numerator_count > self.sample_count
-        ):
-            raise ValueError("evidence numerator count cannot exceed sample count")
         object.__setattr__(self, "dimensions", _canonical_dimensions(self.dimensions))
         object.__setattr__(self, "related_node_ids", tuple(dict.fromkeys(self.related_node_ids)))
         if self.summary is not None:

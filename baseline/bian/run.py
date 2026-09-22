@@ -433,6 +433,7 @@ def _diagnostic_log(
     streaming_metrics: dict[str, Any] | None = None,
     cached_source_coverage: dict[str, Any] | None = None,
     model_version: str = "unknown",
+    pipeline_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     nonzero_energy: list[dict[str, Any]] = []
     energy_summary: dict[str, Any] = {}
@@ -565,6 +566,7 @@ def _diagnostic_log(
     }
     return {
         "model_version": model_version,
+        "pipeline_fingerprint": pipeline_fingerprint,
         "detector": detector_name,
         "backend": backend_name,
         "ingestion_mode": ingestion_mode,
@@ -950,6 +952,7 @@ def run(
                     else None
                 ),
                 model_version=str(model_config.get("version", "unknown")),
+                pipeline_fingerprint=pipeline_fingerprint,
             ),
             inference_log,
         )

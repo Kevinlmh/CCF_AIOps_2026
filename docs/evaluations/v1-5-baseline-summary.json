@@ -1,0 +1,28 @@
+{
+  "model_version": "1.5",
+  "dataset": "stage1-eight-city-seven-source",
+  "runtime_seconds": 7165.46,
+  "peak_rss_bytes": 2389540864,
+  "events": 560,
+  "traffic_vm_top1": 342,
+  "traffic_vm_top1_ratio": 0.61071429,
+  "duration_le_2_minutes": 220,
+  "root_margin_le_0_05": 38,
+  "classification_margin_le_0_05": 72,
+  "support_only_events": 0,
+  "cross_city_direct_evidence_events": 0,
+  "public_sample": {
+    "total": 96.011111,
+    "ad": 36.011111,
+    "rca": 40.0,
+    "major": 10.0,
+    "minor": 10.0,
+    "tp": 3,
+    "fp": 0,
+    "fn": 0
+  },
+  "limitations": [
+    "The full-run evidence was generated before sample_count was removed from the traffic series key.",
+    "The 560-event output must not be reused as v1.6 evidence or treated as labeled precision."
+  ]
+}

@@ -117,7 +117,7 @@
 
 - `files`、`rows_read`、`valid_rows`、`filtered_rows`、`invalid_rows`；
 - `emitted_observations`、`unknown_nodes`、`time_ranges`、`rows_conserved`；
-- `observations_evaluated`、`series_state_count`、`dropped_evidence`；
+- `observations_evaluated`、`series_state_count`、按 trigger/support 拆分的 `dropped_evidence`；
 - `total_minutes`、非零分钟比例和事件覆盖比例；
 - 每个事件的 Top5、候选作用域、trigger/support 数量、分类 Top3 和原型信号；
 - 本地规则模型与 LLM 结果的差异。
@@ -146,10 +146,10 @@
 8. `observed_qps`、throughput 和 request count 的业务区别及其正常周期性。
 9. `scrape_up=0` 时，同节点其他来源的数据是否仍可信。
 10. FRR 中 `sendmsg failed`、`Could not send entire message`、`Operation not permitted` 是否为环境噪声。
-11. DNS/Web/Auth 各域名对应哪个 `service-vm-*`，能否把关系证据从三个模糊候选收敛到具体服务节点。
+11. DNS/Web/Auth 各域名对应哪个 `service-vm-*`，能否把关系证据从三个模糊候选收敛到具体服务节点；v1.6 在映射确认前只区分观测端和目标端，不猜测 VM 编号。
 12. NetFlow 的 `if_role=\N` 是否存在外部接口映射表。
 13. 第一批数据是否允许多个故障时间重叠，以及同一故障是否可能跨城市传播；只接受官方规则或官方说明作为结论依据。
-14. 每个 traffic ratio 的 `window_requests`、分子计数和窗口时长是否严格对应同一 Counter 序列；v1.5 用该分母限制低样本单点直接触发，但不会用统一请求量硬删除持续事件。
+14. 每个 traffic ratio 的请求数、分子计数和窗口时长是否严格对应同一 Counter 序列；v1.6 按连续窗口累计计数，不再把请求量放进时序主键。
 15. `error_total` 是否可能包含重叠错误类别而大于 `requests_total`；若可能，需提供字段口径，避免把它直接解释为概率。
 
 ## 5. 八城全量预测前的验收清单
@@ -173,12 +173,12 @@ CPU 本地基准中，成都两周七源约处理 24,512,574 条规范化观测�
 /usr/bin/time -v python baseline/bian/run.py \
   --data-root data/stage1/regions \
   --ingestion-mode streaming \
-  --scratch-dir /fast-nvme/aiops-scratch/v1_5_all_cities \
-  --evidence-cache outputs/v1_5/all_cities/stage1_evidence.json \
-  --event-cache outputs/v1_5/all_cities/stage1_events.json \
+  --scratch-dir /fast-nvme/aiops-scratch/v1_6_all_cities \
+  --evidence-cache outputs/v1_6/all_cities/stage1_evidence.json \
+  --event-cache outputs/v1_6/all_cities/stage1_events.json \
   --decision-backend local \
-  --output outputs/v1_5/all_cities/stage1_local_predictions.jsonl \
-  --inference-log outputs/v1_5/all_cities/stage1_local_inference.json
+  --output outputs/v1_6/all_cities/stage1_local_predictions.jsonl \
+  --inference-log outputs/v1_6/all_cities/stage1_local_inference.json
 ```
 
 建议在 Linux 服务器的 `tmux`/`systemd` 会话中运行。若仍在 macOS 本机执行，把 `/usr/bin/time -v` 改为 `caffeinate -i /usr/bin/time -l`，并把 `/fast-nvme/aiops-scratch/` 换成本机 `data/stage1/scratch/`。
@@ -207,14 +207,14 @@ export AIOPS_LLM_API_KEY='<RUNTIME_SECRET>'
 
 python baseline/bian/run.py \
   --data-root data/stage1/regions \
-  --event-cache outputs/v1_5/all_cities/stage1_events.json \
+  --event-cache outputs/v1_6/all_cities/stage1_events.json \
   --reuse-event-cache \
   --decision-backend api \
   --model <SERVER_MODEL_NAME> \
   --llm-workers 4 \
   --api-timeout 180 \
-  --output outputs/v1_5/all_cities/stage1_llm_predictions.jsonl \
-  --inference-log outputs/v1_5/all_cities/stage1_llm_inference.json
+  --output outputs/v1_6/all_cities/stage1_llm_predictions.jsonl \
+  --inference-log outputs/v1_6/all_cities/stage1_llm_inference.json
 ```
 
 LLM 阶段至少对比：事件数、时间窗、Top1/Top5 变化、分类变化、无效输出率、重试次数和单事件延迟。不得因为 LLM 输出看起来合理，就把其结果反写成人工 Ground Truth。

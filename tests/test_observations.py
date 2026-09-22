@@ -105,7 +105,7 @@ class ObservationContractTests(unittest.TestCase):
 
         self.assertEqual(first.series_key, second.series_key)
 
-    def test_ratio_counts_must_be_finite_non_negative_and_bounded(self):
+    def test_ratio_counts_must_be_finite_and_non_negative(self):
         common = {
             "timestamp": datetime(2026, 7, 28, 12, 40, tzinfo=timezone.utc),
             "source": "traffic",
@@ -117,9 +117,12 @@ class ObservationContractTests(unittest.TestCase):
             "direction": "high",
             "sample_count": 10.0,
         }
-        for invalid in (float("nan"), -1.0, 11.0):
+        for invalid in (float("nan"), -1.0):
             with self.subTest(numerator_count=invalid), self.assertRaises(ValueError):
                 NumericObservation(**common, numerator_count=invalid)
+
+        overlapping = NumericObservation(**common, numerator_count=11.0)
+        self.assertEqual(overlapping.numerator_count, 11.0)
 
     def test_numeric_observation_rejects_non_finite_value(self):
         with self.assertRaises(ValueError):

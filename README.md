@@ -7,12 +7,12 @@ GitHub 仓库：`https://github.com/Kevinlmh/CCF_AIOps_2026`
 分支说明：
 
 - `official-baseline`：官方 Gitee Baseline 的原始快照；
-- `hybrid-v1`：当前多源混合模型 v1.5 开发分支；
+- `hybrid-v1`：当前多源混合模型 v1.6 开发分支；
 - `main`：已发布的稳定分支，功能分支完成团队复核后再合并。
 
 远端 `upstream` 指向官方 Gitee，`origin` 指向本项目 GitHub。
 
-## 多源混合模型 v1.5
+## 多源混合模型 v1.6
 
 当前分支已在原始 BiAn Baseline 上加入可直接运行的多源混合模型：
 
@@ -30,6 +30,8 @@ v1.4 针对正式数据暴露的证据质量问题继续收敛：服务成功率
 
 v1.5 把城市边界前移到事件生成阶段，按城市独立计算触发资格和事件窗口；同一分钟、同来源、同因果族只计一次能量。CPU 使用率按绝对值与连续分钟联合判定，未通过资格的异常点降级为 support；traffic 普通症状需要独立症状族持续佐证，比例单点只有在样本量充分且进入危险量程时才能直接触发。磁盘速率周期零值不再保留为支持证据，并修正防火墙 CPU 的类别一致性。所有门控基于证据质量，不按预计故障数量截断。
 
+v1.6 修复 traffic 请求量进入序列主键导致基线碎片化的问题，并把 ratio 的请求数和分子计数作为独立证据元数据贯穿 streaming、checkpoint、RCA 和 LLM 输入。traffic 不再因连续三分钟就无条件成事件：成功率/错误率必须同时满足连续窗口、累计样本量和聚合贝叶斯后验量程，纯 latency 需要更长持续时间。定位结果区分 traffic 观测端与目标端支持，推理日志新增 trigger/support 丢弃统计、候选裁剪和根因/分类分差。v1.6 checkpoint 使用格式 v2，不复用 v1.5 的 ratio evidence。
+
 详细设计和实施计划见：
 
 - `docs/requirements/AIOPS_OnePage.md`
@@ -41,6 +43,8 @@ v1.5 把城市边界前移到事件生成阶段，按城市独立计算触发资
 - `docs/superpowers/plans/2026-09-14-formal-noise-calibration.md`
 - `docs/superpowers/specs/2026-09-18-multisource-v1-5-design.md`
 - `docs/superpowers/plans/2026-09-18-multisource-v1-5.md`
+- `docs/superpowers/specs/2026-09-22-multisource-v1-6-design.md`
+- `docs/superpowers/plans/2026-09-22-multisource-v1-6.md`
 - `docs/data/model-data-coordination.md`
 - `docs/deployment/server-inference.md`
 
@@ -85,16 +89,37 @@ python baseline/bian/run.py \
 
 默认参数是 `--detector robust --decision-backend local`。旧的检测器仍可用 `--detector five-sigma` 回归验证。
 
-正式第一批数据建议先运行纯本地流式阶段：
+正式第一批数据按“样例 → 单城 → 八城”的顺序验证。样例运行：
+
+```bash
+python tools/run_sample_baseline.py \
+  --output outputs/v1_6/sample/predictions.jsonl \
+  --inference-log outputs/v1_6/sample/inference.json
+```
+
+单城七源烟测：
+
+```bash
+python baseline/bian/run.py \
+  --data-root data/stage1/regions/chengdu_20260819040000_20260902040000 \
+  --ingestion-mode streaming \
+  --allow-partial-input \
+  --scratch-dir data/stage1/scratch/v1_6_chengdu \
+  --decision-backend local \
+  --output outputs/v1_6/chengdu/predictions.jsonl \
+  --inference-log outputs/v1_6/chengdu/inference.json
+```
+
+八城七源纯本地流式阶段：
 
 ```bash
 python baseline/bian/run.py \
   --data-root data/stage1/regions \
-  --scratch-dir data/stage1/scratch \
-  --evidence-cache outputs/v1_5/all_cities/stage1_evidence.json \
-  --event-cache outputs/v1_5/all_cities/stage1_events.json \
-  --output outputs/stage1_local_predictions.jsonl \
-  --inference-log outputs/stage1_local_inference.json
+  --scratch-dir data/stage1/scratch/v1_6_all_cities \
+  --evidence-cache outputs/v1_6/all_cities/stage1_evidence.json \
+  --event-cache outputs/v1_6/all_cities/stage1_events.json \
+  --output outputs/v1_6/all_cities/stage1_local_predictions.jsonl \
+  --inference-log outputs/v1_6/all_cities/stage1_local_inference.json
 ```
 
 正式目录默认严格检查八城市七来源；单城市调试需显式使用 `--allow-partial-input`。服务器与事件缓存用法见 `docs/deployment/server-inference.md`，数据协作要求见 `docs/data/model-data-coordination.md`。

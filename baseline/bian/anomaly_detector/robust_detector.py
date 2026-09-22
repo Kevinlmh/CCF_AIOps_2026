@@ -496,8 +496,9 @@ def _traffic_window_qualifications(
                 if sample_count < sample_minimum:
                     continue
                 success = "success" in metric
+                effective_numerator = min(sample_count, numerator_count)
                 posterior = (
-                    numerator_count + (prior_weight if success else 0.0)
+                    effective_numerator + (prior_weight if success else 0.0)
                 ) / (sample_count + prior_weight)
                 boundary = semantic_boundary(metric)
                 if boundary is None:

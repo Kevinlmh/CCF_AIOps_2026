@@ -1,5 +1,5 @@
 {
-  "version": "1.5",
+  "version": "1.6",
   "detector": {
     "lookback_points": 60,
     "short_series_min_history": 4,
