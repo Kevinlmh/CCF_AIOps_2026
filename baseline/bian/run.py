@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -564,6 +564,19 @@ def _diagnostic_log(
         ),
         "excluded_candidate_count_total": excluded_candidates,
     }
+    qualification_windows: list[dict[str, Any]] = []
+    if diagnostics is not None:
+        for raw in diagnostics.qualification_audit:
+            item = dict(raw)
+            for field in ("start", "end"):
+                if isinstance(item.get(field), datetime):
+                    item[field] = _utc(item[field])
+            qualification_windows.append(item)
+    traffic_qualification = {
+        "window_count": len(qualification_windows),
+        "windows": qualification_windows[:4096],
+        "window_sample_policy": "chronological_first_4096",
+    }
     return {
         "model_version": model_version,
         "pipeline_fingerprint": pipeline_fingerprint,
@@ -578,6 +591,7 @@ def _diagnostic_log(
         "minute_energy_nonzero": nonzero_energy,
         "data_audit": data_audit,
         "evidence_retention": evidence_retention,
+        "traffic_qualification": traffic_qualification,
         "ranking_margin_summary": ranking_margin_summary,
         "events": event_logs,
     }

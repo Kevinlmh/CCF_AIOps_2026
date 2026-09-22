@@ -6,6 +6,7 @@ import unittest
 
 from baseline.bian.anomaly_detector import robust_detector as robust_module
 from baseline.bian.anomaly_detector.robust_detector import (
+    _consolidate_series,
     _energies,
     _qualified_trigger_evidence,
     _numeric_evidence,
@@ -101,6 +102,40 @@ def evidence(
 
 
 class RobustScoreTests(unittest.TestCase):
+    def test_duplicate_ratio_timestamp_aggregates_counts_and_recomputes_posterior(self):
+        common = {
+            "timestamp": BASE,
+            "source": "traffic",
+            "node_id": "xian-traffic-vm",
+            "related_node_ids": (),
+            "metric": "traffic.web.error_ratio",
+            "dimensions": (("domain", "a.example"),),
+            "direction": "high",
+        }
+        observations = (
+            NumericObservation(
+                **common,
+                value=10.0 / 40.0,
+                sample_count=10.0,
+                numerator_count=10.0,
+            ),
+            NumericObservation(
+                **common,
+                value=0.0,
+                sample_count=90.0,
+                numerator_count=0.0,
+            ),
+        )
+
+        consolidated = _consolidate_series(
+            observations, {"traffic_ratio_prior_weight": 30.0}
+        )
+        point = next(iter(consolidated.values()))[0]
+
+        self.assertEqual(point.sample_count, 100.0)
+        self.assertEqual(point.numerator_count, 10.0)
+        self.assertAlmostEqual(point.value, 10.0 / 130.0)
+
     def test_zero_variance_history_produces_finite_bounded_score(self):
         baseline, score = robust_score(10.0, [0.0, 0.0, 0.0, 0.0], CONFIG)
 
@@ -343,6 +378,121 @@ class EventSegmentationTests(unittest.TestCase):
         self.assertEqual(
             _qualified_trigger_evidence(points, self._traffic_window_config()), ()
         )
+
+    def test_ratio_missing_numerator_cannot_bypass_v16_gate_as_extreme(self):
+        point = evidence(
+            4,
+            source="traffic",
+            metric="traffic.web.error_ratio",
+            node_id="xian-traffic-vm",
+            semantic_score=1.0,
+            sample_count=100.0,
+            numerator_count=None,
+        )
+
+        self.assertEqual(
+            _qualified_trigger_evidence(
+                (point,), self._traffic_window_config()
+            ),
+            (),
+        )
+
+    def test_traffic_families_with_different_dimensions_do_not_corroborate(self):
+        ratio = tuple(
+            evidence(
+                minute,
+                source="traffic",
+                metric="traffic.web.error_ratio",
+                node_id="xian-traffic-vm",
+                dimensions=(("domain", "a.example"),),
+                semantic_score=0.3,
+                value=2.0 / 34.0,
+                sample_count=4.0,
+                numerator_count=2.0,
+            )
+            for minute in range(4, 7)
+        )
+        latency = tuple(
+            evidence(
+                minute,
+                source="traffic",
+                metric="traffic.web.latency_p95_seconds",
+                node_id="xian-traffic-vm",
+                dimensions=(("domain", "b.example"),),
+                semantic_score=0.3,
+            )
+            for minute in range(4, 7)
+        )
+
+        self.assertEqual(
+            _qualified_trigger_evidence(
+                ratio + latency, self._traffic_window_config()
+            ),
+            (),
+        )
+
+    def test_time_split_requalifies_children_without_discarding_long_ratio_incident(self):
+        config = {
+            **self._traffic_window_config(),
+            "minimum_peak_separation_minutes": 30,
+            "max_event_minutes": 30,
+        }
+        points = tuple(
+            evidence(
+                minute,
+                source="traffic",
+                metric="traffic.web.error_ratio",
+                node_id="xian-traffic-vm",
+                semantic_score=0.3,
+                value=1.0,
+                sample_count=29.0 if minute == 0 else 12.0,
+                numerator_count=29.0 if minute == 0 else 12.0,
+            )
+            for minute in range(31)
+        )
+
+        events, _ = segment_evidence(
+            points,
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=32),
+            config=config,
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertGreaterEqual(len(events[0].evidence), 30)
+        self.assertGreaterEqual(
+            events[0].end - events[0].start, timedelta(minutes=29)
+        )
+
+    def test_time_split_rejects_ratio_remainder_that_cannot_qualify_alone(self):
+        config = {
+            **self._traffic_window_config(),
+            "minimum_peak_separation_minutes": 0,
+            "max_event_minutes": 3,
+        }
+        points = tuple(
+            evidence(
+                minute,
+                source="traffic",
+                metric="traffic.web.error_ratio",
+                node_id="xian-traffic-vm",
+                semantic_score=0.3,
+                value=10.0 / 40.0,
+                sample_count=10.0,
+                numerator_count=10.0,
+            )
+            for minute in range(4)
+        )
+
+        events, _ = segment_evidence(
+            points,
+            observation_start=BASE,
+            observation_end=BASE + timedelta(minutes=5),
+            config=config,
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(len(events[0].evidence), 3)
 
     def test_low_volume_ratio_qualifies_after_window_accumulates_samples(self):
         points = tuple(

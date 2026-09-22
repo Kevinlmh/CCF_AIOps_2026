@@ -126,6 +126,15 @@ class PipelineTests(unittest.TestCase):
             observation_end=start + timedelta(minutes=1),
             open_threshold=1.0,
             keep_threshold=1.0,
+            qualification_audit=(
+                {
+                    "reason": "traffic_ratio_window",
+                    "metric": "traffic.web.error_ratio",
+                    "start": start,
+                    "end": start + timedelta(minutes=1),
+                    "minutes": 2,
+                },
+            ),
         )
 
         report = _diagnostic_log(
@@ -143,6 +152,11 @@ class PipelineTests(unittest.TestCase):
 
         self.assertEqual(report["energy_summary"]["event_covered_minutes"], 2)
         self.assertEqual(report["energy_summary"]["event_coverage_ratio"], 1.0)
+        self.assertEqual(report["traffic_qualification"]["window_count"], 1)
+        self.assertEqual(
+            report["traffic_qualification"]["windows"][0]["start"],
+            "2026-07-28T12:00:00.000Z",
+        )
 
     def test_llm_top1_is_used_for_localized_event_bounds(self):
         deterministic_root = "xian-service-vm-1"

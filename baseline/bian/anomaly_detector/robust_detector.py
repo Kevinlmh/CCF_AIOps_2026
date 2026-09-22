@@ -25,6 +25,7 @@ class DetectionDiagnostics:
     observation_end: datetime | None
     open_threshold: float
     keep_threshold: float
+    qualification_audit: tuple[dict[str, object], ...] = ()
 
 
 def _finite_history(history: Iterable[float | None]) -> list[float]:
@@ -145,6 +146,7 @@ def score_numeric_observation(
 
 def _consolidate_series(
     observations: Iterable[NumericObservation],
+    config: dict[str, Any] | None = None,
 ) -> dict[tuple[object, ...], list[NumericObservation]]:
     grouped: dict[tuple[object, ...], list[NumericObservation]] = defaultdict(list)
     for item in observations:
@@ -160,20 +162,60 @@ def _consolidate_series(
                 consolidated.append(same_time[0])
                 continue
             reference = same_time[0]
+            sample_counts = [item.sample_count for item in same_time]
+            numerator_counts = [item.numerator_count for item in same_time]
+            has_complete_counts = all(
+                value is not None for value in sample_counts + numerator_counts
+            )
+            sample_count = (
+                sum(float(value) for value in sample_counts if value is not None)
+                if has_complete_counts
+                else None
+            )
+            numerator_count = (
+                sum(float(value) for value in numerator_counts if value is not None)
+                if has_complete_counts
+                else None
+            )
+            value = float(median(item.value for item in same_time))
+            if has_complete_counts and reference.metric.lower().endswith("_ratio"):
+                prior_weight = max(
+                    0.0,
+                    float((config or {}).get("traffic_ratio_prior_weight", 0.0)),
+                )
+                assert sample_count is not None and numerator_count is not None
+                effective_numerator = min(sample_count, numerator_count)
+                prior_successes = (
+                    prior_weight
+                    if "success" in reference.metric.lower()
+                    else 0.0
+                )
+                denominator = sample_count + prior_weight
+                value = (
+                    (effective_numerator + prior_successes) / denominator
+                    if denominator > 0.0
+                    else value
+                )
             consolidated.append(
                 NumericObservation(
                     timestamp=timestamp,
                     source=reference.source,
                     node_id=reference.node_id,
-                    related_node_ids=reference.related_node_ids,
+                    related_node_ids=tuple(
+                        dict.fromkeys(
+                            related
+                            for item in same_time
+                            for related in item.related_node_ids
+                        )
+                    ),
                     metric=reference.metric,
-                    value=float(median(item.value for item in same_time)),
+                    value=value,
                     dimensions=reference.dimensions,
                     direction=reference.direction,
                     event_role=reference.event_role,
                     normal_value=reference.normal_value,
-                    sample_count=reference.sample_count,
-                    numerator_count=reference.numerator_count,
+                    sample_count=sample_count,
+                    numerator_count=numerator_count,
                 )
             )
         consolidated.sort(key=lambda item: item.timestamp)
@@ -215,7 +257,7 @@ def _numeric_evidence(
         adjusted["relative_scale_floor"] = relative_floor
         return adjusted
 
-    for values in _consolidate_series(observations).values():
+    for values in _consolidate_series(observations, config).values():
         minimum_history = long_history if len(values) >= long_threshold else short_history
         history: list[float] = []
         anomaly_run = 0
@@ -345,7 +387,7 @@ def _trigger_family(point: AnomalyEvidence) -> tuple[object, ...]:
             family = "availability"
         else:
             family = suffix
-        return point.source, point.node_id, service, family
+        return point.source, point.node_id, service, point.dimensions, family
     return point.source, point.node_id, point.metric
 
 
@@ -608,6 +650,13 @@ def _qualified_trigger_evidence_with_audit(
         grouped_families[family[:-1]][_minute(point.timestamp)].add(family)
 
     def semantic_immediate_allowed(point: AnomalyEvidence) -> bool:
+        if (
+            point.source == "traffic"
+            and point.metric.lower().endswith("_ratio")
+            and "traffic_ratio_window_min_samples" in config
+        ):
+            if point.sample_count is None or point.numerator_count is None:
+                return False
         for pattern, configured in config.get(
             "semantic_single_minimum_samples", {}
         ).items():
@@ -807,7 +856,15 @@ def _split_window(
     if not candidates:
         split = start + timedelta(minutes=max_minutes)
     else:
-        split = min(candidates, key=lambda minute: (minute_energy[minute], minute))
+        preferred = min(start + timedelta(minutes=max_minutes), end - timedelta(minutes=1))
+        split = min(
+            candidates,
+            key=lambda minute: (
+                minute_energy[minute],
+                abs((preferred - minute).total_seconds()),
+                minute,
+            ),
+        )
     return _split_window(start, split, minute_energy, max_minutes) + _split_window(
         split, end, minute_energy, max_minutes
     )
@@ -824,6 +881,27 @@ def _event_from_window(
     selected = tuple(point for point in evidence if start <= point.timestamp < end)
     if not selected:
         return None
+    raw_triggers = tuple(
+        point for point in selected if point.event_role == "trigger"
+    )
+    qualified_triggers = _qualified_trigger_evidence(raw_triggers, config)
+    if not qualified_triggers:
+        return None
+    qualified_set = set(qualified_triggers)
+    selected = tuple(
+        replace(point, event_role="support")
+        if point.event_role == "trigger" and point not in qualified_set
+        else point
+        for point in selected
+    )
+    local_minutes = [
+        minute
+        for minute in _minute_range(start, end)
+        if start <= minute < end
+    ]
+    local_trigger_energy, _ = _energies(
+        qualified_triggers, local_minutes, config
+    )
     recovery = None
     if config.get("trim_recovery_reversals", True):
         recovery = _recovery_start(
@@ -838,12 +916,12 @@ def _event_from_window(
         if not selected:
             return None
     peak_time = max(
-        (minute for minute in trigger_energy if start <= minute < end),
-        key=lambda minute: (trigger_energy[minute], -minute.timestamp()),
+        (minute for minute in local_trigger_energy if start <= minute < end),
+        key=lambda minute: (local_trigger_energy[minute], -minute.timestamp()),
     )
     counts = Counter(point.source for point in selected)
     confidence = confidence_from_peak_energy(
-        trigger_energy[peak_time], open_threshold
+        local_trigger_energy[peak_time], open_threshold
     )
     return DetectedEvent(
         start=start,
@@ -917,7 +995,9 @@ def segment_evidence(
     points = tuple(sorted(evidence, key=lambda item: (item.timestamp, item.source, item.metric)))
     minutes = _minute_range(observation_start, observation_end)
     minute_energy, source_energy = _energies(points, minutes, config)
-    qualified_triggers = _qualified_trigger_evidence(points, config)
+    qualified_triggers, qualification_audit = _qualified_trigger_evidence_with_audit(
+        points, config
+    )
     trigger_minute_energy, _ = _energies(qualified_triggers, minutes, config)
     qualified_ids = {id(point) for point in qualified_triggers}
     event_points = tuple(
@@ -962,6 +1042,7 @@ def segment_evidence(
         observation_end=observation_end,
         open_threshold=open_threshold,
         keep_threshold=float(config.get("keep_threshold", 3.0)),
+        qualification_audit=qualification_audit,
     )
     return events, diagnostics
 
@@ -1030,6 +1111,11 @@ def segment_evidence_by_city(
         observation_end=observation_end,
         open_threshold=float(config.get("open_threshold", 7.0)),
         keep_threshold=float(config.get("keep_threshold", 3.0)),
+        qualification_audit=tuple(
+            audit
+            for item in city_diagnostics
+            for audit in item.qualification_audit
+        ),
     )
     return sorted(events, key=lambda item: (item.start, item.end, item.peak_time)), diagnostics
 

@@ -323,7 +323,10 @@ def rank_candidates(
             symptom_penalty = 0.35 if target_support > 0.0 else 0.8
         elif direct and directness < 0.5:
             symptom_penalty = 0.35
-        if observer_support > 0.0:
+        non_traffic_direct = [point for point in direct if point.source != "traffic"]
+        if non_traffic_direct:
+            relation_type = "direct"
+        elif observer_support > 0.0:
             relation_type = "traffic_observer"
         elif target_support > 0.0:
             relation_type = "traffic_target"
@@ -380,12 +383,12 @@ def rank_candidates(
                     _serialize_evidence(
                         point,
                         relation_type=(
-                            "traffic_target"
-                            if not direct and point.source == "traffic"
+                            "traffic_observer"
+                            if point in direct and point.source == "traffic"
                             else (
-                                "traffic_observer"
-                                if point.source == "traffic"
-                                else relation_type
+                                "traffic_target"
+                                if point in related and point.source == "traffic"
+                                else ("direct" if point in direct else "related")
                             )
                         ),
                     )

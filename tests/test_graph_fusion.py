@@ -262,6 +262,11 @@ class GraphFusionTests(unittest.TestCase):
             result.by_node["xian-service-vm-1"]["directness"],
             result.by_node["xian-traffic-vm"]["directness"],
         )
+        direct = result.by_node["xian-service-vm-1"]
+        self.assertEqual(direct["relation_type"], "direct")
+        self.assertTrue(
+            all(item["relation_type"] == "direct" for item in direct["evidence"])
+        )
 
     def test_temporal_precedence_breaks_equal_severity_routing_tie(self):
         detected = event(
