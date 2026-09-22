@@ -11,8 +11,8 @@ from typing import Any, Iterable
 from .preprocessing.observations import AnomalyEvidence, DetectedEvent, parse_time
 
 
-FORMAT_VERSION = 1
-EVIDENCE_FORMAT_VERSION = 1
+FORMAT_VERSION = 2
+EVIDENCE_FORMAT_VERSION = 2
 
 
 def _time(value) -> str:
@@ -34,6 +34,8 @@ def _serialize_evidence(item: AnomalyEvidence) -> dict[str, Any]:
         "summary": item.summary,
         "event_role": item.event_role,
         "semantic_score": item.semantic_score,
+        "sample_count": item.sample_count,
+        "numerator_count": item.numerator_count,
     }
 
 
@@ -52,6 +54,14 @@ def _deserialize_evidence(item: dict[str, Any]) -> AnomalyEvidence:
         summary=item.get("summary"),
         event_role=str(item.get("event_role", "trigger")),
         semantic_score=float(item.get("semantic_score", 0.0)),
+        sample_count=(
+            float(item["sample_count"]) if item.get("sample_count") is not None else None
+        ),
+        numerator_count=(
+            float(item["numerator_count"])
+            if item.get("numerator_count") is not None
+            else None
+        ),
     )
 
 

@@ -154,7 +154,6 @@ class MultiSourceTests(unittest.TestCase):
         self.assertEqual(request_rate.value, 30.0)
         self.assertAlmostEqual(success_ratio.value, 25.0 / 30.0)
         self.assertAlmostEqual(error_ratio.value, 5.0 / 30.0)
-        self.assertIn(("window_requests", "30.0"), error_ratio.dimensions)
         self.assertEqual(reset.value, 1.0)
         self.assertEqual(request_rate.node_id, "xian-traffic-vm")
         self.assertEqual(
@@ -165,6 +164,44 @@ class MultiSourceTests(unittest.TestCase):
                 "shanghai-service-vm-3",
             ),
         )
+
+    def test_traffic_ratio_sample_count_does_not_change_series_identity(self):
+        """样本量是观测自身的属性，不能参与序列身份。
+
+        The request count changes every single minute.  While it lived in
+        ``dimensions`` (and therefore in ``series_key``) one logical flow was
+        split into hundreds of series, each with its own short rolling
+        baseline, which is what pushed the formal full run from 402 to 560
+        events.
+        """
+        bundle = load_fixture()
+        ratios = [
+            item
+            for item in bundle.numeric
+            if item.metric == "traffic.web.success_ratio"
+        ]
+
+        sample_counts = {item.sample_count for item in ratios}
+        self.assertEqual(
+            len(ratios), 2, "fixture must yield two ratio observations to compare"
+        )
+        self.assertEqual(
+            len(sample_counts),
+            2,
+            "fixture must exercise two different sample counts",
+        )
+        self.assertEqual(
+            len({item.series_key for item in ratios}),
+            1,
+            "same flow must stay one series regardless of its sample count",
+        )
+        self.assertNotIn(
+            "window_requests",
+            dict(ratios[0].dimensions),
+            "sample count must not be smuggled through dimensions",
+        )
+        self.assertEqual({item.sample_count for item in ratios}, {30.0, 5.0})
+
 
     def test_traffic_ratio_prior_uses_counter_counts_not_per_minute_rates(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -201,6 +238,10 @@ class MultiSourceTests(unittest.TestCase):
         self.assertEqual(request_rate.value, 15.0)
         self.assertAlmostEqual(success_ratio.value, 55.0 / 60.0)
         self.assertAlmostEqual(error_ratio.value, 5.0 / 60.0)
+        self.assertEqual(success_ratio.sample_count, 30.0)
+        self.assertEqual(success_ratio.numerator_count, 25.0)
+        self.assertEqual(error_ratio.sample_count, 30.0)
+        self.assertEqual(error_ratio.numerator_count, 5.0)
 
     def test_netflow_rows_are_aggregated_per_minute_observer_and_protocol(self):
         bundle = load_fixture()

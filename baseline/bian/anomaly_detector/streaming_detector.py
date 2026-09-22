@@ -138,6 +138,8 @@ class OnlineRobustDetector:
                     score=score,
                     direction=observed_direction,
                     dimensions=item.dimensions,
+                    sample_count=item.sample_count,
+                    numerator_count=item.numerator_count,
                     event_role=evidence_event_role(
                         item, semantic_score, self.config
                     ),

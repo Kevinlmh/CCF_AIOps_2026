@@ -172,6 +172,8 @@ def _consolidate_series(
                     direction=reference.direction,
                     event_role=reference.event_role,
                     normal_value=reference.normal_value,
+                    sample_count=reference.sample_count,
+                    numerator_count=reference.numerator_count,
                 )
             )
         consolidated.sort(key=lambda item: item.timestamp)
@@ -240,6 +242,8 @@ def _numeric_evidence(
                             direction=observed_direction,
                             dimensions=item.dimensions,
                             summary=None,
+                            sample_count=item.sample_count,
+                            numerator_count=item.numerator_count,
                             event_role=evidence_event_role(
                                 item, semantic_score, config
                             ),
@@ -462,6 +466,14 @@ def _qualified_trigger_evidence(
     family_corroboration_minimum = max(
         1, int(config.get("source_family_corroboration_min_minutes", 1))
     )
+    # Traffic carries one service_outcome family per service, so requiring a
+    # second family can never be met by a plain service outage.  Sources listed
+    # here may instead qualify through a longer persistence window; leaving the
+    # mapping empty keeps the previous conservative behaviour.
+    source_persistence_minimums = {
+        str(source): max(2, int(minutes))
+        for source, minutes in config.get("source_persistence_min_minutes", {}).items()
+    }
     grouped_families: dict[
         tuple[object, ...], dict[datetime, set[tuple[object, ...]]]
     ] = defaultdict(lambda: defaultdict(set))
@@ -477,10 +489,8 @@ def _qualified_trigger_evidence(
         ).items():
             if not fnmatch(point.metric, pattern):
                 continue
-            values = dict(point.dimensions)
-            try:
-                samples = float(values.get("window_requests", "nan"))
-            except ValueError:
+            samples = point.sample_count
+            if samples is None:
                 return False
             return math.isfinite(samples) and samples >= float(configured)
         return True
@@ -574,12 +584,23 @@ def _qualified_trigger_evidence(
                 }
                 persistent_minutes = consecutive_minutes(tier_minutes, minute)
             immediate = point.direction == "state" or point.source == "frr"
-            persistent = (
-                persistence_allowed
-                and persistent_minutes >= point_minimum_persistent
-            )
             if point.source in family_corroboration_sources:
-                persistent = False
+                source_minimum = source_persistence_minimums.get(point.source)
+                if source_minimum is None:
+                    persistent = False
+                else:
+                    point_minimum_persistent = max(
+                        point_minimum_persistent, source_minimum
+                    )
+                    persistent = (
+                        persistence_allowed
+                        and persistent_minutes >= point_minimum_persistent
+                    )
+            else:
+                persistent = (
+                    persistence_allowed
+                    and persistent_minutes >= point_minimum_persistent
+                )
             semantically_extreme = (
                 point.semantic_score >= semantic_threshold
                 and semantic_immediate_allowed(point)

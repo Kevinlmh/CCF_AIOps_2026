@@ -84,6 +84,43 @@ class ObservationContractTests(unittest.TestCase):
             ),
         )
 
+    def test_ratio_counts_do_not_change_series_identity(self):
+        common = {
+            "timestamp": datetime(2026, 7, 28, 12, 40, tzinfo=timezone.utc),
+            "source": "traffic",
+            "node_id": "xian-traffic-vm",
+            "related_node_ids": ("shanghai-service-vm-1",),
+            "metric": "traffic.web.error_ratio",
+            "value": 0.2,
+            "dimensions": (("series_key", "flow-a"),),
+            "direction": "high",
+        }
+
+        first = NumericObservation(
+            **common, sample_count=10.0, numerator_count=2.0
+        )
+        second = NumericObservation(
+            **common, sample_count=100.0, numerator_count=20.0
+        )
+
+        self.assertEqual(first.series_key, second.series_key)
+
+    def test_ratio_counts_must_be_finite_non_negative_and_bounded(self):
+        common = {
+            "timestamp": datetime(2026, 7, 28, 12, 40, tzinfo=timezone.utc),
+            "source": "traffic",
+            "node_id": "xian-traffic-vm",
+            "related_node_ids": (),
+            "metric": "traffic.web.error_ratio",
+            "value": 0.2,
+            "dimensions": (),
+            "direction": "high",
+            "sample_count": 10.0,
+        }
+        for invalid in (float("nan"), -1.0, 11.0):
+            with self.subTest(numerator_count=invalid), self.assertRaises(ValueError):
+                NumericObservation(**common, numerator_count=invalid)
+
     def test_numeric_observation_rejects_non_finite_value(self):
         with self.assertRaises(ValueError):
             NumericObservation(

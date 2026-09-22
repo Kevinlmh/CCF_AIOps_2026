@@ -33,6 +33,8 @@ def point(
     event_role: str = "trigger",
     direction: str = "high",
     normal_value: float | None = None,
+    sample_count: float | None = None,
+    numerator_count: float | None = None,
 ) -> NumericObservation:
     return NumericObservation(
         timestamp=datetime(2026, 8, 19, 4, 0, tzinfo=UTC) + timedelta(minutes=minute),
@@ -45,6 +47,8 @@ def point(
         direction=direction,
         event_role=event_role,
         normal_value=normal_value,
+        sample_count=sample_count,
+        numerator_count=numerator_count,
     )
 
 
@@ -118,6 +122,39 @@ class StreamingDetectorTests(unittest.TestCase):
 
         self.assertEqual(len(evidence), 1)
         self.assertEqual(evidence[0].event_role, "support")
+
+    def test_ratio_sample_count_is_preserved_in_emitted_evidence(self):
+        """样本量必须一路带到证据上，供单分钟最小样本判据使用。"""
+        detector = OnlineRobustDetector(CONFIG)
+        detector.extend(
+            [
+                point(
+                    i,
+                    1.0,
+                    "traffic.web.success_ratio",
+                    direction="low",
+                    sample_count=40.0,
+                    numerator_count=4.0,
+                )
+                for i in range(4)
+            ]
+        )
+        detector.add(
+            point(
+                4,
+                0.2,
+                "traffic.web.success_ratio",
+                direction="low",
+                sample_count=7.0,
+                numerator_count=3.0,
+            )
+        )
+
+        evidence = detector.finalize()
+
+        self.assertEqual(len(evidence), 1)
+        self.assertEqual(evidence[0].sample_count, 7.0)
+        self.assertEqual(evidence[0].numerator_count, 3.0)
 
     def test_streaming_detector_demotes_low_semantic_trigger_to_support(self):
         config = {

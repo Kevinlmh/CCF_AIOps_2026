@@ -27,6 +27,8 @@ class CheckpointTests(unittest.TestCase):
             summary="peer down",
             event_role="support",
             semantic_score=0.75,
+            sample_count=12.0,
+            numerator_count=3.0,
         )
         event = DetectedEvent(
             start=start,
@@ -43,6 +45,7 @@ class CheckpointTests(unittest.TestCase):
             events, metadata = load_event_checkpoint(target)
 
         self.assertEqual(events, [event])
+        self.assertEqual(events[0].evidence[0].numerator_count, 3.0)
         self.assertEqual(metadata, {"dataset": "stage1"})
 
     def test_invalid_checkpoint_version_is_rejected(self):

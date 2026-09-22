@@ -85,6 +85,13 @@ class NumericObservation:
     direction: AnomalyDirection = "both"
     event_role: EventRole = "trigger"
     normal_value: float | None = None
+    # Number of underlying samples behind a derived value (e.g. the requests
+    # counted in the minute that produced a service ratio).  This describes the
+    # observation, so it must never enter ``series_key``: the count changes
+    # every minute and would shatter one logical flow into hundreds of series,
+    # each with its own rolling baseline.
+    sample_count: float | None = None
+    numerator_count: float | None = None
 
     def __post_init__(self) -> None:
         _validate_timestamp(self.timestamp)
@@ -98,6 +105,20 @@ class NumericObservation:
             raise ValueError("invalid event role")
         if self.normal_value is not None and not math.isfinite(self.normal_value):
             raise ValueError("normal value must be finite")
+        if self.sample_count is not None and (
+            not math.isfinite(self.sample_count) or self.sample_count < 0
+        ):
+            raise ValueError("sample count must be finite and non-negative")
+        if self.numerator_count is not None and (
+            not math.isfinite(self.numerator_count) or self.numerator_count < 0
+        ):
+            raise ValueError("numerator count must be finite and non-negative")
+        if (
+            self.sample_count is not None
+            and self.numerator_count is not None
+            and self.numerator_count > self.sample_count
+        ):
+            raise ValueError("numerator count cannot exceed sample count")
         object.__setattr__(self, "dimensions", _canonical_dimensions(self.dimensions))
         object.__setattr__(self, "related_node_ids", tuple(dict.fromkeys(self.related_node_ids)))
 
@@ -138,6 +159,8 @@ class AnomalyEvidence:
     summary: str | None = None
     event_role: EventRole = "trigger"
     semantic_score: float = 0.0
+    sample_count: float | None = None
+    numerator_count: float | None = None
 
     def __post_init__(self) -> None:
         _validate_timestamp(self.timestamp)
@@ -152,6 +175,20 @@ class AnomalyEvidence:
             raise ValueError("invalid event role")
         if not math.isfinite(self.semantic_score) or not 0.0 <= self.semantic_score <= 1.0:
             raise ValueError("evidence semantic_score must be in [0, 1]")
+        if self.sample_count is not None and (
+            not math.isfinite(self.sample_count) or self.sample_count < 0
+        ):
+            raise ValueError("evidence sample count must be finite and non-negative")
+        if self.numerator_count is not None and (
+            not math.isfinite(self.numerator_count) or self.numerator_count < 0
+        ):
+            raise ValueError("evidence numerator count must be finite and non-negative")
+        if (
+            self.sample_count is not None
+            and self.numerator_count is not None
+            and self.numerator_count > self.sample_count
+        ):
+            raise ValueError("evidence numerator count cannot exceed sample count")
         object.__setattr__(self, "dimensions", _canonical_dimensions(self.dimensions))
         object.__setattr__(self, "related_node_ids", tuple(dict.fromkeys(self.related_node_ids)))
         if self.summary is not None:

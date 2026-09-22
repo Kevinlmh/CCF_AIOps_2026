@@ -519,7 +519,9 @@ def _iter_traffic_file(
                     related_node_ids=related,
                     metric=metric,
                     value=min(1.0, max(0.0, adjusted_ratio)),
-                    dimensions=dimensions + (("window_requests", str(request_count)),),
+                    dimensions=dimensions,
+                    sample_count=request_count,
+                    numerator_count=numerator_count,
                     direction=_direction("traffic", metric),
                 )
                 emitted += 1
