@@ -59,6 +59,8 @@ def point(
     related: tuple[str, ...] = (),
     event_role: str = "trigger",
     semantic_score: float = 0.0,
+    sample_count: float | None = None,
+    numerator_count: float | None = None,
 ) -> AnomalyEvidence:
     return AnomalyEvidence(
         timestamp=BASE + timedelta(minutes=minute),
@@ -74,6 +76,8 @@ def point(
         summary=None,
         event_role=event_role,
         semantic_score=semantic_score,
+        sample_count=sample_count,
+        numerator_count=numerator_count,
     )
 
 
@@ -89,6 +93,57 @@ def event(*points: AnomalyEvidence) -> DetectedEvent:
 
 
 class GraphFusionTests(unittest.TestCase):
+    def test_serialized_ratio_evidence_exposes_sample_reliability(self):
+        detected = event(
+            point(
+                1,
+                "xian-traffic-vm",
+                "traffic.web.error_ratio",
+                source="traffic",
+                score=20.0,
+                related=(
+                    "xian-service-vm-1",
+                    "xian-service-vm-2",
+                    "xian-service-vm-3",
+                ),
+                sample_count=60.0,
+                numerator_count=18.0,
+            )
+        )
+
+        result = rank_candidates(detected, NETWORK, TOPOLOGY, CONFIG)
+        serialized = result.by_node["xian-traffic-vm"]["evidence"][0]
+
+        self.assertEqual(serialized["sample_count"], 60.0)
+        self.assertEqual(serialized["numerator_count"], 18.0)
+        self.assertEqual(serialized["relation_type"], "traffic_observer")
+
+    def test_traffic_target_candidates_are_not_generic_symptom_tail(self):
+        detected = event(
+            point(
+                1,
+                "xian-traffic-vm",
+                "traffic.web.error_ratio",
+                source="traffic",
+                score=20.0,
+                related=(
+                    "xian-service-vm-1",
+                    "xian-service-vm-2",
+                    "xian-service-vm-3",
+                ),
+                sample_count=60.0,
+                numerator_count=18.0,
+            )
+        )
+
+        result = rank_candidates(detected, NETWORK, TOPOLOGY, CONFIG)
+        target = result.by_node["xian-service-vm-1"]
+
+        self.assertGreater(target["target_support"], 0.0)
+        self.assertEqual(target["relation_type"], "traffic_target")
+        self.assertLess(target["symptom_penalty"], 0.8)
+        self.assertEqual(target["evidence"][0]["relation_type"], "traffic_target")
+
     def test_high_score_support_does_not_outrank_direct_trigger(self):
         detected = event(
             point(

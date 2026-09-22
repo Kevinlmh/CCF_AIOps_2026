@@ -205,7 +205,9 @@ def _topology_explanation(
     return min(1.0, sum(contributions[:5]) / min(3, len(contributions)))
 
 
-def _serialize_evidence(point: AnomalyEvidence) -> dict[str, Any]:
+def _serialize_evidence(
+    point: AnomalyEvidence, *, relation_type: str = "direct"
+) -> dict[str, Any]:
     return {
         "timestamp_utc": point.timestamp.isoformat().replace("+00:00", "Z"),
         "source": point.source,
@@ -218,6 +220,9 @@ def _serialize_evidence(point: AnomalyEvidence) -> dict[str, Any]:
         "summary": point.summary,
         "event_role": point.event_role,
         "semantic_score": round(point.semantic_score, 5),
+        "sample_count": point.sample_count,
+        "numerator_count": point.numerator_count,
+        "relation_type": relation_type,
     }
 
 
@@ -306,14 +311,28 @@ def rank_candidates(
         diversity = _source_diversity(direct, support_weight)
         directness = _directness(direct, support_weight)
         relational = _relational_support(related, support_weight)
+        observer_points = [point for point in direct if point.source == "traffic"]
+        target_points = [point for point in related if point.source == "traffic"]
+        observer_support = _severity(observer_points, support_weight)
+        target_support = _relational_support(target_points, support_weight)
         topology_score = _topology_explanation(
             node_id, direct_by_node, graph, support_weight
         )
         symptom_penalty = 0.0
         if related and not direct:
-            symptom_penalty = 0.8
+            symptom_penalty = 0.35 if target_support > 0.0 else 0.8
         elif direct and directness < 0.5:
             symptom_penalty = 0.35
+        if observer_support > 0.0:
+            relation_type = "traffic_observer"
+        elif target_support > 0.0:
+            relation_type = "traffic_target"
+        elif direct:
+            relation_type = "direct"
+        elif related:
+            relation_type = "related"
+        else:
+            relation_type = "candidate"
         components = {
             "severity": severity,
             "persistence": persistence,
@@ -326,7 +345,7 @@ def rank_candidates(
         }
         score = sum(float(weights.get(name, 0.0)) * value for name, value in components.items())
         strongest = sorted(
-            direct,
+            direct if direct else related,
             key=lambda point: (
                 point.event_role != "trigger",
                 -point.score,
@@ -348,13 +367,30 @@ def rank_candidates(
                     point.event_role == "support" for point in direct
                 ),
                 "related_anomaly_count": len(related),
+                "observer_support": round(observer_support, 6),
+                "target_support": round(target_support, 6),
+                "relation_type": relation_type,
                 "sources": sorted({point.source for point in direct}),
                 "first_anomaly": (
                     min(point.timestamp for point in direct).isoformat().replace("+00:00", "Z")
                     if direct
                     else None
                 ),
-                "evidence": [_serialize_evidence(point) for point in strongest],
+                "evidence": [
+                    _serialize_evidence(
+                        point,
+                        relation_type=(
+                            "traffic_target"
+                            if not direct and point.source == "traffic"
+                            else (
+                                "traffic_observer"
+                                if point.source == "traffic"
+                                else relation_type
+                            )
+                        ),
+                    )
+                    for point in strongest
+                ],
             }
         )
 
