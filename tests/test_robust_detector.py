@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import math
 import unittest
 
+from baseline.bian.anomaly_detector import robust_detector as robust_module
 from baseline.bian.anomaly_detector.robust_detector import (
     _energies,
     _qualified_trigger_evidence,
@@ -76,6 +77,9 @@ def evidence(
     node_id: str = "xian-service-vm-1",
     related_node_ids: tuple[str, ...] = (),
     value: float = 80.0,
+    dimensions: tuple[tuple[str, str], ...] = (),
+    sample_count: float | None = None,
+    numerator_count: float | None = None,
 ) -> AnomalyEvidence:
     return AnomalyEvidence(
         timestamp=BASE + timedelta(minutes=minute),
@@ -87,10 +91,12 @@ def evidence(
         baseline=1.0,
         score=score,
         direction=direction,
-        dimensions=(),
+        dimensions=dimensions,
         summary=None,
         event_role=event_role,
         semantic_score=semantic_score,
+        sample_count=sample_count,
+        numerator_count=numerator_count,
     )
 
 
@@ -300,6 +306,134 @@ class EventSegmentationTests(unittest.TestCase):
         self.assertEqual(outcome_only, ())
         self.assertIn(outcome[0], corroborated)
         self.assertEqual(len(extreme), 1)
+
+    def _traffic_window_config(self):
+        return {
+            **CONFIG,
+            "sources_require_independent_family_corroboration": ["traffic"],
+            "source_family_corroboration_min_minutes": 3,
+            "traffic_ratio_prior_weight": 30.0,
+            "traffic_ratio_window_min_minutes": 3,
+            "traffic_ratio_window_min_samples": 30.0,
+            "traffic_latency_window_min_minutes": 5,
+            "traffic_latency_correlated_min_minutes": 3,
+            "metric_semantic_ranges": {
+                "traffic.*.*success*_ratio": {"low_start": 0.9, "low_full": 0.5},
+                "traffic.*.*error*_ratio": {"high_start": 0.1, "high_full": 0.5},
+            },
+            "semantic_single_minimum_samples": {"traffic.*.*_ratio": 30},
+            "semantic_single_minute_threshold": 0.9,
+        }
+
+    def test_three_tiny_sample_ratio_minutes_do_not_qualify(self):
+        points = tuple(
+            evidence(
+                minute,
+                source="traffic",
+                metric="traffic.web.error_ratio",
+                node_id="xian-traffic-vm",
+                semantic_score=0.3,
+                value=2.0 / 34.0,
+                sample_count=4.0,
+                numerator_count=2.0,
+            )
+            for minute in range(4, 7)
+        )
+
+        self.assertEqual(
+            _qualified_trigger_evidence(points, self._traffic_window_config()), ()
+        )
+
+    def test_low_volume_ratio_qualifies_after_window_accumulates_samples(self):
+        points = tuple(
+            evidence(
+                minute,
+                source="traffic",
+                metric="traffic.web.error_ratio",
+                node_id="xian-traffic-vm",
+                semantic_score=0.3,
+                value=6.0 / 42.0,
+                sample_count=12.0,
+                numerator_count=6.0,
+            )
+            for minute in range(4, 7)
+        )
+
+        qualified = _qualified_trigger_evidence(points, self._traffic_window_config())
+
+        self.assertEqual(qualified, points)
+
+    def test_ratio_window_audit_recomputes_posterior_from_aggregated_counts(self):
+        points = tuple(
+            evidence(
+                minute,
+                source="traffic",
+                metric="traffic.web.error_ratio",
+                node_id="xian-traffic-vm",
+                semantic_score=0.3,
+                value=6.0 / 50.0,
+                sample_count=20.0,
+                numerator_count=6.0,
+            )
+            for minute in range(4, 7)
+        )
+
+        qualified, audit = robust_module._qualified_trigger_evidence_with_audit(
+            points, self._traffic_window_config()
+        )
+
+        self.assertEqual(qualified, points)
+        self.assertEqual(len(audit), 1)
+        self.assertAlmostEqual(audit[0]["posterior_ratio"], 0.2)
+        self.assertEqual(audit[0]["sample_count"], 60.0)
+        self.assertEqual(audit[0]["numerator_count"], 18.0)
+
+    def test_pure_latency_requires_five_minutes(self):
+        config = self._traffic_window_config()
+        points = tuple(
+            evidence(
+                minute,
+                source="traffic",
+                metric="traffic.web.latency_p95_seconds",
+                node_id="xian-traffic-vm",
+                semantic_score=0.0,
+                value=2.0,
+            )
+            for minute in range(4, 9)
+        )
+
+        self.assertEqual(_qualified_trigger_evidence(points[:4], config), ())
+        self.assertEqual(_qualified_trigger_evidence(points, config), points)
+
+    def test_latency_with_outcome_corroboration_qualifies_in_three_minutes(self):
+        config = self._traffic_window_config()
+        latency = tuple(
+            evidence(
+                minute,
+                source="traffic",
+                metric="traffic.web.latency_p95_seconds",
+                node_id="xian-traffic-vm",
+                value=2.0,
+            )
+            for minute in range(4, 7)
+        )
+        outcome = tuple(
+            evidence(
+                minute,
+                source="traffic",
+                metric="traffic.web.error_ratio",
+                node_id="xian-traffic-vm",
+                value=6.0 / 42.0,
+                semantic_score=0.3,
+                sample_count=12.0,
+                numerator_count=6.0,
+            )
+            for minute in range(4, 7)
+        )
+
+        qualified = _qualified_trigger_evidence(latency + outcome, config)
+
+        self.assertEqual(set(qualified), set(latency + outcome))
 
     def test_immediate_state_does_not_increase_trigger_energy_with_unrelated_gauge(self):
         minute = BASE + timedelta(minutes=4)

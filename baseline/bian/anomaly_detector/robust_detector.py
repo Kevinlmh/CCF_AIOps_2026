@@ -419,10 +419,138 @@ def _windows_from_energy(
     return windows
 
 
-def _qualified_trigger_evidence(
+def _traffic_window_qualifications(
+    triggers: tuple[AnomalyEvidence, ...],
+    config: dict[str, Any],
+) -> tuple[set[AnomalyEvidence], list[dict[str, object]]]:
+    """Confirm traffic-only incidents with sample-aware contiguous windows."""
+
+    def runs(points: list[AnomalyEvidence]) -> list[list[AnomalyEvidence]]:
+        ordered = sorted(points, key=lambda item: item.timestamp)
+        result: list[list[AnomalyEvidence]] = []
+        current: list[AnomalyEvidence] = []
+        for point in ordered:
+            if current and _minute(point.timestamp) != _minute(
+                current[-1].timestamp
+            ) + timedelta(minutes=1):
+                result.append(current)
+                current = []
+            current.append(point)
+        if current:
+            result.append(current)
+        return result
+
+    def semantic_boundary(metric: str) -> tuple[str, float] | None:
+        for pattern, configured in config.get("metric_semantic_ranges", {}).items():
+            if not fnmatch(metric, pattern):
+                continue
+            if "high_start" in configured:
+                return "high", float(configured["high_start"])
+            if "low_start" in configured:
+                return "low", float(configured["low_start"])
+        return None
+
+    traffic = tuple(point for point in triggers if point.source == "traffic")
+    grouped: dict[tuple[object, ...], list[AnomalyEvidence]] = defaultdict(list)
+    outcome_minutes: dict[tuple[object, ...], set[datetime]] = defaultdict(set)
+    for point in traffic:
+        parts = point.metric.lower().split(".")
+        service = parts[1] if len(parts) >= 3 else point.metric.lower()
+        scope = (point.node_id, service, point.dimensions)
+        grouped[(point.node_id, point.metric, point.dimensions, point.direction)].append(
+            point
+        )
+        if "success" in point.metric.lower() or "error" in point.metric.lower():
+            outcome_minutes[scope].add(_minute(point.timestamp))
+
+    qualified: set[AnomalyEvidence] = set()
+    audit: list[dict[str, object]] = []
+    ratio_minimum = max(2, int(config.get("traffic_ratio_window_min_minutes", 3)))
+    sample_minimum = max(
+        0.0, float(config.get("traffic_ratio_window_min_samples", 30.0))
+    )
+    prior_weight = max(0.0, float(config.get("traffic_ratio_prior_weight", 0.0)))
+    latency_minimum = max(
+        2, int(config.get("traffic_latency_window_min_minutes", 5))
+    )
+    correlated_latency_minimum = max(
+        2, int(config.get("traffic_latency_correlated_min_minutes", 3))
+    )
+
+    for key, points in grouped.items():
+        metric = str(key[1]).lower()
+        parts = metric.split(".")
+        service = parts[1] if len(parts) >= 3 else metric
+        scope = (key[0], service, key[2])
+        for run in runs(points):
+            if metric.endswith("_ratio"):
+                if len(run) < ratio_minimum:
+                    continue
+                if any(
+                    point.sample_count is None or point.numerator_count is None
+                    for point in run
+                ):
+                    continue
+                sample_count = sum(float(point.sample_count) for point in run)
+                numerator_count = sum(float(point.numerator_count) for point in run)
+                if sample_count < sample_minimum:
+                    continue
+                success = "success" in metric
+                posterior = (
+                    numerator_count + (prior_weight if success else 0.0)
+                ) / (sample_count + prior_weight)
+                boundary = semantic_boundary(metric)
+                if boundary is None:
+                    continue
+                direction, threshold = boundary
+                severe = posterior >= threshold if direction == "high" else posterior <= threshold
+                if not severe:
+                    continue
+                qualified.update(run)
+                audit.append(
+                    {
+                        "reason": "traffic_ratio_window",
+                        "metric": key[1],
+                        "start": _minute(run[0].timestamp),
+                        "end": _minute(run[-1].timestamp),
+                        "minutes": len(run),
+                        "sample_count": sample_count,
+                        "numerator_count": numerator_count,
+                        "posterior_ratio": posterior,
+                    }
+                )
+                continue
+
+            if "latency" not in metric:
+                continue
+            run_minutes = {_minute(point.timestamp) for point in run}
+            correlated = run_minutes & outcome_minutes.get(scope, set())
+            minimum = (
+                correlated_latency_minimum
+                if len(correlated) >= correlated_latency_minimum
+                else latency_minimum
+            )
+            if len(run) < minimum:
+                continue
+            qualified.update(run)
+            audit.append(
+                {
+                    "reason": "traffic_latency_window",
+                    "metric": key[1],
+                    "start": _minute(run[0].timestamp),
+                    "end": _minute(run[-1].timestamp),
+                    "minutes": len(run),
+                    "corroborated_minutes": len(correlated),
+                }
+            )
+    audit.sort(key=lambda item: (item["start"], str(item["metric"])))
+    return qualified, audit
+
+
+def _qualified_trigger_evidence_with_audit(
     evidence: tuple[AnomalyEvidence, ...],
     config: dict[str, Any],
-) -> tuple[AnomalyEvidence, ...]:
+) -> tuple[tuple[AnomalyEvidence, ...], tuple[dict[str, object], ...]]:
     """Reject isolated gauge spikes while preserving state/log incidents.
 
     A gauge point becomes an event trigger when another independent trigger is
@@ -431,7 +559,7 @@ def _qualified_trigger_evidence(
     """
     triggers = tuple(point for point in evidence if point.event_role == "trigger")
     if not triggers:
-        return ()
+        return (), ()
     required = max(1, int(config.get("min_distinct_trigger_series_per_minute", 2)))
     persistence_gap = max(0, int(config.get("trigger_persistence_gap_minutes", 1)))
     by_minute: dict[datetime, list[AnomalyEvidence]] = defaultdict(list)
@@ -466,14 +594,9 @@ def _qualified_trigger_evidence(
     family_corroboration_minimum = max(
         1, int(config.get("source_family_corroboration_min_minutes", 1))
     )
-    # Traffic carries one service_outcome family per service, so requiring a
-    # second family can never be met by a plain service outage.  Sources listed
-    # here may instead qualify through a longer persistence window; leaving the
-    # mapping empty keeps the previous conservative behaviour.
-    source_persistence_minimums = {
-        str(source): max(2, int(minutes))
-        for source, minutes in config.get("source_persistence_min_minutes", {}).items()
-    }
+    traffic_window_points, qualification_audit = _traffic_window_qualifications(
+        triggers, config
+    )
     grouped_families: dict[
         tuple[object, ...], dict[datetime, set[tuple[object, ...]]]
     ] = defaultdict(lambda: defaultdict(set))
@@ -584,23 +707,11 @@ def _qualified_trigger_evidence(
                 }
                 persistent_minutes = consecutive_minutes(tier_minutes, minute)
             immediate = point.direction == "state" or point.source == "frr"
-            if point.source in family_corroboration_sources:
-                source_minimum = source_persistence_minimums.get(point.source)
-                if source_minimum is None:
-                    persistent = False
-                else:
-                    point_minimum_persistent = max(
-                        point_minimum_persistent, source_minimum
-                    )
-                    persistent = (
-                        persistence_allowed
-                        and persistent_minutes >= point_minimum_persistent
-                    )
-            else:
-                persistent = (
-                    persistence_allowed
-                    and persistent_minutes >= point_minimum_persistent
-                )
+            persistent = (
+                point.source not in family_corroboration_sources
+                and persistence_allowed
+                and persistent_minutes >= point_minimum_persistent
+            )
             semantically_extreme = (
                 point.semantic_score >= semantic_threshold
                 and semantic_immediate_allowed(point)
@@ -610,14 +721,26 @@ def _qualified_trigger_evidence(
             if not persistence_allowed:
                 corroborated = False
                 semantically_extreme = False
-            if immediate or corroborated or persistent or semantically_extreme:
+            traffic_window = point in traffic_window_points
+            if immediate or corroborated or persistent or semantically_extreme or traffic_window:
                 qualified.append(point)
-    return tuple(
-        sorted(
-            qualified,
-            key=lambda item: (item.timestamp, item.source, item.metric, item.dimensions),
-        )
+    return (
+        tuple(
+            sorted(
+                qualified,
+                key=lambda item: (item.timestamp, item.source, item.metric, item.dimensions),
+            )
+        ),
+        tuple(qualification_audit),
     )
+
+
+def _qualified_trigger_evidence(
+    evidence: tuple[AnomalyEvidence, ...],
+    config: dict[str, Any],
+) -> tuple[AnomalyEvidence, ...]:
+    qualified, _ = _qualified_trigger_evidence_with_audit(evidence, config)
+    return qualified
 
 
 def _suppress_nearby_events(
