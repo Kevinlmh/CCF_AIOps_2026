@@ -430,7 +430,7 @@ def _diagnostic_log(
     backend_name: str,
     event_logs: list[dict[str, Any]],
     ingestion_mode: str = "memory",
-    streaming_metrics: dict[str, int] | None = None,
+    streaming_metrics: dict[str, Any] | None = None,
     cached_source_coverage: dict[str, Any] | None = None,
     model_version: str = "unknown",
 ) -> dict[str, Any]:
@@ -520,6 +520,49 @@ def _diagnostic_log(
         } if stats is not None else {},
         **(streaming_metrics or {}),
     }
+    dropped_by_role = dict(
+        (streaming_metrics or {}).get("dropped_evidence_by_role", {})
+    )
+    dropped_total = int((streaming_metrics or {}).get("dropped_evidence", 0))
+    evidence_retention = {
+        "retained": diagnostics.evidence_count if diagnostics is not None else None,
+        "dropped_total": dropped_total,
+        "dropped_by_role": {
+            "trigger": int(dropped_by_role.get("trigger", 0)),
+            "support": int(dropped_by_role.get("support", 0)),
+        },
+    }
+    root_margins: list[float] = []
+    classification_margins: list[float] = []
+    excluded_candidates = 0
+    for event in event_logs:
+        candidates = event.get("candidates", [])
+        if len(candidates) >= 2:
+            root_margins.append(
+                max(0.0, float(candidates[0]["score"]) - float(candidates[1]["score"]))
+            )
+        categories = event.get("prototype_top3", [])
+        if len(categories) >= 2:
+            classification_margins.append(
+                max(0.0, float(categories[0]["score"]) - float(categories[1]["score"]))
+            )
+        excluded_candidates += int(
+            event.get("candidate_scope", {}).get("excluded_candidate_count", 0)
+        )
+    ranking_margin_summary = {
+        "event_count": len(event_logs),
+        "root_margin_mean": round(
+            sum(root_margins) / len(root_margins), 8
+        ) if root_margins else None,
+        "root_margin_le_0_05": sum(value <= 0.05 for value in root_margins),
+        "classification_margin_mean": round(
+            sum(classification_margins) / len(classification_margins), 8
+        ) if classification_margins else None,
+        "classification_margin_le_0_05": sum(
+            value <= 0.05 for value in classification_margins
+        ),
+        "excluded_candidate_count_total": excluded_candidates,
+    }
     return {
         "model_version": model_version,
         "detector": detector_name,
@@ -532,6 +575,8 @@ def _diagnostic_log(
         "energy_summary": energy_summary,
         "minute_energy_nonzero": nonzero_energy,
         "data_audit": data_audit,
+        "evidence_retention": evidence_retention,
+        "ranking_margin_summary": ranking_margin_summary,
         "events": event_logs,
     }
 
@@ -731,6 +776,7 @@ def run(
                 "observations_evaluated": streamed.observation_count,
                 "series_state_count": streamed.series_state_count,
                 "dropped_evidence": streamed.dropped_evidence_count,
+                "dropped_evidence_by_role": streamed.dropped_evidence_by_role,
             }
             if spatial_split:
                 events = split_concurrent_events(

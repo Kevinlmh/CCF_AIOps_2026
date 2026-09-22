@@ -38,6 +38,10 @@ class StreamingPipelineTests(unittest.TestCase):
         self.assertEqual(result.bundle.numeric, ())
         self.assertGreater(result.observation_count, 0)
         self.assertGreater(result.series_state_count, 0)
+        self.assertEqual(
+            sum(result.dropped_evidence_by_role.values()),
+            result.dropped_evidence_count,
+        )
         self.assertTrue(
             all(result.bundle.stats.rows_conserved(source) for source in result.bundle.source_coverage)
         )

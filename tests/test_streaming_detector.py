@@ -110,6 +110,25 @@ class StreamingDetectorTests(unittest.TestCase):
 
         self.assertEqual(len(evidence), 2)
         self.assertTrue(any(item.event_role == "trigger" for item in evidence))
+        self.assertEqual(detector.dropped_evidence_by_role, {"support": 1})
+
+    def test_bounded_bucket_counts_dropped_triggers_separately(self):
+        detector = OnlineRobustDetector(
+            {**CONFIG, "max_evidence_per_minute_source_node": 2}
+        )
+        detector.add_evidence(
+            retained_point(10.0, "node.cpu_usage", event_role="trigger")
+        )
+        detector.add_evidence(
+            retained_point(9.0, "node.memory_available_ratio", event_role="trigger")
+        )
+        detector.add_evidence(
+            retained_point(8.0, "node.disk_io_util", event_role="trigger")
+        )
+
+        detector.finalize()
+
+        self.assertEqual(detector.dropped_evidence_by_role, {"trigger": 1})
 
     def test_observation_event_role_is_preserved_in_emitted_evidence(self):
         detector = OnlineRobustDetector(CONFIG)

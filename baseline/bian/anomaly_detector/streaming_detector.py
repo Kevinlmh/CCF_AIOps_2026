@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from fnmatch import fnmatch
 from typing import Any, Iterable
 
@@ -35,6 +35,7 @@ class OnlineRobustDetector:
         self._metric_config_cache: dict[str, dict[str, Any]] = {}
         self.observation_count = 0
         self.dropped_evidence_count = 0
+        self._dropped_evidence_by_role: Counter[str] = Counter()
         self._finalized = False
 
     @property
@@ -44,6 +45,10 @@ class OnlineRobustDetector:
     @property
     def retained_evidence_count(self) -> int:
         return sum(len(values) for values in self._buckets.values())
+
+    @property
+    def dropped_evidence_by_role(self) -> dict[str, int]:
+        return dict(self._dropped_evidence_by_role)
 
     def _metric_config(self, metric: str) -> dict[str, Any]:
         cached = self._metric_config_cache.get(metric)
@@ -80,8 +85,12 @@ class OnlineRobustDetector:
             )
         )
         if len(values) > self.maximum_per_bucket:
+            dropped = values[self.maximum_per_bucket :]
             del values[self.maximum_per_bucket :]
-            self.dropped_evidence_count += 1
+            self.dropped_evidence_count += len(dropped)
+            self._dropped_evidence_by_role.update(
+                item.event_role for item in dropped
+            )
 
     def add_evidence(self, evidence: AnomalyEvidence) -> None:
         if self._finalized:

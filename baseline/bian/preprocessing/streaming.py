@@ -36,6 +36,7 @@ class StreamingDetectionResult:
     observation_count: int
     series_state_count: int
     dropped_evidence_count: int
+    dropped_evidence_by_role: dict[str, int]
     evidence: tuple
 
 
@@ -160,5 +161,6 @@ def detect_events_streaming(
         observation_count=detector.observation_count,
         series_state_count=detector.series_state_count,
         dropped_evidence_count=detector.dropped_evidence_count,
+        dropped_evidence_by_role=detector.dropped_evidence_by_role,
         evidence=tuple(evidence),
     )

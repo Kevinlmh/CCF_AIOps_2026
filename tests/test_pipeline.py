@@ -248,6 +248,9 @@ class PipelineTests(unittest.TestCase):
                 "excluded_candidate_count",
                 report["events"][0]["candidate_scope"],
             )
+            self.assertIn("evidence_retention", report)
+            self.assertIn("ranking_margin_summary", report)
+            self.assertEqual(report["ranking_margin_summary"]["event_count"], 1)
 
     def test_streaming_ingestion_emits_audited_prediction(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -266,6 +269,7 @@ class PipelineTests(unittest.TestCase):
             report = json.loads(inference_log.read_text())
             self.assertEqual(report["ingestion_mode"], "streaming")
             self.assertGreater(report["data_audit"]["observations_evaluated"], 0)
+            self.assertIn("dropped_evidence_by_role", report["data_audit"])
             self.assertTrue(report["data_audit"]["rows_conserved"]["node"])
             for record in map(json.loads, output.read_text().splitlines()):
                 validate_prediction(record)
