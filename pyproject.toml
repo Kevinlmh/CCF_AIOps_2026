@@ -13,9 +13,12 @@ dependencies = []
 
 [project.optional-dependencies]
 llm = ["torch>=2.1", "transformers>=4.40", "accelerate"]
+v2-data = ["numpy>=1.26"]
+v2-model = ["numpy>=1.26", "torch>=2.1"]
+test = ["pytest>=8"]
 
 [tool.setuptools.packages.find]
-include = ["aiops_challenge_2026*"]
+include = ["aiops_challenge_2026*", "aiops_v2*", "baseline*"]
 
 [tool.setuptools.package-data]
 "aiops_challenge_2026.config" = ["*.json"]
