@@ -61,10 +61,17 @@ def _observations() -> list[NumericObservation]:
     return result
 
 
-def test_store_scaler_uses_boundary_reference_instead_of_fault_majority(tmp_path) -> None:
-    values = [1.0] * 5 + [40.0] * 13 + [1.0] * 5
+def test_store_scaler_avoids_sparse_incident_bias_in_boundary_slices(tmp_path) -> None:
+    values = [1.0] * 5 + [40.0] * 13
+    observation_minutes = list(range(18))
+    # Match the sparse public sample: only about 60 of 311 timeline minutes
+    # contain this node's metric, and the incident happens in the first
+    # boundary window. A boundary-only reference then over-represents it.
+    later_minutes = np.linspace(61, 310, 42, dtype=int).tolist()
+    values.extend([1.0] * len(later_minutes))
+    observation_minutes.extend(later_minutes)
     observations = []
-    for minute, value in enumerate(values):
+    for minute, value in zip(observation_minutes, values):
         observations.append(
             NumericObservation(
                 timestamp=START + timedelta(minutes=minute),
@@ -88,6 +95,7 @@ def test_store_scaler_uses_boundary_reference_instead_of_fault_majority(tmp_path
     feature = store.features.index("node", "node.cpu_usage")
 
     assert float(scaler.center[node, feature]) == 1.0
+    assert float(scaler.scale[node, feature]) == 1.0
 
 
 def test_timeline_calibrator_uses_boundary_reference_not_fault_plateau() -> None:
@@ -96,6 +104,23 @@ def test_timeline_calibrator_uses_boundary_reference_not_fault_plateau() -> None
     calibrator = fit_timeline_calibrator(scores)
 
     assert calibrator.center[0] == pytest.approx(np.log1p(1.0))
+
+
+def test_timeline_calibrator_uses_observed_mask_and_audits_reference_counts() -> None:
+    scores = np.tile(np.array([1.0, 2.0, 1_000_000.0]), (20, 1))
+    scores[-1, 0] = 40.0
+    observed = np.ones_like(scores, dtype=bool)
+    observed[:, 2] = False
+
+    calibrator = fit_timeline_calibrator(scores, observed)
+    changed = scores.copy()
+    changed[:, 2] = 1e30
+    repeated = fit_timeline_calibrator(changed, observed)
+
+    assert calibrator.center.tolist() == pytest.approx(repeated.center.tolist())
+    assert calibrator.scale.tolist() == pytest.approx(repeated.scale.tolist())
+    assert calibrator.summary.valid_minute_count == (20, 20, 0)
+    assert calibrator.summary.reference_minute_count == (12, 12, 0)
 
 
 def test_training_produces_finite_history_scalers_and_calibrator(tmp_path) -> None:
@@ -114,6 +139,30 @@ def test_training_produces_finite_history_scalers_and_calibrator(tmp_path) -> No
     assert np.isfinite(artifact.history[0])
     assert set(artifact.scalers) == {"node", "edge", "log"}
     assert artifact.calibrator.center.shape == (3,)
+
+
+def test_detector_training_can_fit_synthetic_diagnosis_heads(tmp_path) -> None:
+    store = build_feature_store(
+        _observations(),
+        load_public_config("network_elements"),
+        tmp_path / "store",
+    )
+
+    artifact = train_detector(
+        store,
+        TrainConfig(epochs=1, batch_size=2, window_minutes=4, stride_minutes=2, hidden_size=8, seed=13),
+        taxonomy=load_public_config("fault_taxonomy"),
+        diagnosis_examples_per_category=1,
+        diagnosis_epochs=1,
+        diagnosis_batch_size=32,
+        diagnosis_hidden_size=8,
+    )
+
+    assert artifact.diagnosis_heads is not None
+    assert artifact.diagnosis_summary is not None
+    assert artifact.diagnosis_summary.training_example_count == 28
+    assert len(artifact.diagnosis_history) == 1
+    assert artifact.synthetic_template_version == "v1"
 
 
 def test_checkpoint_round_trip_preserves_model_and_preprocessing_state(tmp_path) -> None:
@@ -139,3 +188,62 @@ def test_checkpoint_round_trip_preserves_model_and_preprocessing_state(tmp_path)
         artifact.model.state_dict()[first_key].detach().cpu().numpy(),
         restored.model.state_dict()[first_key].detach().cpu().numpy(),
     )
+
+
+def test_checkpoint_v4_round_trip_preserves_diagnosis_head_and_taxonomy(tmp_path) -> None:
+    taxonomy = load_public_config("fault_taxonomy")
+    store = build_feature_store(
+        _observations(),
+        load_public_config("network_elements"),
+        tmp_path / "store",
+    )
+    artifact = train_detector(
+        store,
+        TrainConfig(epochs=1, batch_size=2, window_minutes=4, stride_minutes=2, hidden_size=8, seed=31),
+        taxonomy=taxonomy,
+        diagnosis_examples_per_category=1,
+        diagnosis_epochs=1,
+        diagnosis_batch_size=32,
+        diagnosis_hidden_size=8,
+    )
+    checkpoint = tmp_path / "model_v4.pt"
+
+    save_checkpoint(artifact, checkpoint, feature_manifest=store.manifest)
+    restored = load_checkpoint(checkpoint)
+
+    assert restored.diagnosis_heads is not None
+    assert restored.taxonomy_identity == tuple(
+        item["fault_name"] for item in taxonomy["fault_categories"]
+    )
+    assert restored.diagnosis_summary is not None
+    head_key = next(iter(artifact.diagnosis_heads.state_dict()))
+    assert torch.equal(
+        artifact.diagnosis_heads.state_dict()[head_key],
+        restored.diagnosis_heads.state_dict()[head_key],
+    )
+
+
+@pytest.mark.parametrize("legacy_version", [1, 2, 3])
+def test_legacy_checkpoint_warns_and_never_claims_random_heads_are_trained(
+    tmp_path,
+    legacy_version: int,
+) -> None:
+    store = build_feature_store(
+        _observations(),
+        load_public_config("network_elements"),
+        tmp_path / "store",
+    )
+    artifact = train_detector(
+        store,
+        TrainConfig(epochs=1, batch_size=2, window_minutes=4, stride_minutes=2, hidden_size=8, seed=37),
+    )
+    checkpoint = tmp_path / "legacy.pt"
+    save_checkpoint(artifact, checkpoint, feature_manifest=store.manifest)
+    payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    payload["format_version"] = legacy_version
+    torch.save(payload, checkpoint)
+
+    with pytest.warns(UserWarning, match="no trained diagnosis heads"):
+        restored = load_checkpoint(checkpoint)
+
+    assert restored.diagnosis_heads is None

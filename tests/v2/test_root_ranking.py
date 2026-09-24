@@ -3,11 +3,18 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import numpy as np
+import pytest
 
 from aiops_challenge_2026.config import load_public_config
+from aiops_v2.diagnosis_schema import ROOT_FEATURE_NAMES, EVENT_FEATURE_NAMES
 from aiops_v2.data.feature_store import build_feature_store
 from aiops_v2.events.decoder import DecodedEvent
-from aiops_v2.localization.ranking import rank_root_causes
+from aiops_v2.models.heads import EventDiagnosisHeads
+from aiops_v2.localization.ranking import (
+    ROOT_FEATURE_NAMES,
+    extract_candidate_evidence,
+    rank_root_causes,
+)
 from aiops_v2.training.inference import TimelineScores
 from baseline.bian.preprocessing.observations import NumericObservation
 
@@ -99,3 +106,68 @@ def test_root_ranking_always_returns_five_unique_public_nodes(tmp_path) -> None:
     assert len(ranking.top5) == 5
     assert len(set(ranking.top5)) == 5
     assert set(ranking.top5) <= set(store.entities.nodes)
+
+
+def test_direct_cross_city_root_beats_unrelated_high_traffic_symptom(tmp_path) -> None:
+    direct_root = "guangzhou-service-vm-3"
+    direct = NumericObservation(
+        timestamp=START,
+        source="node",
+        node_id=direct_root,
+        related_node_ids=(),
+        metric="node.cpu_usage",
+        value=80.0,
+        dimensions=(),
+        direction="high",
+    )
+    store = build_feature_store(
+        [direct, _traffic("nanjing", "nanjing")],
+        load_public_config("network_elements"),
+        tmp_path / "store",
+    )
+    scores = _empty_scores(store)
+    scores.node[0, store.entities.node_index(direct_root)] = 10.0
+    scores.edge[0, :] = 50.0
+
+    ranking = rank_root_causes(_event(), scores, store)
+
+    assert ranking.top5[0] == direct_root
+    assert direct_root in ranking.top5
+    assert "nanjing-service-vm-1" in ranking.top5
+
+
+def test_candidate_evidence_has_fixed_public_node_and_feature_order(tmp_path) -> None:
+    store = build_feature_store(
+        [_traffic("chengdu", "wuhan")],
+        load_public_config("network_elements"),
+        tmp_path / "store",
+    )
+
+    evidence = extract_candidate_evidence(_event(), _empty_scores(store), store)
+
+    assert evidence.candidate_nodes == store.entities.nodes
+    assert evidence.feature_names == ROOT_FEATURE_NAMES
+    assert evidence.features.shape == (80, len(ROOT_FEATURE_NAMES))
+    assert evidence.candidate_mask.tolist() == [True] * 80
+
+
+def test_root_ranking_integrates_learned_scores_without_breaking_public_top5(tmp_path) -> None:
+    store = build_feature_store(
+        [_traffic("chengdu", "wuhan")],
+        load_public_config("network_elements"),
+        tmp_path / "store",
+    )
+    heads = EventDiagnosisHeads(
+        len(ROOT_FEATURE_NAMES),
+        len(EVENT_FEATURE_NAMES),
+        len(load_public_config("fault_taxonomy")["fault_categories"]),
+        hidden_size=8,
+    )
+
+    ranking = rank_root_causes(_event(), _empty_scores(store), store, diagnosis_heads=heads)
+
+    assert len(ranking.top5) == 5
+    assert len(set(ranking.top5)) == 5
+    assert set(ranking.top5) <= set(store.entities.nodes)
+    assert sum(ranking.scores.values()) == pytest.approx(1.0)
+    assert "learned_root_probability" in ranking.explanations[ranking.top5[0]]

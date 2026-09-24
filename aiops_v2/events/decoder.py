@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import math
 
@@ -20,12 +20,46 @@ class DecoderConfig:
     max_duration_minutes: int = 30
     preferred_gap_minutes: int = 20
     close_event_penalty: float = 0.50
+    duration_weight: float = 0.08
+    recovery_weight: float = 0.30
+    evidence_weight: float = 0.20
+    evidence_z_threshold: float = 3.0
 
     def __post_init__(self) -> None:
         if not 0 <= self.keep_threshold < self.open_threshold <= 1:
             raise ValueError("decoder thresholds must satisfy 0 <= keep < open <= 1")
         if self.max_duration_minutes < 1 or self.preferred_gap_minutes < 0:
             raise ValueError("decoder durations must be non-negative")
+        if min(self.duration_weight, self.recovery_weight, self.evidence_weight) < 0:
+            raise ValueError("decoder score weights must be non-negative")
+        if self.evidence_z_threshold < 0:
+            raise ValueError("evidence z threshold must be non-negative")
+
+
+@dataclass(frozen=True, slots=True)
+class DecoderEvidence:
+    family_z_scores: np.ndarray
+    family_observed: np.ndarray
+    node: np.ndarray | None = None
+    edge: np.ndarray | None = None
+    log: np.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        scores = np.asarray(self.family_z_scores)
+        observed = np.asarray(self.family_observed, dtype=bool)
+        if scores.ndim != 2 or scores.shape[1] != 3 or observed.shape != scores.shape:
+            raise ValueError("decoder family evidence must have matching [T, 3] arrays")
+        if not np.isfinite(scores[observed]).all():
+            raise ValueError("observed decoder family evidence must be finite")
+        for name in ("node", "edge", "log"):
+            value = getattr(self, name)
+            if value is None:
+                continue
+            array = np.asarray(value)
+            if array.ndim != 2 or array.shape[0] != scores.shape[0]:
+                raise ValueError(f"decoder {name} evidence must have shape [T, entity]")
+            if not np.isfinite(array).all():
+                raise ValueError(f"decoder {name} evidence must be finite")
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +71,7 @@ class DecodedEvent:
     score: float
     start_time: datetime
     end_time: datetime
+    evidence_scores: dict[str, float] = field(default_factory=dict)
 
     @property
     def duration_minutes(self) -> int:
@@ -50,6 +85,7 @@ class _Candidate:
     peak: int
     confidence: float
     score: float
+    evidence_scores: dict[str, float]
 
 
 def _candidate_starts(values: np.ndarray, config: DecoderConfig) -> tuple[int, ...]:
@@ -73,7 +109,42 @@ def _candidate_starts(values: np.ndarray, config: DecoderConfig) -> tuple[int, .
     return tuple(starts)
 
 
-def _candidates(values: np.ndarray, config: DecoderConfig) -> dict[int, tuple[_Candidate, ...]]:
+def _candidate_evidence_scores(
+    start: int,
+    end: int,
+    following: float,
+    evidence: DecoderEvidence | None,
+    config: DecoderConfig,
+) -> dict[str, float]:
+    result = {
+        "family_support": 0.0,
+        "node_peak": 0.0,
+        "edge_peak": 0.0,
+        "log_peak": 0.0,
+    }
+    if evidence is None:
+        return result
+    family_z = np.asarray(evidence.family_z_scores[start : end + 1], dtype=np.float64)
+    observed = np.asarray(evidence.family_observed[start : end + 1], dtype=bool)
+    available_count = observed.sum(axis=1)
+    multi_source = available_count >= 2
+    if np.any(multi_source):
+        supported_count = ((family_z >= config.evidence_z_threshold) & observed).sum(axis=1)
+        fractions = supported_count[multi_source] / available_count[multi_source]
+        result["family_support"] = float(np.mean(fractions))
+    for name in ("node", "edge", "log"):
+        values = getattr(evidence, name)
+        if values is not None:
+            selected = np.asarray(values[start : end + 1], dtype=np.float64)
+            result[f"{name}_peak"] = float(np.max(selected)) if selected.size else 0.0
+    return result
+
+
+def _candidates(
+    values: np.ndarray,
+    config: DecoderConfig,
+    evidence: DecoderEvidence | None = None,
+) -> dict[int, tuple[_Candidate, ...]]:
     result: dict[int, tuple[_Candidate, ...]] = {}
     size = values.shape[0]
     for start in _candidate_starts(values, config):
@@ -83,23 +154,60 @@ def _candidates(values: np.ndarray, config: DecoderConfig) -> dict[int, tuple[_C
             window = values[start : end + 1]
             peak_relative = int(np.argmax(window))
             peak = start + peak_relative
-            previous = float(values[start - 1]) if start else 0.0
-            following = float(values[end + 1]) if end + 1 < size else 0.0
-            core = float(np.sum(window - config.keep_threshold))
+            has_previous = start > 0
+            has_following = end + 1 < size
+            previous = float(values[start - 1]) if has_previous else float(values[start])
+            following = float(values[end + 1]) if has_following else float(values[end])
+            excess = np.maximum(window - config.keep_threshold, 0.0)
+            duration_minutes = end - start + 1
+            interval_term = float(np.mean(excess) * math.sqrt(duration_minutes))
+            duration_term = config.duration_weight * min(
+                math.log1p(duration_minutes - 1),
+                math.log1p(config.max_duration_minutes - 1),
+            )
             peak_term = config.peak_bonus * max(0.0, float(values[peak]) - config.open_threshold)
-            boundary_term = config.boundary_bonus * (
-                max(0.0, float(values[start]) - previous)
-                if float(values[start]) >= config.open_threshold
+            onset_score = max(0.0, float(values[start]) - previous)
+            boundary_term = (
+                config.boundary_bonus * onset_score
+                if has_previous and float(values[start]) >= config.open_threshold
                 else 0.0
             )
-            boundary_term += config.boundary_bonus * (
-                max(0.0, float(values[end]) - following)
-                if float(values[end]) >= config.open_threshold
+            boundary_term += (
+                config.boundary_bonus * max(0.0, float(values[end]) - following)
+                if has_following and float(values[end]) >= config.open_threshold
                 else 0.0
             )
-            score = core + peak_term + boundary_term - config.event_penalty
+            recovery_drop = (
+                max(0.0, float(values[end]) - following) if has_following else 0.0
+            )
+            interval_evidence = _candidate_evidence_scores(
+                start, end, following, evidence, config
+            )
+            support_term = config.evidence_weight * interval_evidence["family_support"]
+            recovery_term = config.recovery_weight * recovery_drop
+            score = (
+                interval_term
+                + duration_term
+                + peak_term
+                + boundary_term
+                + recovery_term
+                + support_term
+                - config.event_penalty
+            )
             if score <= 0:
                 continue
+            components = {
+                "onset": onset_score,
+                "interval": interval_term,
+                "recovery_drop": recovery_drop,
+                "recovery_term": recovery_term,
+                "duration_term": duration_term,
+                "peak_term": peak_term,
+                "boundary_term": boundary_term,
+                "event_penalty": config.event_penalty,
+                **interval_evidence,
+                "selected_score": score,
+            }
             items.append(
                 _Candidate(
                     start=start,
@@ -107,6 +215,7 @@ def _candidates(values: np.ndarray, config: DecoderConfig) -> dict[int, tuple[_C
                     peak=peak,
                     confidence=float(np.mean(window)),
                     score=score,
+                    evidence_scores=components,
                 )
             )
         if items:
@@ -118,6 +227,8 @@ def decode_events(
     probabilities: np.ndarray,
     origin: datetime,
     config: DecoderConfig | None = None,
+    *,
+    evidence: DecoderEvidence | None = None,
 ) -> tuple[DecodedEvent, ...]:
     """Select a globally optimal, non-overlapping event sequence."""
     settings = config or DecoderConfig()
@@ -128,10 +239,12 @@ def decode_events(
         raise ValueError("decoder requires finite probabilities")
     if np.any(values < 0) or np.any(values > 1):
         raise ValueError("decoder probabilities must lie in [0, 1]")
+    if evidence is not None and np.asarray(evidence.family_z_scores).shape[0] != values.size:
+        raise ValueError("decoder evidence timeline length must match probabilities")
     if values.size == 0:
         return ()
 
-    candidates = _candidates(values, settings)
+    candidates = _candidates(values, settings, evidence)
     gap_cap = settings.preferred_gap_minutes
     negative = -math.inf
     scores = np.full((values.size + 1, gap_cap + 1), negative, dtype=np.float64)
@@ -178,6 +291,7 @@ def decode_events(
             score=item.score,
             start_time=origin + timedelta(minutes=item.start),
             end_time=origin + timedelta(minutes=item.end + 1),
+            evidence_scores=item.evidence_scores,
         )
         for item in selected
     )

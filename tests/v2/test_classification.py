@@ -2,10 +2,16 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import numpy as np
+import torch
+
 from aiops_challenge_2026.config import load_public_config
-from aiops_v2.classification.semantic import classify_event
+from aiops_v2.classification.semantic import classify_event, extract_candidate_signals
+from aiops_v2.classification.semantic import SEMANTIC_SIGNAL_NAMES, _signal_name
 from aiops_v2.data.feature_store import build_feature_store
 from aiops_v2.events.decoder import DecodedEvent
+from aiops_v2.localization.ranking import rank_root_causes
+from aiops_v2.training.inference import TimelineScores
 from baseline.bian.preprocessing.observations import NumericObservation
 
 
@@ -55,6 +61,48 @@ def test_classification_distinguishes_resource_cpu_from_firewall_cpu(tmp_path) -
     assert firewall.category == {"major_category": "firewall", "sub_category": "cpu_pressure"}
 
 
+def test_fixed_semantic_schema_covers_every_metric_mapping() -> None:
+    representative_features = (
+        "wrong_record",
+        "rule_order",
+        "port_block",
+        "acl_drop",
+        "rate_limit",
+        "default_route",
+        "static_route",
+        "blackhole",
+        "bgp_flap",
+        "ospf_cost",
+        "unique_dst_port",
+        "cpu_usage",
+        "memory_available_percent",
+        "disk_io_util",
+        "filesystem_usage",
+        "process_count",
+        "softirq",
+        "bgp_state",
+        "ospf_state",
+        "drop_rate",
+        "traffic.web.error_rate",
+        "traffic.web.latency",
+        "traffic.auth.timeout",
+        "traffic.auth.error_rate",
+        "traffic.auth.latency",
+        "traffic.dns.success_rate",
+        "traffic.dns.wrong_record",
+        "node.latency",
+        "node.throughput",
+    )
+    mapped = {
+        signal
+        for feature in representative_features
+        if (mapping := _signal_name(feature)) is not None
+        for signal, _ in (mapping,)
+    }
+
+    assert mapped <= set(SEMANTIC_SIGNAL_NAMES)
+
+
 def test_classification_recognizes_target_web_errors(tmp_path) -> None:
     dimensions = (("flow_type", "web"), ("target_region", "wuhan"))
     observations = [
@@ -76,6 +124,34 @@ def test_classification_recognizes_target_web_errors(tmp_path) -> None:
     assert result.signals["web_error"] > 0
 
 
+def test_candidate_signal_extraction_slices_time_before_edge_gather(tmp_path) -> None:
+    dimensions = (("flow_type", "web"), ("target_region", "wuhan"))
+    observations = [
+        _numeric(minute, source="traffic", node="chengdu-traffic-vm",
+                 metric="traffic.web.error_rate", value=float(minute >= 2),
+                 direction="high", dimensions=dimensions)
+        for minute in range(5)
+    ]
+    store = build_feature_store(
+        observations, load_public_config("network_elements"), tmp_path / "store"
+    )
+
+    class GuardFullTime:
+        def __init__(self, values):
+            self.values = values
+
+        def __getitem__(self, key):
+            first = key[0]
+            if isinstance(first, slice) and first.start is None and first.stop is None:
+                raise AssertionError("entire timeline copied before edge selection")
+            return self.values[key]
+
+    store.edge_values = GuardFullTime(store.edge_values)
+    store.edge_mask = GuardFullTime(store.edge_mask)
+    result = extract_candidate_signals(_event(), "wuhan-service-vm-1", store)
+    assert result["web_error"] > 0
+
+
 def test_classification_output_always_belongs_to_official_taxonomy(tmp_path) -> None:
     store = build_feature_store(
         [_numeric(0, source="node", node="beida-br-1", metric="node.cpu_usage", value=1, direction="high")],
@@ -89,3 +165,104 @@ def test_classification_output_always_belongs_to_official_taxonomy(tmp_path) -> 
 
     legal = {(item["major_category"], item["sub_category"]) for item in taxonomy["fault_categories"]}
     assert (result.category["major_category"], result.category["sub_category"]) in legal
+
+
+def test_wrong_city_root_top1_does_not_hide_memory_category_evidence(tmp_path) -> None:
+    observations = [
+        _numeric(0, source="node", node="guangzhou-service-vm-2", metric="node.memory_available_percent", value=90, direction="low"),
+        _numeric(1, source="node", node="guangzhou-service-vm-2", metric="node.memory_available_percent", value=88, direction="low"),
+        _numeric(2, source="node", node="guangzhou-service-vm-2", metric="node.memory_available_percent", value=10, direction="low"),
+        _numeric(3, source="node", node="guangzhou-service-vm-2", metric="node.memory_available_percent", value=8, direction="low"),
+    ]
+    store = build_feature_store(
+        observations,
+        load_public_config("network_elements"),
+        tmp_path / "store",
+    )
+    node_scores = np.zeros((4, 80), dtype=np.float32)
+    node_scores[2:4, store.entities.node_index("nanjing-service-vm-1")] = 10.0
+    timeline = TimelineScores(
+        family=np.ones((4, 3), dtype=np.float32),
+        node=node_scores,
+        edge=np.zeros((4, len(store.entities.edges)), dtype=np.float32),
+        log=np.zeros((4, 80), dtype=np.float32),
+        coverage=np.ones(4, dtype=np.int32),
+    )
+
+    ranking = rank_root_causes(_event(), timeline, store)
+    result = classify_event(
+        _event(),
+        ranking.top5[0],
+        store,
+        load_public_config("fault_taxonomy"),
+        ranking=ranking,
+    )
+
+    assert ranking.top5[0] == "nanjing-service-vm-1"
+    assert result.category == {
+        "major_category": "resource",
+        "sub_category": "memory_pressure",
+    }
+
+
+def test_synthetic_head_cannot_override_strong_semantic_category_evidence(tmp_path) -> None:
+    observations = [
+        _numeric(0, source="node", node="guangzhou-service-vm-2", metric="node.memory_available_percent", value=90, direction="low"),
+        _numeric(1, source="node", node="guangzhou-service-vm-2", metric="node.memory_available_percent", value=88, direction="low"),
+        _numeric(2, source="node", node="guangzhou-service-vm-2", metric="node.memory_available_percent", value=10, direction="low"),
+        _numeric(3, source="node", node="guangzhou-service-vm-2", metric="node.memory_available_percent", value=8, direction="low"),
+    ]
+    store = build_feature_store(
+        observations,
+        load_public_config("network_elements"),
+        tmp_path / "store",
+    )
+    node_scores = np.zeros((4, 80), dtype=np.float32)
+    node_scores[2:4, store.entities.node_index("nanjing-service-vm-1")] = 10.0
+    timeline = TimelineScores(
+        family=np.ones((4, 3), dtype=np.float32),
+        node=node_scores,
+        edge=np.zeros((4, len(store.entities.edges)), dtype=np.float32),
+        log=np.zeros((4, 80), dtype=np.float32),
+        coverage=np.ones(4, dtype=np.int32),
+    )
+    taxonomy = load_public_config("fault_taxonomy")
+    cpu_index = next(
+        index
+        for index, item in enumerate(taxonomy["fault_categories"])
+        if item["fault_name"] == "resource_cpu_high"
+    )
+
+    class CpuOnlyHead:
+        category_count = len(taxonomy["fault_categories"])
+
+        def to(self, _device):
+            return self
+
+        def eval(self):
+            return self
+
+        def __call__(self, candidates, event_features, candidate_mask):
+            batch, count, _ = candidates.shape
+            roots = torch.zeros((batch, count), device=candidates.device)
+            categories = torch.zeros(
+                (batch, count, self.category_count), device=candidates.device
+            )
+            categories[:, :, cpu_index] = 8.0
+            return roots, categories
+
+    heads = CpuOnlyHead()
+    ranking = rank_root_causes(_event(), timeline, store, diagnosis_heads=heads)
+    result = classify_event(
+        _event(),
+        ranking.top5[0],
+        store,
+        taxonomy,
+        ranking=ranking,
+        diagnosis_heads=heads,
+    )
+
+    assert result.category == {
+        "major_category": "resource",
+        "sub_category": "memory_pressure",
+    }

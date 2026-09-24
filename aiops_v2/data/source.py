@@ -16,7 +16,7 @@ from baseline.bian.preprocessing.multisource import (
     _node_for_row,
     _number,
     _parse_frr_file,
-    _parse_netflow_file,
+    _iter_netflow_file,
     _read_rows,
     _row_time,
     _traffic_dimensions,
@@ -216,7 +216,7 @@ class CanonicalObservationStream:
             elif source == "traffic":
                 yield from _iter_traffic(path, self.roles, self.stats)
             elif source == "netflow":
-                yield from _parse_netflow_file(path, city, self.roles, self.stats)
+                yield from _iter_netflow_file(path, city, self.roles, self.stats)
             elif source == "frr":
                 numeric, _ = _parse_frr_file(path, city, self.roles, self.stats)
                 yield from numeric

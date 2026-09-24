@@ -54,3 +54,43 @@ def test_calibrator_round_trip_preserves_probabilities() -> None:
     restored = AnomalyCalibrator.from_dict(original.to_dict())
 
     assert np.allclose(original.transform(values), restored.transform(values))
+
+
+def test_calibrator_excludes_unobserved_family_values_and_reports_counts() -> None:
+    values = np.tile(np.array([1.0, 0.8, 1_000_000.0]), (12, 1))
+    values[-1, 0] = 8.0
+    observed = np.ones_like(values, dtype=bool)
+    observed[:, 2] = False
+
+    calibrator = AnomalyCalibrator.fit(values, observed)
+    first = calibrator.transform(values, observed)
+    changed = values.copy()
+    changed[:, 2] = 1e20
+    second = calibrator.transform(changed, observed)
+
+    assert np.allclose(first, second)
+    assert calibrator.summary.valid_minute_count == (12, 12, 0)
+    assert calibrator.summary.reference_minute_count == (12, 12, 0)
+    assert np.isfinite(first).all()
+
+
+def test_calibrator_returns_zero_probability_when_no_family_is_observed() -> None:
+    values = np.ones((5, 3), dtype=np.float32)
+    calibrator = AnomalyCalibrator.fit(values)
+
+    probabilities = calibrator.transform(values, np.zeros_like(values, dtype=bool))
+
+    assert probabilities.tolist() == [0.0] * 5
+
+
+def test_calibrator_exposes_standardized_family_evidence_with_missing_mask() -> None:
+    values = np.array([[1.0, 2.0, 3.0]] * 6, dtype=np.float32)
+    observed = np.ones_like(values, dtype=bool)
+    observed[:, 1] = False
+    calibrator = AnomalyCalibrator.fit(values, observed)
+
+    evidence = calibrator.standardize(values, observed)
+
+    assert evidence.shape == values.shape
+    assert np.all(evidence[:, 1] == 0.0)
+    assert np.isfinite(evidence).all()

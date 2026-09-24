@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -18,7 +19,14 @@ from aiops_v2.classification.semantic import classify_event
 from aiops_v2.data.feature_store import FeatureStore, build_feature_store
 from aiops_v2.data.source import CanonicalObservationStream
 from aiops_v2.data.windows import WindowDataset
-from aiops_v2.events.decoder import DecodedEvent, DecoderConfig, decode_events
+from aiops_v2.detection import DirectEvidence, score_direct_evidence
+from aiops_v2.detection.direct_evidence import select_specific_category
+from aiops_v2.events.decoder import (
+    DecodedEvent,
+    DecoderConfig,
+    DecoderEvidence,
+    decode_events,
+)
 from aiops_v2.localization.ranking import rank_root_causes
 from aiops_v2.models.llm_review import (
     EventReview,
@@ -100,12 +108,73 @@ def build_prediction_records(
     *,
     prefix: str = "pred_",
     reviewer: EventReview | None = None,
+    diagnosis_heads=None,
+    device: str = "cpu",
+    direct_evidence: DirectEvidence | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     records = []
     audit = []
     for index, event in enumerate(events, 1):
-        ranking = rank_root_causes(event, timeline, store)
-        classification = classify_event(event, ranking.top5[0], store, taxonomy)
+        ranking = rank_root_causes(
+            event,
+            timeline,
+            store,
+            diagnosis_heads=diagnosis_heads,
+            device=device,
+        )
+        classification = classify_event(
+            event,
+            ranking.top5[0],
+            store,
+            taxonomy,
+            ranking=ranking,
+            diagnosis_heads=diagnosis_heads,
+            device=device,
+        )
+        direct_category = None
+        if direct_evidence is not None:
+            root_index = store.entities.node_index(ranking.top5[0])
+            start = max(0, event.start_index)
+            stop = min(direct_evidence.category_scores.shape[0], event.end_index + 1)
+            strengths = direct_evidence.category_scores[start:stop, root_index].max(axis=0)
+            family = select_specific_category(strengths, direct_evidence.category_names)
+            official_family = (
+                "disk_space_low" if family == "disk_space_pressure" else family
+            )
+            valid = {
+                (item["major_category"], item["sub_category"])
+                for item in taxonomy["fault_categories"]
+            }
+            root_node = ranking.top5[0]
+            if official_family == "cpu_pressure" and root_node.endswith("-fw") and ("firewall", official_family) in valid:
+                direct_category = {"major_category": "firewall", "sub_category": official_family}
+            elif official_family is not None and ("resource", official_family) in valid and not (
+                root_node.endswith("-fw") or "-br-" in root_node or "-cr-" in root_node
+            ):
+                direct_category = {
+                    "major_category": "resource",
+                    "sub_category": official_family,
+                }
+            if direct_category is not None:
+                direct_confidence = max(
+                    classification.confidence,
+                    float(direct_evidence.node_probability[start:stop, root_index].max()),
+                )
+                selected_name = next(
+                    item["fault_name"]
+                    for item in taxonomy["fault_categories"]
+                    if item["major_category"] == direct_category["major_category"]
+                    and item["sub_category"] == direct_category["sub_category"]
+                )
+                remaining = tuple(
+                    entry for entry in classification.top3 if entry[0] != selected_name
+                )
+                classification = replace(
+                    classification,
+                    category=direct_category,
+                    confidence=direct_confidence,
+                    top3=((selected_name, direct_confidence),) + remaining[:2],
+                )
         local_category = dict(classification.category)
         review = None
         top_scores = [ranking.scores[node] for node in ranking.top5]
@@ -202,12 +271,29 @@ def build_prediction_records(
         audit.append(
             {
                 "prediction_id": prediction_id,
+                "detection_sources": (
+                    {
+                        "direct_probability_peak": float(
+                            direct_evidence.node_probability[
+                                event.start_index : event.end_index + 1
+                            ].max()
+                        ),
+                        "service_symptom_strength_peak": float(
+                            direct_evidence.edge_symptom_scores[
+                                event.start_index : event.end_index + 1
+                            ].max()
+                        ) if direct_evidence.edge_symptom_scores is not None
+                        and direct_evidence.edge_symptom_scores.size else 0.0,
+                    }
+                    if direct_evidence is not None else None
+                ),
                 "event": {
                     "start_index": event.start_index,
                     "end_index": event.end_index,
                     "peak_index": event.peak_index,
                     "confidence": event.confidence,
                     "decoder_score": event.score,
+                    "decoder_evidence": event.evidence_scores,
                 },
                 "root_scores": [
                     {
@@ -224,6 +310,8 @@ def build_prediction_records(
                     "confidence": classification.confidence,
                     "top3": list(classification.top3),
                     "signals": classification.signals,
+                    "candidate_category_scores": classification.candidate_category_scores,
+                    "direct_category_override": direct_category,
                 },
                 "llm_review": (
                     {
@@ -264,43 +352,108 @@ def _check_checkpoint_compatibility(store: FeatureStore, feature_manifest: dict[
 
 def predict(
     store: FeatureStore,
-    checkpoint: Path,
+    checkpoint: Path | None,
     output: Path,
     *,
     inference_log: Path | None = None,
     device: str = "cpu",
     decoder_config: DecoderConfig | None = None,
     reviewer: EventReview | None = None,
+    detector: str = "direct",
 ) -> int:
-    artifact = load_checkpoint(checkpoint, device=device)
-    _check_checkpoint_compatibility(store, artifact.feature_manifest)
-    dataset = WindowDataset(
-        store,
-        window_minutes=artifact.config.window_minutes,
-        stride_minutes=artifact.config.stride_minutes,
-        scalers=artifact.scalers,
+    taxonomy = load_public_config("fault_taxonomy")
+    expected_taxonomy = tuple(
+        item["fault_name"] for item in taxonomy["fault_categories"]
     )
-    timeline = score_timeline(artifact.model, dataset, device=device)
-    probabilities = artifact.calibrator.transform(timeline.family)
-    events = decode_events(probabilities, store.start_time, decoder_config)
+    artifact = None
+    direct_evidence = None
+    if detector == "direct":
+        import numpy as np
+
+        direct_evidence = score_direct_evidence(store)
+        minute_count, node_count = direct_evidence.node_probability.shape
+        family = np.zeros((minute_count, 3), dtype=np.float32)
+        family[:, 0] = np.max(direct_evidence.category_scores, axis=(1, 2))
+        edge_symptoms = direct_evidence.edge_symptom_scores
+        if edge_symptoms is not None and edge_symptoms.shape[1]:
+            family[:, 1] = np.max(edge_symptoms, axis=1)
+        observed = np.zeros((minute_count, 3), dtype=bool)
+        observed[:, 0] = np.any(direct_evidence.observed, axis=1)
+        if edge_symptoms is not None and edge_symptoms.shape[1]:
+            observed[:, 1] = np.any(edge_symptoms > 0, axis=1)
+        timeline = TimelineScores(
+            family=family,
+            node=np.max(direct_evidence.category_scores, axis=2),
+            edge=edge_symptoms if edge_symptoms is not None else np.zeros((minute_count, len(store.entities.edges)), dtype=np.float32),
+            log=np.zeros((minute_count, node_count), dtype=np.float32),
+            coverage=np.ones(minute_count, dtype=np.int32),
+            family_observed=observed,
+        )
+        probabilities = direct_evidence.global_probability
+        decoder_evidence = DecoderEvidence(
+            family_z_scores=family,
+            family_observed=observed,
+            node=timeline.node,
+            edge=timeline.edge,
+            log=timeline.log,
+        )
+    elif detector == "neural":
+        if checkpoint is None:
+            raise ValueError("neural detector requires --checkpoint")
+        artifact = load_checkpoint(checkpoint, device=device)
+        _check_checkpoint_compatibility(store, artifact.feature_manifest)
+        if artifact.diagnosis_heads is not None and artifact.taxonomy_identity != expected_taxonomy:
+            raise ValueError("checkpoint taxonomy identity does not match official taxonomy")
+        dataset = WindowDataset(
+            store,
+            window_minutes=artifact.config.window_minutes,
+            stride_minutes=artifact.config.stride_minutes,
+            scalers=artifact.scalers,
+        )
+        timeline = score_timeline(artifact.model, dataset, device=device)
+        probabilities = artifact.calibrator.transform(timeline.family, timeline.family_observed)
+        decoder_evidence = DecoderEvidence(
+            family_z_scores=artifact.calibrator.standardize(timeline.family, timeline.family_observed),
+            family_observed=timeline.family_observed,
+            node=timeline.node,
+            edge=timeline.edge,
+            log=timeline.log,
+        )
+    else:
+        raise ValueError(f"unknown detector: {detector}")
+    events = decode_events(
+        probabilities,
+        store.start_time,
+        decoder_config,
+        evidence=decoder_evidence,
+    )
     records, audit = build_prediction_records(
         events,
         timeline,
         store,
-        load_public_config("fault_taxonomy"),
+        taxonomy,
         reviewer=reviewer,
+        diagnosis_heads=artifact.diagnosis_heads if artifact is not None else None,
+        device=device,
+        direct_evidence=direct_evidence,
     )
     write_predictions(records, output)
     if inference_log is not None:
         _write_json(
             {
-                "format_version": 2,
+                "format_version": 3,
                 "minute_count": int(probabilities.shape[0]),
                 "probability_summary": {
                     "minimum": float(probabilities.min()),
                     "median": float(__import__("numpy").median(probabilities)),
                     "maximum": float(probabilities.max()),
                 },
+                "calibration_summary": (
+                    artifact.calibrator.summary.to_dict()
+                    if artifact is not None and artifact.calibrator.summary is not None
+                    else None
+                ),
+                "direct_feature_audit": direct_evidence.feature_audit if direct_evidence else None,
                 "event_count": len(events),
                 "llm_review_status_counts": dict(
                     sorted(Counter(item["llm_review"]["status"] for item in audit).items())
@@ -309,7 +462,8 @@ def predict(
                     "pipeline_version": "2.0.0",
                     "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                     "device": device,
-                    "checkpoint_sha256": _sha256_file(checkpoint),
+                    "detector": detector,
+                    "checkpoint_sha256": _sha256_file(checkpoint) if checkpoint is not None and artifact is not None else None,
                     "feature_manifest_sha256": _sha256_file(store.path / "manifest.json"),
                     "feature_store_shapes": store.manifest.get("shapes", {}),
                     "source_counts": store.manifest.get("source_counts", {}),
@@ -320,7 +474,13 @@ def predict(
                         "hidden_size": artifact.config.hidden_size,
                         "temporal_layers": artifact.config.temporal_layers,
                         "seed": artifact.config.seed,
-                    },
+                    } if artifact is not None else None,
+                    "diagnosis_training": (
+                        artifact.diagnosis_summary.to_dict()
+                        if artifact is not None and artifact.diagnosis_summary is not None
+                        else None
+                    ),
+                    "diagnosis_head_available": artifact is not None and artifact.diagnosis_heads is not None,
                     "llm_review": type(reviewer.backend).__name__ if reviewer else "disabled",
                 },
                 "events": audit,
@@ -349,7 +509,8 @@ def _parser() -> argparse.ArgumentParser:
 
     prediction = commands.add_parser("predict")
     prediction.add_argument("--store", type=Path, required=True)
-    prediction.add_argument("--checkpoint", type=Path, required=True)
+    prediction.add_argument("--checkpoint", type=Path)
+    prediction.add_argument("--detector", choices=("direct", "neural"), default="direct")
     prediction.add_argument("--output", type=Path, required=True)
     prediction.add_argument("--inference-log", type=Path)
     prediction.add_argument("--device", default="cpu")
@@ -358,7 +519,8 @@ def _parser() -> argparse.ArgumentParser:
     complete = commands.add_parser("all")
     complete.add_argument("--data-root", type=Path, required=True)
     complete.add_argument("--store", type=Path, required=True)
-    complete.add_argument("--checkpoint", type=Path, required=True)
+    complete.add_argument("--checkpoint", type=Path)
+    complete.add_argument("--detector", choices=("direct", "neural"), default="direct")
     complete.add_argument("--output", type=Path, required=True)
     complete.add_argument("--inference-log", type=Path)
     complete.add_argument("--epochs", type=int, default=5)
@@ -409,7 +571,7 @@ def _reviewer_from_args(args, taxonomy: dict[str, Any]) -> EventReview | None:
     return EventReview(backend, taxonomy)
 
 
-def _train_from_args(args, store: FeatureStore):
+def _train_from_args(args, store: FeatureStore, taxonomy: dict[str, Any]):
     config = TrainConfig(
         epochs=args.epochs,
         batch_size=args.batch_size,
@@ -418,7 +580,7 @@ def _train_from_args(args, store: FeatureStore):
         hidden_size=args.hidden_size,
         device=args.device,
     )
-    artifact = train_detector(store, config)
+    artifact = train_detector(store, config, taxonomy=taxonomy)
     save_checkpoint(artifact, args.checkpoint, feature_manifest=store.manifest)
     return artifact
 
@@ -431,8 +593,17 @@ def main() -> int:
             result = {"store": str(args.store), "manifest": store.manifest}
         elif args.command == "train":
             store = FeatureStore.open(args.store)
-            artifact = _train_from_args(args, store)
-            result = {"checkpoint": str(args.checkpoint), "loss_history": list(artifact.history)}
+            taxonomy = load_public_config("fault_taxonomy")
+            artifact = _train_from_args(args, store, taxonomy)
+            result = {
+                "checkpoint": str(args.checkpoint),
+                "loss_history": list(artifact.history),
+                "diagnosis_training": (
+                    artifact.diagnosis_summary.to_dict()
+                    if artifact.diagnosis_summary is not None
+                    else None
+                ),
+            }
         elif args.command == "predict":
             store = FeatureStore.open(args.store)
             taxonomy = load_public_config("fault_taxonomy")
@@ -443,12 +614,16 @@ def main() -> int:
                 inference_log=args.inference_log,
                 device=args.device,
                 reviewer=_reviewer_from_args(args, taxonomy),
+                detector=args.detector,
             )
             result = {"events": count, "output": str(args.output)}
         else:
             store = build_features(args.data_root, args.store)
-            _train_from_args(args, store)
             taxonomy = load_public_config("fault_taxonomy")
+            if args.detector == "neural":
+                if args.checkpoint is None:
+                    raise ValueError("neural detector requires --checkpoint")
+                _train_from_args(args, store, taxonomy)
             count = predict(
                 store,
                 args.checkpoint,
@@ -456,6 +631,7 @@ def main() -> int:
                 inference_log=args.inference_log,
                 device=args.device,
                 reviewer=_reviewer_from_args(args, taxonomy),
+                detector=args.detector,
             )
             result = {"events": count, "output": str(args.output)}
         print(json.dumps(result, ensure_ascii=False))

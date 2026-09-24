@@ -113,16 +113,26 @@ def _source_for_file(path: Path) -> str | None:
 
 
 def iter_source_files(root: Path) -> Iterator[tuple[str, Path]]:
-    """Yield recognized processed CSV files in deterministic source/path order."""
-    found: list[tuple[str, Path]] = []
+    """Yield processed samples or stage-1 ``*_data`` CSVs without duplicates."""
+    grouped: dict[tuple[str, Path], dict[str, list[Path]]] = {}
     for path in root.rglob("*.csv"):
-        if path.parent.name != "processed":
+        parent = path.parent.name
+        if parent != "processed" and not parent.endswith("_data"):
             continue
         source = _source_for_file(path)
         if source is not None:
-            found.append((source, path))
+            key = (source, path.parent.parent)
+            group = grouped.setdefault(key, {"processed": [], "raw": []})
+            group["processed" if parent == "processed" else "raw"].append(path)
     order = {source: index for index, source in enumerate(SOURCE_ORDER)}
-    yield from sorted(found, key=lambda item: (order[item[0]], item[1].as_posix()))
+    yield from sorted(
+        (
+            (source, path)
+            for (source, _), group in grouped.items()
+            for path in (group["processed"] or group["raw"])
+        ),
+        key=lambda item: (order[item[0]], item[1].as_posix()),
+    )
 
 
 def _number(value: str | None) -> float | None:
@@ -440,14 +450,13 @@ def _parse_traffic_file(
     return observations
 
 
-def _parse_netflow_file(
+def _iter_netflow_file(
     path: Path,
     city: str | None,
     valid_roles: tuple[str, ...],
     stats: ParseStats,
-) -> list[NumericObservation]:
-    """Aggregate unsorted NetFlow rows with a bounded on-disk SQLite spill."""
-    observations: list[NumericObservation] = []
+) -> Iterator[NumericObservation]:
+    """Aggregate unsorted NetFlow rows on disk and stream grouped observations."""
     insert_sql = "INSERT INTO flows VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     with tempfile.TemporaryDirectory(prefix="aiops_netflow_") as directory:
         database = Path(directory) / "aggregate.sqlite3"
@@ -562,21 +571,28 @@ def _parse_netflow_file(
                     "protocol_byte_share": row[12],
                 }
                 for suffix, value in values.items():
-                    observations.append(
-                        NumericObservation(
-                            timestamp=timestamp,
-                            source="netflow",
-                            node_id=row[1],
-                            related_node_ids=(),
-                            metric=f"netflow.{suffix}",
-                            value=float(value),
-                            dimensions=dimensions,
-                            direction="both",
-                        )
+                    yield NumericObservation(
+                        timestamp=timestamp,
+                        source="netflow",
+                        node_id=row[1],
+                        related_node_ids=(),
+                        metric=f"netflow.{suffix}",
+                        value=float(value),
+                        dimensions=dimensions,
+                        direction="both",
                     )
         finally:
             connection.close()
-    return observations
+
+
+def _parse_netflow_file(
+    path: Path,
+    city: str | None,
+    valid_roles: tuple[str, ...],
+    stats: ParseStats,
+) -> list[NumericObservation]:
+    """Legacy materialized adapter; v2 uses ``_iter_netflow_file`` directly."""
+    return list(_iter_netflow_file(path, city, valid_roles, stats))
 
 
 def _event_family(message: str, program: str) -> str:
