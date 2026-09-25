@@ -136,6 +136,7 @@ def extract_candidate_evidence(
     event_edges: list[dict[str, object]] = []
     edge_strength = _strength(timeline.edge, phases["during"])
     edge_early = _strength(timeline.edge, phases["early"])
+    edge_before = _strength(timeline.edge, phases["before"])
     for edge_index, edge in enumerate(store.entities.edges):
         if edge.relation == "traffic" and edge.target.startswith("service-group:"):
             _, city, _ = edge.target.split(":", 2)
@@ -158,16 +159,23 @@ def extract_candidate_evidence(
                 candidate = f"{city}-{role}"
                 if candidate in node_indexes:
                     row = node_indexes[candidate]
-                    features[row, columns["traffic_target"]] += contribution
+                    features[row, columns["traffic_target"]] = max(
+                        features[row, columns["traffic_target"]], contribution
+                    )
                     observation_mask[row] |= bool(store.edge_mask[start:end, edge_index].any())
             if edge.source in node_indexes:
                 row = node_indexes[edge.source]
-                features[row, columns["traffic_observer"]] += 0.025 * strength
+                features[row, columns["traffic_observer"]] = max(
+                    features[row, columns["traffic_observer"]], 0.025 * strength
+                )
                 observation_mask[row] |= bool(store.edge_mask[start:end, edge_index].any())
         elif edge.relation == "netflow" and edge.source in node_indexes:
             netflow_indexes_by_node.setdefault(edge.source, []).append(edge_index)
-            strength = float(edge_strength[edge_index])
-            support = 0.25 * strength + 0.10 * float(edge_early[edge_index])
+            # Only a change arising with this event is corroboration. A
+            # chronic protocol mix shift that predates the event is not.
+            strength = max(0.0, float(edge_strength[edge_index] - edge_before[edge_index]))
+            early_strength = max(0.0, float(edge_early[edge_index] - edge_before[edge_index]))
+            support = 0.25 * strength + 0.10 * early_strength
             row = node_indexes[edge.source]
             features[row, columns["netflow"]] += support
             observation_mask[row] |= bool(store.edge_mask[start:end, edge_index].any())
@@ -178,7 +186,7 @@ def extract_candidate_evidence(
                         "target": edge.target,
                         "relation": edge.relation,
                         "during_score": strength,
-                        "early_score": float(edge_early[edge_index]),
+                        "early_score": early_strength,
                     }
                 )
 
@@ -247,6 +255,9 @@ def rank_root_causes(
     total = np.zeros(len(nodes), dtype=np.float64)
     for index, node in enumerate(nodes):
         row = evidence.features[index]
+        direct_anchor = max(float(row[columns["direct"]]), float(row[columns["log"]]))
+        effective_netflow = min(float(row[columns["netflow"]]), 0.20 * direct_anchor)
+        components[node]["effective_netflow"] = effective_netflow
         total[index] = (
             0.50 * row[columns["direct"]]
             + 0.20 * row[columns["direct_early"]]
@@ -255,7 +266,7 @@ def rank_root_causes(
             + 1.10 * row[columns["log"]]
             + 0.15 * row[columns["traffic_target"]]
             + row[columns["traffic_observer"]]
-            + row[columns["netflow"]]
+            + effective_netflow
         )
 
     if diagnosis_heads is not None:

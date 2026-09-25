@@ -21,6 +21,8 @@ from aiops_v2.data.source import CanonicalObservationStream
 from aiops_v2.data.windows import WindowDataset
 from aiops_v2.detection import DirectEvidence, score_direct_evidence
 from aiops_v2.detection.direct_evidence import select_specific_category
+from aiops_v2.detection.source_support import score_frr_support, score_netflow_support
+from aiops_v2.evidence_audit import audit_run
 from aiops_v2.events.decoder import (
     DecodedEvent,
     DecoderConfig,
@@ -132,6 +134,8 @@ def build_prediction_records(
             device=device,
         )
         direct_category = None
+        category_anchor_status = "not_checked"
+        category_anchor_strength = None
         if direct_evidence is not None:
             root_index = store.entities.node_index(ranking.top5[0])
             start = max(0, event.start_index)
@@ -175,6 +179,30 @@ def build_prediction_records(
                     confidence=direct_confidence,
                     top3=((selected_name, direct_confidence),) + remaining[:2],
                 )
+            if classification.category == {
+                "major_category": "resource", "sub_category": "disk_io_pressure"
+            }:
+                disk_feature = "node.disk_io_util"
+                names = store.features.names("node")
+                observed_disk = (
+                    disk_feature in names
+                    and bool(store.node_mask[start:stop, root_index, names.index(disk_feature)].any())
+                )
+                category_anchor_strength = float(strengths[direct_evidence.category_names.index("disk_io_pressure")])
+                category_anchor_status = (
+                    "supported" if category_anchor_strength >= 5.0 else
+                    "unsupported" if observed_disk else "undetermined"
+                )
+                if category_anchor_status != "supported":
+                    # The category may still be the best legal choice, but
+                    # cross-candidate evidence must not masquerade as a
+                    # high-confidence root-local disk diagnosis.
+                    adjusted_confidence = min(classification.confidence, 0.5)
+                    classification = replace(
+                        classification,
+                        confidence=adjusted_confidence,
+                        top3=((classification.top3[0][0], adjusted_confidence),) + classification.top3[1:],
+                    )
         local_category = dict(classification.category)
         review = None
         top_scores = [ranking.scores[node] for node in ranking.top5]
@@ -312,6 +340,8 @@ def build_prediction_records(
                     "signals": classification.signals,
                     "candidate_category_scores": classification.candidate_category_scores,
                     "direct_category_override": direct_category,
+                    "category_anchor_status": category_anchor_status,
+                    "category_anchor_strength": category_anchor_strength,
                 },
                 "llm_review": (
                     {
@@ -350,6 +380,43 @@ def _check_checkpoint_compatibility(store: FeatureStore, feature_manifest: dict[
             raise ValueError(f"checkpoint and feature store have different {key}")
 
 
+def _direct_timeline(store: FeatureStore, direct_evidence: DirectEvidence) -> tuple[TimelineScores, DecoderEvidence]:
+    """Expose log/NetFlow RCA support without making NetFlow an event trigger."""
+    import numpy as np
+
+    minute_count, _ = direct_evidence.node_probability.shape
+    edge_symptoms = direct_evidence.edge_symptom_scores
+    if edge_symptoms is None:
+        edge_symptoms = np.zeros((minute_count, len(store.entities.edges)), dtype=np.float32)
+    netflow_support = score_netflow_support(store)
+    log_support = score_frr_support(store)
+    family = np.zeros((minute_count, 3), dtype=np.float32)
+    family[:, 0] = np.max(direct_evidence.category_scores, axis=(1, 2))
+    if edge_symptoms.shape[1]:
+        family[:, 1] = np.max(edge_symptoms, axis=1)
+    observed = np.zeros((minute_count, 3), dtype=bool)
+    observed[:, 0] = np.any(direct_evidence.observed, axis=1)
+    if edge_symptoms.shape[1]:
+        observed[:, 1] = np.any(edge_symptoms > 0, axis=1)
+    timeline = TimelineScores(
+        family=family,
+        node=np.max(direct_evidence.category_scores, axis=2),
+        edge=np.maximum(edge_symptoms, netflow_support),
+        log=log_support,
+        coverage=np.ones(minute_count, dtype=np.int32),
+        family_observed=observed,
+        components={"netflow_support": netflow_support, "service_symptoms": edge_symptoms},
+    )
+    decoder_evidence = DecoderEvidence(
+        family_z_scores=family,
+        family_observed=observed,
+        node=timeline.node,
+        edge=edge_symptoms,
+        log=log_support,
+    )
+    return timeline, decoder_evidence
+
+
 def predict(
     store: FeatureStore,
     checkpoint: Path | None,
@@ -368,35 +435,9 @@ def predict(
     artifact = None
     direct_evidence = None
     if detector == "direct":
-        import numpy as np
-
         direct_evidence = score_direct_evidence(store)
-        minute_count, node_count = direct_evidence.node_probability.shape
-        family = np.zeros((minute_count, 3), dtype=np.float32)
-        family[:, 0] = np.max(direct_evidence.category_scores, axis=(1, 2))
-        edge_symptoms = direct_evidence.edge_symptom_scores
-        if edge_symptoms is not None and edge_symptoms.shape[1]:
-            family[:, 1] = np.max(edge_symptoms, axis=1)
-        observed = np.zeros((minute_count, 3), dtype=bool)
-        observed[:, 0] = np.any(direct_evidence.observed, axis=1)
-        if edge_symptoms is not None and edge_symptoms.shape[1]:
-            observed[:, 1] = np.any(edge_symptoms > 0, axis=1)
-        timeline = TimelineScores(
-            family=family,
-            node=np.max(direct_evidence.category_scores, axis=2),
-            edge=edge_symptoms if edge_symptoms is not None else np.zeros((minute_count, len(store.entities.edges)), dtype=np.float32),
-            log=np.zeros((minute_count, node_count), dtype=np.float32),
-            coverage=np.ones(minute_count, dtype=np.int32),
-            family_observed=observed,
-        )
+        timeline, decoder_evidence = _direct_timeline(store, direct_evidence)
         probabilities = direct_evidence.global_probability
-        decoder_evidence = DecoderEvidence(
-            family_z_scores=family,
-            family_observed=observed,
-            node=timeline.node,
-            edge=timeline.edge,
-            log=timeline.log,
-        )
     elif detector == "neural":
         if checkpoint is None:
             raise ValueError("neural detector requires --checkpoint")
@@ -516,6 +557,12 @@ def _parser() -> argparse.ArgumentParser:
     prediction.add_argument("--device", default="cpu")
     _add_llm_options(prediction)
 
+    audit = commands.add_parser("audit")
+    audit.add_argument("--store", type=Path, required=True)
+    audit.add_argument("--predictions", type=Path, required=True)
+    audit.add_argument("--inference-log", type=Path, required=True)
+    audit.add_argument("--output", type=Path, required=True)
+
     complete = commands.add_parser("all")
     complete.add_argument("--data-root", type=Path, required=True)
     complete.add_argument("--store", type=Path, required=True)
@@ -591,6 +638,11 @@ def main() -> int:
         if args.command == "build-features":
             store = build_features(args.data_root, args.store)
             result = {"store": str(args.store), "manifest": store.manifest}
+        elif args.command == "audit":
+            store = FeatureStore.open(args.store)
+            report = audit_run(store, args.predictions, args.inference_log)
+            _write_json(report, args.output)
+            result = {"audit": str(args.output), **report["summary"]}
         elif args.command == "train":
             store = FeatureStore.open(args.store)
             taxonomy = load_public_config("fault_taxonomy")

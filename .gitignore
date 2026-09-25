@@ -33,3 +33,4 @@ cache/
 .env.*
 !.env.example
 .DS_Store
+/AIOps_data_dyx

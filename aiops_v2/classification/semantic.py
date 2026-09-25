@@ -68,6 +68,21 @@ def _deviation(values: np.ndarray, mask: np.ndarray, start: int, end: int, *, lo
     return min(25.0, max(0.0, change / scale))
 
 
+def _semantic_strength(
+    feature: str, values: np.ndarray, mask: np.ndarray,
+    start: int, end: int, *, low: bool,
+) -> float:
+    strength = _deviation(values, mask, start, end, low=low)
+    if feature == "node.disk_io_util":
+        during = values[start:end][mask[start:end]]
+        if during.size == 0:
+            return 0.0
+        # Disk utilization is a percentage. A 0.1 -> 1.0 change may have a
+        # large relative score but occupies only 1% of the physical range.
+        return strength * min(1.0, max(0.0, float(np.max(during))) / 100.0)
+    return strength
+
+
 def _signal_name(feature: str) -> tuple[str, bool] | None:
     name = feature.lower()
     if any(token in name for token in ("wrong_record", "nxdomain", "servfail")):
@@ -96,8 +111,13 @@ def _signal_name(feature: str) -> tuple[str, bool] | None:
         return "cpu", False
     if "memory_available" in name or "swap" in name:
         return "memory", "memory_available" in name
-    if "disk_io" in name or "disk_read" in name or "disk_write" in name:
+    if "disk_io" in name:
         return "disk_io", False
+    # Read/write rates have no universal saturation scale. The direct
+    # detector retains them as auxiliary evidence, but they cannot create a
+    # disk-pressure category by themselves after category normalization.
+    if "disk_read" in name or "disk_write" in name:
+        return None
     if "filesystem" in name or "inode" in name:
         return "disk_space", False
     if "process_count" in name:
@@ -124,8 +144,8 @@ def _signal_name(feature: str) -> tuple[str, bool] | None:
         return "dns_error", "success" in name
     if "latency" in name or "jitter" in name:
         return "link_delay", False
-    if any(token in name for token in ("throughput", "bytes_rate", "packets_rate", "bandwidth")):
-        return "rate_limit", True
+    # A throughput or byte/packet-rate decline is a symptom shared by many
+    # faults, not direct evidence that a limiter or policer was applied.
     return None
 
 
@@ -169,8 +189,8 @@ def _extract_signals(
             signal, low = semantic
             selected_values = np.asarray(values[context_start:end, entity_indexes, index])
             selected_mask = np.asarray(mask[context_start:end, entity_indexes, index])
-            strength = _deviation(
-                selected_values, selected_mask,
+            strength = _semantic_strength(
+                feature, selected_values, selected_mask,
                 start - context_start, end - context_start, low=low,
             )
             signals[signal] = max(signals.get(signal, 0.0), strength)
@@ -229,8 +249,8 @@ def extract_candidate_signals(
             if semantic is None:
                 continue
             signal, low = semantic
-            strength = _deviation(
-                np.asarray(values[:, :, feature_index]),
+            strength = _semantic_strength(
+                feature, np.asarray(values[:, :, feature_index]),
                 np.asarray(mask[:, :, feature_index]),
                 start - context_start,
                 end - context_start,
@@ -332,7 +352,9 @@ def _semantic_candidate_distribution(
     active = strengths > 0
     if not np.any(active):
         return None
-    root_active = root_weights * active
+    # A high-ranked root with a barely positive semantic signal should not
+    # cast a full category vote after per-candidate normalization.
+    root_active = root_weights * strengths
     root_active = root_active / root_active.sum() if root_active.sum() else active / active.sum()
     evidence_weights = strengths / strengths.sum()
     candidate_weights = 0.5 * root_active + 0.5 * evidence_weights
@@ -480,7 +502,8 @@ def classify_event(
         if is_router
         else "resource_cpu_high"
     )
-    if max(scores.values(), default=0.0) <= 0:
+    has_semantic_evidence = max(scores.values(), default=0.0) > 0
+    if not has_semantic_evidence:
         scores[default_name] = 1e-6
     order = {item["fault_name"]: index for index, item in enumerate(categories)}
     ranked = sorted(scores.items(), key=lambda item: (-item[1], order[item[0]]))
@@ -488,7 +511,7 @@ def classify_event(
     by_name = {item["fault_name"]: item for item in categories}
     selected = by_name[best_name]
     total = sum(max(0.0, score) for _, score in ranked[:3])
-    confidence = float(best_score / total) if total > 0 else 0.0
+    confidence = float(best_score / total) if has_semantic_evidence and total > 0 else 0.0
     return ClassificationResult(
         category={
             "major_category": selected["major_category"],

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -103,6 +104,13 @@ def test_fixed_semantic_schema_covers_every_metric_mapping() -> None:
     assert mapped <= set(SEMANTIC_SIGNAL_NAMES)
 
 
+def test_throughput_decline_is_not_itself_a_rate_limit_diagnosis() -> None:
+    assert _signal_name("traffic.elephant.throughput_bps") is None
+    assert _signal_name("interface.rx_bytes_rate") is None
+    assert _signal_name("interface.rx_packets_rate") is None
+    assert _signal_name("interface.policer_drop_rate") == ("rate_limit", False)
+
+
 def test_classification_recognizes_target_web_errors(tmp_path) -> None:
     dimensions = (("flow_type", "web"), ("target_region", "wuhan"))
     observations = [
@@ -150,6 +158,106 @@ def test_candidate_signal_extraction_slices_time_before_edge_gather(tmp_path) ->
     store.edge_mask = GuardFullTime(store.edge_mask)
     result = extract_candidate_signals(_event(), "wuhan-service-vm-1", store)
     assert result["web_error"] > 0
+
+
+def test_low_absolute_disk_utilization_does_not_overwhelm_cpu_evidence(tmp_path) -> None:
+    node = "beida-service-vm-1"
+    observations = []
+    for minute in range(6):
+        fault = minute >= 3
+        observations.extend((
+            _numeric(minute, source="node", node=node, metric="node.disk_io_util",
+                     value=8 if fault else 1, direction="high"),
+            _numeric(minute, source="node", node=node, metric="node.cpu_usage",
+                     value=45 if fault else 2, direction="high"),
+            _numeric(minute, source="node", node=node, metric="node.disk_read_rate",
+                     value=100000 if fault else 0, direction="high"),
+        ))
+    store = build_feature_store(
+        observations, load_public_config("network_elements"), tmp_path / "store"
+    )
+    event = DecodedEvent(3, 5, 4, 0.95, 2.0, START + timedelta(minutes=3), START + timedelta(minutes=6))
+
+    signals = extract_candidate_signals(event, node, store)
+    classification = classify_event(event, node, store, load_public_config("fault_taxonomy"))
+
+    assert signals["disk_io"] <= 2.0
+    assert signals["cpu"] > signals["disk_io"]
+    assert classification.category == {"major_category": "resource", "sub_category": "cpu_pressure"}
+
+
+def test_high_absolute_disk_utilization_retains_strong_signal(tmp_path) -> None:
+    node = "wuhan-service-vm-2"
+    observations = [
+        _numeric(minute, source="node", node=node, metric="node.disk_io_util",
+                 value=95 if minute >= 3 else 2, direction="high")
+        for minute in range(6)
+    ]
+    store = build_feature_store(
+        observations, load_public_config("network_elements"), tmp_path / "store"
+    )
+    event = DecodedEvent(3, 5, 4, 0.95, 2.0, START + timedelta(minutes=3), START + timedelta(minutes=6))
+
+    signals = extract_candidate_signals(event, node, store)
+
+    assert signals["disk_io"] >= 20.0
+
+
+def test_disk_read_rate_alone_does_not_claim_disk_pressure_with_full_confidence(tmp_path) -> None:
+    node = "beida-service-vm-1"
+    observations = [
+        _numeric(minute, source="node", node=node, metric="node.disk_read_rate",
+                 value=100000 if minute >= 3 else 0, direction="high")
+        for minute in range(6)
+    ]
+    store = build_feature_store(
+        observations, load_public_config("network_elements"), tmp_path / "store"
+    )
+    event = DecodedEvent(3, 5, 4, 0.95, 2.0, START + timedelta(minutes=3), START + timedelta(minutes=6))
+
+    signals = extract_candidate_signals(event, node, store)
+    classification = classify_event(event, node, store, load_public_config("fault_taxonomy"))
+
+    assert signals["disk_io"] == 0.0
+    assert classification.category != {"major_category": "resource", "sub_category": "disk_io_pressure"}
+    assert classification.confidence == 0.0
+
+
+def test_weak_root_disk_signal_does_not_receive_full_category_vote(tmp_path) -> None:
+    root = "beida-service-vm-1"
+    cpu_node = "wuhan-service-vm-2"
+    observations = []
+    for minute in range(6):
+        fault = minute >= 3
+        observations.extend((
+            _numeric(minute, source="node", node=root, metric="node.disk_io_util",
+                     value=4 if fault else 1, direction="high"),
+            _numeric(minute, source="node", node=cpu_node, metric="node.cpu_usage",
+                     value=45 if fault else 2, direction="high"),
+        ))
+    store = build_feature_store(
+        observations, load_public_config("network_elements"), tmp_path / "store"
+    )
+    event = DecodedEvent(3, 5, 4, 0.95, 2.0, START + timedelta(minutes=3), START + timedelta(minutes=6))
+    timeline = TimelineScores(
+        family=np.zeros((6, 3), dtype=np.float32),
+        node=np.zeros((6, 80), dtype=np.float32),
+        edge=np.zeros((6, len(store.entities.edges)), dtype=np.float32),
+        log=np.zeros((6, 80), dtype=np.float32),
+        coverage=np.ones(6, dtype=np.int32),
+    )
+    ranking = rank_root_causes(event, timeline, store)
+    ranking = replace(
+        ranking,
+        scores={node: 99.0 if node == root else 1.0 if node == cpu_node else 0.0
+                for node in store.entities.nodes},
+    )
+
+    result = classify_event(
+        event, root, store, load_public_config("fault_taxonomy"), ranking=ranking
+    )
+
+    assert result.category == {"major_category": "resource", "sub_category": "cpu_pressure"}
 
 
 def test_classification_output_always_belongs_to_official_taxonomy(tmp_path) -> None:

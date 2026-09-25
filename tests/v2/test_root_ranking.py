@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pytest
@@ -67,6 +67,48 @@ def test_traffic_symptoms_rank_target_service_nodes_above_observers(tmp_path) ->
     )
     assert "chengdu-traffic-vm" not in ranking.top5[:3]
     assert ranking.explanations["wuhan-service-vm-1"]["traffic_target"] > 0
+
+
+def test_duplicate_target_city_symptoms_do_not_outvote_direct_device_evidence(tmp_path) -> None:
+    root = "guangzhou-br-1"
+    direct = NumericObservation(
+        timestamp=START, source="node", node_id=root, related_node_ids=(),
+        metric="node.cpu_usage", value=50.0, dimensions=(), direction="high",
+    )
+    store = build_feature_store(
+        [direct, _traffic("chengdu", "wuhan"), _traffic("xian", "wuhan")],
+        load_public_config("network_elements"), tmp_path / "store",
+    )
+    scores = _empty_scores(store)
+    scores.node[0, store.entities.node_index(root)] = 1.0
+    scores.edge[0, :] = 8.0
+
+    ranking = rank_root_causes(_event(), scores, store)
+
+    assert ranking.top5[0] == root
+    assert ranking.explanations["wuhan-service-vm-1"]["traffic_target"] < 4.0
+
+
+def test_same_observer_multiple_traffic_edges_do_not_outvote_direct_device(tmp_path) -> None:
+    root = "guangzhou-br-1"
+    observer = "chengdu-traffic-vm"
+    direct = NumericObservation(
+        timestamp=START, source="node", node_id=root, related_node_ids=(),
+        metric="node.cpu_usage", value=50.0, dimensions=(), direction="high",
+    )
+    store = build_feature_store(
+        [direct, _traffic("chengdu", "wuhan"), _traffic("chengdu", "beida"),
+         _traffic("chengdu", "xian")],
+        load_public_config("network_elements"), tmp_path / "store",
+    )
+    scores = _empty_scores(store)
+    scores.node[0, store.entities.node_index(root)] = 1.0
+    scores.edge[0, :] = 8.0
+
+    ranking = rank_root_causes(_event(), scores, store)
+
+    assert ranking.explanations[observer]["traffic_observer"] == pytest.approx(0.2)
+    assert ranking.top5[0] == root
 
 
 def test_direct_node_anomaly_is_ranked_first(tmp_path) -> None:
@@ -171,3 +213,54 @@ def test_root_ranking_integrates_learned_scores_without_breaking_public_top5(tmp
     assert set(ranking.top5) <= set(store.entities.nodes)
     assert sum(ranking.scores.values()) == pytest.approx(1.0)
     assert "learned_root_probability" in ranking.explanations[ranking.top5[0]]
+
+
+def test_chronic_netflow_shift_before_event_is_not_new_root_evidence(tmp_path) -> None:
+    source = "guangzhou-br-1"
+    root = "wuhan-service-vm-1"
+    observations = [
+        NumericObservation(START, "netflow", source, (), "netflow.protocol_byte_share", 0.8,
+                           (("protocol", "6"), ("interface_id", "ens4")), "high"),
+        *(
+            NumericObservation(START + timedelta(minutes=minute), "node", root, (),
+                               "node.cpu_usage", 2.0, (), "high")
+            for minute in range(80)
+        ),
+    ]
+    store = build_feature_store(observations, load_public_config("network_elements"), tmp_path / "store")
+    scores = _empty_scores(store, minutes=80)
+    scores.node[30:36, store.entities.node_index(root)] = 1.0
+    scores.edge[20:36, store.entities.edge_index(store.entities.edges[0])] = 4.0
+    event = DecodedEvent(30, 35, 32, 0.95, 2.0,
+                         START + timedelta(minutes=30), START + timedelta(minutes=36))
+
+    ranking = rank_root_causes(event, scores, store)
+
+    assert ranking.top5[0] == root
+    assert ranking.explanations[source]["netflow"] == 0.0
+
+
+def test_new_netflow_shift_cannot_replace_root_without_direct_evidence(tmp_path) -> None:
+    source = "guangzhou-br-1"
+    root = "wuhan-service-vm-1"
+    observations = [
+        NumericObservation(START, "netflow", source, (), "netflow.protocol_byte_share", 0.8,
+                           (("protocol", "6"), ("interface_id", "ens4")), "high"),
+        *(
+            NumericObservation(START + timedelta(minutes=minute), "node", root, (),
+                               "node.cpu_usage", 2.0, (), "high")
+            for minute in range(80)
+        ),
+    ]
+    store = build_feature_store(observations, load_public_config("network_elements"), tmp_path / "store")
+    scores = _empty_scores(store, minutes=80)
+    scores.node[30:36, store.entities.node_index(root)] = 1.0
+    scores.edge[30:36, 0] = 4.0
+    event = DecodedEvent(30, 35, 32, 0.95, 2.0,
+                         START + timedelta(minutes=30), START + timedelta(minutes=36))
+
+    ranking = rank_root_causes(event, scores, store)
+
+    assert ranking.explanations[source]["netflow"] > 0.0
+    assert ranking.explanations[source]["effective_netflow"] == 0.0
+    assert ranking.top5[0] == root

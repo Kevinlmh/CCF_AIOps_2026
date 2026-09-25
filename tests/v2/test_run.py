@@ -13,7 +13,8 @@ from aiops_v2.detection import score_direct_evidence
 from aiops_v2.diagnosis_schema import EVENT_FEATURE_NAMES, ROOT_FEATURE_NAMES
 from aiops_v2.events.decoder import DecodedEvent
 from aiops_v2.models.heads import EventDiagnosisHeads
-from aiops_v2.run import build_features, build_prediction_records, write_predictions
+from aiops_v2.run import _direct_timeline, build_features, build_prediction_records, write_predictions
+from aiops_v2.localization.ranking import rank_root_causes
 from aiops_v2.training.inference import TimelineScores
 from baseline.bian.preprocessing.observations import NumericObservation
 
@@ -167,3 +168,77 @@ def test_disk_space_direct_evidence_maps_to_official_taxonomy(tmp_path) -> None:
         "major_category": "resource", "sub_category": "disk_space_low"
     }
     assert audit[0]["classification"]["direct_category_override"] == records[0]["fault_category"]
+
+
+def test_direct_timeline_carries_frr_and_netflow_to_root_ranking_without_netflow_trigger(tmp_path) -> None:
+    root = "chengdu-br-1"
+    observations = []
+    for minute in range(80):
+        timestamp = START + timedelta(minutes=minute)
+        observations.extend((
+            NumericObservation(timestamp, "node", root, (), "node.cpu_usage", 45.0 if 30 <= minute < 36 else 2.0, (), "high"),
+            NumericObservation(timestamp, "netflow", root, (), "netflow.flow_records", 40.0, (("protocol", "6"), ("interface_id", "eth0")), "high"),
+            NumericObservation(timestamp, "netflow", root, (), "netflow.protocol_byte_share", 0.9 if 30 <= minute < 36 else 0.2, (("protocol", "6"), ("interface_id", "eth0")), "high"),
+        ))
+    observations.append(NumericObservation(
+        START + timedelta(minutes=32), "frr", root, (), "frr.event_count", 2.0,
+        (("event_family", "bgp"), ("severity", "err")), "state",
+    ))
+    store = build_feature_store(
+        observations, load_public_config("network_elements"), tmp_path / "support-store"
+    )
+    direct = score_direct_evidence(store)
+
+    timeline, decoder_evidence = _direct_timeline(store, direct)
+    event = DecodedEvent(
+        30, 35, 32, 0.95, 3.0,
+        START + timedelta(minutes=30), START + timedelta(minutes=36),
+    )
+    ranking = rank_root_causes(event, timeline, store)
+
+    assert timeline.log[32, store.entities.node_index(root)] > 0
+    assert timeline.edge[32].max() > 0
+    assert ranking.explanations[root]["log"] > 0
+    assert ranking.explanations[root]["netflow"] > 0
+    assert direct.global_probability[20] < 0.8
+    assert decoder_evidence.edge is not timeline.edge
+
+
+def test_disk_label_without_top1_direct_anchor_is_flagged_low_confidence(tmp_path) -> None:
+    root = "beida-service-vm-1"
+    symptom = "wuhan-service-vm-2"
+    observations = []
+    for minute in range(70):
+        timestamp = START + timedelta(minutes=minute)
+        observations.extend((
+            NumericObservation(timestamp, "node", root, (), "node.open_fd_ratio", 0.1, (), "high"),
+            NumericObservation(timestamp, "node", root, (), "node.disk_io_util", 3.0, (), "high"),
+            NumericObservation(timestamp, "node", symptom, (), "node.disk_io_util",
+                               95.0 if 30 <= minute < 36 else 2.0, (), "high"),
+        ))
+    store = build_feature_store(
+        observations, load_public_config("network_elements"), tmp_path / "store"
+    )
+    direct = score_direct_evidence(store)
+    node_scores = np.zeros((70, 80), dtype=np.float32)
+    node_scores[30:36, store.entities.node_index(root)] = 20.0
+    timeline = TimelineScores(
+        family=np.ones((70, 3), dtype=np.float32), node=node_scores,
+        edge=np.zeros((70, len(store.entities.edges)), dtype=np.float32),
+        log=np.zeros((70, 80), dtype=np.float32), coverage=np.ones(70, dtype=np.int32),
+    )
+    event = DecodedEvent(30, 35, 32, 0.95, 3.0,
+                         START + timedelta(minutes=30), START + timedelta(minutes=36))
+
+    records, audit = build_prediction_records(
+        (event,), timeline, store, load_public_config("fault_taxonomy"),
+        direct_evidence=direct,
+    )
+
+    assert records[0]["root_cause_top5"][0]["network_element_id"] == root
+    assert records[0]["fault_category"] == {
+        "major_category": "resource", "sub_category": "disk_io_pressure"
+    }
+    assert audit[0]["classification"]["category_anchor_status"] == "unsupported"
+    assert audit[0]["classification"]["confidence"] <= 0.5
+    assert audit[0]["classification"]["top3"][0][1] <= 0.5

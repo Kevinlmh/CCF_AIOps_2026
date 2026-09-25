@@ -27,6 +27,7 @@ class DirectEvidence:
     observed: np.ndarray  # [T, N]
     feature_audit: dict[str, dict[str, float]]
     edge_symptom_scores: np.ndarray | None = None  # [T, E], never a direct root
+    service_probability: np.ndarray | None = None  # [T], separate from node probability
 
 
 def select_specific_category(strengths: np.ndarray, names: tuple[str, ...] = CATEGORY_NAMES) -> str | None:
@@ -228,11 +229,12 @@ def score_direct_evidence(store) -> DirectEvidence:
     node_probability = np.where(observed, node_probability, 0.0).astype(np.float32)
     edge_symptoms = _service_symptoms(store, time_count)
     global_probability = np.max(node_probability, axis=1) if node_count else np.zeros(time_count)
+    edge_probability = np.zeros(time_count, dtype=np.float32)
     if edge_symptoms.shape[1]:
         edge_strength = np.max(edge_symptoms, axis=1)
         edge_raw = 1.0 / (1.0 + np.exp(-np.clip((edge_strength - 3.0) / 0.9, -20.0, 20.0)))
         edge_supported = _neighbor_support(edge_strength[:, None])[:, 0]
-        edge_probability = np.where(edge_supported, 0.9 * edge_raw, 0.4 * edge_raw)
+        edge_probability = np.where(edge_supported, 0.9 * edge_raw, 0.4 * edge_raw).astype(np.float32)
         global_probability = np.maximum(global_probability, edge_probability)
     return DirectEvidence(
         CATEGORY_NAMES,
@@ -242,4 +244,5 @@ def score_direct_evidence(store) -> DirectEvidence:
         observed,
         audit,
         edge_symptoms,
+        edge_probability,
     )
