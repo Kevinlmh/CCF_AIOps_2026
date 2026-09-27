@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import torch
+import pytest
 
 from aiops_v2.models.detector import (
     ModelDimensions,
@@ -69,6 +70,22 @@ def test_single_extreme_feature_cannot_create_unbounded_entity_score() -> None:
     assert float(output["node_level_anomaly"].max()) <= 5.0
     assert float(output["node_anomaly"].max().detach()) <= 25.0
     assert float(losses["total"].detach()) < 100.0
+
+
+def test_topk_feature_scoring_preserves_one_observed_anomaly_without_missing_leakage() -> None:
+    batch = _batch(edge_features=0, log_features=0)
+    batch["node_x"] = torch.zeros((2, 6, 4, 24))
+    batch["node_mask"] = torch.ones_like(batch["node_x"], dtype=torch.bool)
+    batch["node_x"][:, :, 0, 0] = 3.0
+    batch["node_x"][:, :, 0, 1] = 999.0
+    batch["node_mask"][:, :, 0, 1] = False
+    dimensions = ModelDimensions(node_features=24, edge_features=0, log_features=0, hidden_size=8)
+
+    linear = MultiSourceDetector(dimensions)(batch)["node_level_anomaly"][0, 0, 0]
+    topk = MultiSourceDetector(dimensions, score_pooling="topk")(batch)["node_level_anomaly"][0, 0, 0]
+
+    assert linear.item() == pytest.approx(3.0 / 23.0)
+    assert topk.item() == pytest.approx(2.4)
 
 
 def test_causal_forecast_error_aligns_previous_prediction_to_current_minute() -> None:

@@ -1,0 +1,23 @@
+timestamp,region,node,node_type,missing_fields
+2026-08-19 22:48:00,ccf-aiops-成都,br-1,br,load1|load5|memory_available_ratio|swap_used_ratio|filesystem_used_ratio|inode_used_ratio|open_fd_ratio|process_count
+2026-08-19 22:48:00,ccf-aiops-成都,br-2,br,load1|load5|memory_available_ratio|swap_used_ratio|filesystem_used_ratio|inode_used_ratio|open_fd_ratio|process_count
+2026-08-19 22:54:00,ccf-aiops-成都,br-1,br,cpu_usage|disk_read_rate|disk_write_rate|disk_io_util
+2026-08-27 14:04:00,ccf-aiops-成都,br-1,br,load1|load5|memory_available_ratio|swap_used_ratio|filesystem_used_ratio|inode_used_ratio|open_fd_ratio|process_count
+2026-08-27 14:11:00,ccf-aiops-成都,br-2,br,cpu_usage|disk_read_rate|disk_write_rate|disk_io_util
+2026-08-27 13:28:00,ccf-aiops-广州,br-1,br,cpu_usage|disk_read_rate|disk_write_rate|disk_io_util
+2026-08-27 13:28:00,ccf-aiops-广州,br-2,br,cpu_usage|disk_read_rate|disk_write_rate|disk_io_util
+2026-08-28 18:26:00,ccf-aiops-广州,br-1,br,load1|load5|memory_available_ratio|swap_used_ratio|filesystem_used_ratio|inode_used_ratio|open_fd_ratio|process_count
+2026-08-28 18:26:00,ccf-aiops-广州,br-2,br,load1|load5|memory_available_ratio|swap_used_ratio|filesystem_used_ratio|inode_used_ratio|open_fd_ratio|process_count
+2026-08-21 23:18:00,ccf-aiops-南京,br-1,br,load1|load5|memory_available_ratio|swap_used_ratio|filesystem_used_ratio|inode_used_ratio|open_fd_ratio|process_count
+2026-08-21 23:18:00,ccf-aiops-南京,br-2,br,load1|load5|memory_available_ratio|swap_used_ratio|filesystem_used_ratio|inode_used_ratio|open_fd_ratio|process_count
+2026-08-21 23:27:00,ccf-aiops-南京,br-1,br,cpu_usage|disk_read_rate|disk_write_rate|disk_io_util
+2026-08-21 23:27:00,ccf-aiops-南京,br-2,br,cpu_usage|disk_read_rate|disk_write_rate|disk_io_util
+2026-08-20 19:05:00,ccf-aiops-上海,br-1,br,cpu_usage|disk_read_rate|disk_write_rate|disk_io_util
+2026-08-29 18:25:00,ccf-aiops-上海,br-1,br,cpu_usage|disk_read_rate|disk_write_rate|disk_io_util
+2026-08-29 18:25:00,ccf-aiops-上海,br-2,br,cpu_usage|disk_read_rate|disk_write_rate|disk_io_util
+2026-09-01 08:44:00,ccf-aiops-上海,br-1,br,cpu_usage|disk_read_rate|disk_write_rate|disk_io_util
+2026-09-01 08:44:00,ccf-aiops-上海,br-2,br,cpu_usage|disk_read_rate|disk_write_rate|disk_io_util
+2026-08-26 10:20:00,ccf-aiops-沈阳,br-1,br,load1|load5|memory_available_ratio|swap_used_ratio|filesystem_used_ratio|inode_used_ratio|open_fd_ratio|process_count
+2026-08-26 10:20:00,ccf-aiops-沈阳,br-2,br,load1|load5|memory_available_ratio|swap_used_ratio|filesystem_used_ratio|inode_used_ratio|open_fd_ratio|process_count
+2026-08-28 19:09:00,ccf-aiops-西安,br-1,br,load1|load5|memory_available_ratio|swap_used_ratio|filesystem_used_ratio|inode_used_ratio|open_fd_ratio|process_count
+2026-08-28 19:09:00,ccf-aiops-西安,br-2,br,load1|load5|memory_available_ratio|swap_used_ratio|filesystem_used_ratio|inode_used_ratio|open_fd_ratio|process_count

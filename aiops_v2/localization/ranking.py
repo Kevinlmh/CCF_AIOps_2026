@@ -72,6 +72,34 @@ def _strength(values: np.ndarray, bounds: tuple[int, int]) -> np.ndarray:
     return _temporal_strength(values[start:end])
 
 
+def _pre_event_direct_context(
+    event: DecodedEvent,
+    timeline: TimelineScores,
+    store: FeatureStore,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Estimate chronic direct evidence and a recent pre-event onset."""
+    node_count = len(store.entities.nodes)
+    baseline = np.zeros(node_count, dtype=np.float32)
+    onset = np.zeros(node_count, dtype=np.float32)
+    start = max(0, min(event.start_index, len(timeline.node)))
+    reference_start = max(0, start - 20)
+    reference_end = max(reference_start, start - 3)
+    observed = np.asarray(
+        store.node_mask[reference_start:start].any(axis=2), dtype=bool
+    )
+    for index in range(node_count):
+        reference_mask = observed[: reference_end - reference_start, index]
+        if reference_mask.sum() < 4:
+            continue
+        reference = timeline.node[reference_start:reference_end, index]
+        baseline[index] = float(np.median(reference[reference_mask]))
+        recent_mask = observed[reference_end - reference_start :, index]
+        if recent_mask.any():
+            recent = timeline.node[reference_end:start, index]
+            onset[index] = max(0.0, float(np.max(recent[recent_mask])) - baseline[index])
+    return baseline, onset
+
+
 def _node_role_features(node: str) -> dict[str, float]:
     return {
         "role_service": float("-service-vm-" in node),
@@ -98,8 +126,18 @@ def extract_candidate_evidence(
     if start >= end:
         raise ValueError("event does not overlap the score timeline")
 
-    nodes = tuple(store.entities.nodes)
+    # Service-only symptoms may have an upstream cause in another city. A
+    # directly observed node trigger is a strong prior for its own city.
+    nodes = tuple(
+        node for node in store.entities.nodes
+        if not event.root_city_scoped
+        or event.city_id is None
+        or node.startswith(f"{event.city_id}-")
+    )
     node_indexes = {node: index for index, node in enumerate(nodes)}
+    source_node_indexes = {
+        node: index for index, node in enumerate(store.entities.nodes)
+    }
     columns = {name: index for index, name in enumerate(ROOT_FEATURE_NAMES)}
     features = np.zeros((len(nodes), len(ROOT_FEATURE_NAMES)), dtype=np.float32)
     observation_mask = np.zeros(len(nodes), dtype=bool)
@@ -112,23 +150,24 @@ def extract_candidate_evidence(
     during_node = np.asarray(timeline.node[start:end], dtype=np.float64)
 
     for index, node in enumerate(nodes):
-        recovery = max(0.0, float(direct[index]) - float(after[index]))
-        peak = float(np.max(during_node[:, index])) if during_node.size else 0.0
-        mean = float(np.mean(during_node[:, index])) if during_node.size else 0.0
+        source_index = source_node_indexes[node]
+        recovery = max(0.0, float(direct[source_index]) - float(after[source_index]))
+        peak = float(np.max(during_node[:, source_index])) if during_node.size else 0.0
+        mean = float(np.mean(during_node[:, source_index])) if during_node.size else 0.0
         values = {
-            "direct": float(direct[index]),
-            "direct_early": float(early[index]),
-            "direct_pre": float(before[index]),
+            "direct": float(direct[source_index]),
+            "direct_early": float(early[source_index]),
+            "direct_pre": float(before[source_index]),
             "direct_persistence": mean / peak if peak > 0 else 0.0,
             "recovery": recovery,
-            "log": float(logs[index]),
+            "log": float(logs[source_index]),
             **_node_role_features(node),
         }
         for name, value in values.items():
             features[index, columns[name]] = value
         observation_mask[index] = bool(
-            store.node_mask[start:end, index].any()
-            or store.log_mask[start:end, index].any()
+            store.node_mask[start:end, source_index].any()
+            or store.log_mask[start:end, source_index].any()
         )
 
     traffic_indexes_by_city: dict[str, list[int]] = {}
@@ -138,6 +177,13 @@ def extract_candidate_evidence(
     edge_early = _strength(timeline.edge, phases["early"])
     edge_before = _strength(timeline.edge, phases["before"])
     for edge_index, edge in enumerate(store.entities.edges):
+        if event.city_id is not None:
+            if edge.relation == "traffic":
+                target_parts = edge.target.split(":")
+                if len(target_parts) != 3 or target_parts[1] != event.city_id:
+                    continue
+            elif edge.relation == "netflow" and not edge.source.startswith(f"{event.city_id}-"):
+                continue
         if edge.relation == "traffic" and edge.target.startswith("service-group:"):
             _, city, _ = edge.target.split(":", 2)
             traffic_indexes_by_city.setdefault(city, []).append(edge_index)
@@ -253,15 +299,25 @@ def rank_root_causes(
         for index, node in enumerate(nodes)
     }
     total = np.zeros(len(nodes), dtype=np.float64)
+    direct_baseline, pre_event_onset = _pre_event_direct_context(event, timeline, store)
+    source_indexes = {node: index for index, node in enumerate(store.entities.nodes)}
     for index, node in enumerate(nodes):
         row = evidence.features[index]
+        source_index = source_indexes[node]
+        direct_novel = max(
+            0.0, float(row[columns["direct"]]) - float(direct_baseline[source_index])
+        )
         direct_anchor = max(float(row[columns["direct"]]), float(row[columns["log"]]))
         effective_netflow = min(float(row[columns["netflow"]]), 0.20 * direct_anchor)
+        components[node]["direct_baseline"] = float(direct_baseline[source_index])
+        components[node]["direct_novel"] = direct_novel
+        components[node]["direct_pre_onset"] = float(pre_event_onset[source_index])
         components[node]["effective_netflow"] = effective_netflow
         total[index] = (
-            0.50 * row[columns["direct"]]
+            0.35 * row[columns["direct"]]
+            + 0.35 * direct_novel
             + 0.20 * row[columns["direct_early"]]
-            + 0.15 * row[columns["direct_pre"]]
+            + 0.15 * pre_event_onset[source_index]
             + 0.15 * row[columns["recovery"]]
             + 1.10 * row[columns["log"]]
             + 0.15 * row[columns["traffic_target"]]

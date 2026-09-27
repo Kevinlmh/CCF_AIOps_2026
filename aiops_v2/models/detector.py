@@ -77,16 +77,26 @@ class _TemporalBranch(nn.Module):
         return hidden, self.reconstruction(hidden), self.forecast(hidden)
 
 
-def _masked_entity_error(prediction: Tensor, target: Tensor, mask: Tensor) -> Tensor:
+def _masked_entity_error(
+    prediction: Tensor, target: Tensor, mask: Tensor, *, pooling: str = "mean"
+) -> Tensor:
     if target.shape[-1] == 0:
         return target.new_zeros(target.shape[:-1])
     weights = mask.to(target.dtype)
-    numerator = (prediction - target).abs().clamp_max(25.0).mul(weights).sum(dim=-1)
-    denominator = weights.sum(dim=-1).clamp_min(1.0)
-    return numerator / denominator
+    errors = (prediction - target).abs().clamp_max(25.0).mul(weights)
+    observed_count = weights.sum(dim=-1)
+    if pooling == "topk":
+        count = min(3, errors.shape[-1])
+        selected = torch.topk(errors, count, dim=-1).values
+        return 0.7 * selected[..., 0] + 0.3 * (
+            selected.sum(dim=-1) / observed_count.clamp(min=1.0, max=float(count))
+        )
+    return errors.sum(dim=-1) / observed_count.clamp_min(1.0)
 
 
-def causal_forecast_error(forecast: Tensor, target: Tensor, mask: Tensor) -> Tensor:
+def causal_forecast_error(
+    forecast: Tensor, target: Tensor, mask: Tensor, *, pooling: str = "mean"
+) -> Tensor:
     """Align the prediction emitted at t-1 with the observation at t."""
     result = target.new_zeros(target.shape[:-1])
     if target.shape[1] < 2 or target.shape[-1] == 0:
@@ -95,6 +105,7 @@ def causal_forecast_error(forecast: Tensor, target: Tensor, mask: Tensor) -> Ten
         forecast[:, :-1],
         target[:, 1:],
         mask[:, 1:],
+        pooling=pooling,
     )
     return result
 
@@ -111,9 +122,12 @@ def _topk_pool(values: Tensor, maximum: int = 3) -> Tensor:
 class MultiSourceDetector(nn.Module):
     """Node/edge/log normality model producing global and entity anomaly scores."""
 
-    def __init__(self, dimensions: ModelDimensions) -> None:
+    def __init__(self, dimensions: ModelDimensions, *, score_pooling: str = "mean") -> None:
         super().__init__()
+        if score_pooling not in {"mean", "topk"}:
+            raise ValueError("score_pooling must be mean or topk")
         self.dimensions = dimensions
+        self.score_pooling = score_pooling
         hidden = dimensions.hidden_size
         layers = dimensions.temporal_layers
         self.node_branch = _TemporalBranch(dimensions.node_features, hidden, layers)
@@ -187,31 +201,31 @@ class MultiSourceDetector(nn.Module):
             log_reconstruction = self.log_branch.reconstruction(log_hidden)
             log_forecast = self.log_branch.forecast(log_hidden)
         node_reconstruction_anomaly = _masked_entity_error(
-            node_reconstruction, batch["node_x"], batch["node_mask"]
+            node_reconstruction, batch["node_x"], batch["node_mask"], pooling=self.score_pooling
         )
         edge_reconstruction_anomaly = _masked_entity_error(
-            edge_reconstruction, batch["edge_x"], batch["edge_mask"]
+            edge_reconstruction, batch["edge_x"], batch["edge_mask"], pooling=self.score_pooling
         )
         log_reconstruction_anomaly = _masked_entity_error(
-            log_reconstruction, batch["log_x"], batch["log_mask"]
+            log_reconstruction, batch["log_x"], batch["log_mask"], pooling=self.score_pooling
         )
         node_forecast_anomaly = causal_forecast_error(
-            node_forecast, batch["node_x"], batch["node_mask"]
+            node_forecast, batch["node_x"], batch["node_mask"], pooling=self.score_pooling
         )
         edge_forecast_anomaly = causal_forecast_error(
-            edge_forecast, batch["edge_x"], batch["edge_mask"]
+            edge_forecast, batch["edge_x"], batch["edge_mask"], pooling=self.score_pooling
         )
         log_forecast_anomaly = causal_forecast_error(
-            log_forecast, batch["log_x"], batch["log_mask"]
+            log_forecast, batch["log_x"], batch["log_mask"], pooling=self.score_pooling
         )
         node_level_anomaly = _masked_entity_error(
-            torch.zeros_like(batch["node_x"]), batch["node_x"], batch["node_mask"]
+            torch.zeros_like(batch["node_x"]), batch["node_x"], batch["node_mask"], pooling=self.score_pooling
         )
         edge_level_anomaly = _masked_entity_error(
-            torch.zeros_like(batch["edge_x"]), batch["edge_x"], batch["edge_mask"]
+            torch.zeros_like(batch["edge_x"]), batch["edge_x"], batch["edge_mask"], pooling=self.score_pooling
         )
         log_level_anomaly = _masked_entity_error(
-            torch.zeros_like(batch["log_x"]), batch["log_x"], batch["log_mask"]
+            torch.zeros_like(batch["log_x"]), batch["log_x"], batch["log_mask"], pooling=self.score_pooling
         )
         node_anomaly = (
             0.45 * node_level_anomaly

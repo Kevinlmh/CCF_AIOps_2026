@@ -1,0 +1,57 @@
+{
+  "comparison_scope": "same stage-1 feature store; saved pre-adjustment control and current direct run",
+  "control": {
+    "candidate_count": 473,
+    "anchor_status_counts": {
+      "supported": 200,
+      "unsupported": 137,
+      "not_evaluated": 136,
+      "undetermined": 0
+    },
+    "category_counts": {
+      "resource.cpu_pressure": 234,
+      "service.web_5xx": 21,
+      "routing.bgp_session_down": 36,
+      "service.dns_down": 34,
+      "service.auth_timeout": 27,
+      "resource.process_pressure": 8,
+      "service.web_slow": 7,
+      "resource.disk_io_pressure": 64,
+      "resource.disk_space_low": 7,
+      "resource.memory_pressure": 9,
+      "firewall.cpu_pressure": 23,
+      "service.auth_error": 3
+    }
+  },
+  "current": {
+    "candidate_count": 403,
+    "anchor_status_counts": {
+      "supported": 201,
+      "unsupported": 0,
+      "not_evaluated": 202,
+      "undetermined": 0
+    },
+    "category_counts": {
+      "resource.cpu_pressure": 103,
+      "service.web_5xx": 42,
+      "routing.bgp_session_down": 47,
+      "service.dns_down": 45,
+      "service.auth_timeout": 41,
+      "service.web_slow": 16,
+      "resource.disk_io_pressure": 64,
+      "resource.disk_space_low": 7,
+      "resource.memory_pressure": 9,
+      "firewall.cpu_pressure": 18,
+      "link.delay": 4,
+      "service.auth_error": 6,
+      "resource.process_pressure": 1
+    }
+  },
+  "public_sample": {
+    "TP": 3,
+    "FP": 0,
+    "FN": 0,
+    "Total": 96.0111111111111
+  },
+  "qualification": "Stage-1 outcomes are unlabeled; candidate and anchor changes are not accuracy estimates."
+}

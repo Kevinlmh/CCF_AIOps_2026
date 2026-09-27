@@ -16,6 +16,8 @@ from aiops_v2.models.heads import EventDiagnosisHeads
 from aiops_v2.run import _direct_timeline, build_features, build_prediction_records, write_predictions
 from aiops_v2.localization.ranking import rank_root_causes
 from aiops_v2.training.inference import TimelineScores
+from aiops_v2.training.trainer import TrainConfig, save_checkpoint, train_detector
+from aiops_v2 import run
 from baseline.bian.preprocessing.observations import NumericObservation
 
 
@@ -37,6 +39,40 @@ def test_build_features_command_reads_fixture_and_records_all_sources(tmp_path) 
     }
     assert store.manifest["observation_count"] > 0
     assert store.node_values.shape[1] == 80
+
+
+def test_build_features_rejects_incomplete_source_set(tmp_path) -> None:
+    import pytest
+
+    processed = tmp_path / "input" / "chengdu_window" / "processed"
+    processed.mkdir(parents=True)
+    (processed / "node_metrics.csv").write_text(
+        "timestamp,node,cpu_usage\n2026-08-19T04:00:00Z,chengdu-service-vm-1,2\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="missing.*source"):
+        build_features(tmp_path / "input", tmp_path / "store")
+
+
+def test_build_features_rejects_incomplete_city_when_other_city_has_all_sources(tmp_path) -> None:
+    import pytest
+
+    source_names = (
+        "node_metrics.csv", "interface_metrics.csv", "routing_metrics.csv",
+        "scrape_health.csv", "traffic_flow_metrics.csv", "netflow.csv",
+        "frr_syslog_events.csv",
+    )
+    complete = tmp_path / "input" / "beida_window" / "processed"
+    incomplete = tmp_path / "input" / "chengdu_window" / "processed"
+    complete.mkdir(parents=True)
+    incomplete.mkdir(parents=True)
+    for name in source_names:
+        (complete / name).touch()
+    (incomplete / "node_metrics.csv").touch()
+
+    with pytest.raises(ValueError, match="chengdu_window.*missing required source"):
+        build_features(tmp_path / "input", tmp_path / "store")
 
 
 def test_prediction_records_follow_official_schema_and_write_jsonl(tmp_path) -> None:
@@ -89,6 +125,33 @@ def test_prediction_records_follow_official_schema_and_write_jsonl(tmp_path) -> 
         "interval": 0.7,
         "family_support": 0.5,
     }
+
+
+def test_direct_prediction_reconciles_cross_city_event_candidates(tmp_path) -> None:
+    observations = [
+        NumericObservation(
+            START + timedelta(minutes=minute), "node", node, (),
+            "node.cpu_usage", 85.0 if 30 <= minute < 38 else 2.0, (), "high",
+        )
+        for minute in range(70)
+        for node in ("chengdu-service-vm-1", "wuhan-service-vm-1")
+    ]
+    store = build_feature_store(
+        observations, load_public_config("network_elements"), tmp_path / "store"
+    )
+    output = tmp_path / "predictions.jsonl"
+    inference = tmp_path / "inference.json"
+
+    run.predict(store, None, output, inference_log=inference)
+
+    predictions = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    report = json.loads(inference.read_text(encoding="utf-8"))
+    assert len(predictions) == report["event_count"] == 1
+    assert report["event_reconciliation"] == {
+        "candidate_count": 2,
+        "suppressed_count": 1,
+    }
+    validate_prediction(predictions[0])
 
 
 def test_prediction_records_wire_learned_heads_and_audit_candidate_categories(tmp_path) -> None:
@@ -242,3 +305,141 @@ def test_disk_label_without_top1_direct_anchor_is_flagged_low_confidence(tmp_pat
     assert audit[0]["classification"]["category_anchor_status"] == "unsupported"
     assert audit[0]["classification"]["confidence"] <= 0.5
     assert audit[0]["classification"]["top3"][0][1] <= 0.5
+
+
+def test_detector_only_comparison_reuses_direct_diagnosis_for_neural_events(tmp_path) -> None:
+    root = "beida-service-vm-1"
+    observations = [
+        NumericObservation(
+            START + timedelta(minutes=minute), "node", root, (), "node.cpu_usage",
+            80.0 if 30 <= minute < 36 else 2.0, (), "high",
+        )
+        for minute in range(70)
+    ]
+    store = build_feature_store(
+        observations, load_public_config("network_elements"), tmp_path / "store"
+    )
+    neural_node = np.zeros((70, 80), dtype=np.float32)
+    neural_node[:, store.entities.node_index("wuhan-service-vm-2")] = 20.0
+    neural_timeline = TimelineScores(
+        family=np.zeros((70, 3), dtype=np.float32),
+        node=neural_node,
+        edge=np.zeros((70, 0), dtype=np.float32),
+        log=np.zeros((70, 80), dtype=np.float32),
+        coverage=np.ones(70, dtype=np.int32),
+    )
+    event = DecodedEvent(
+        30, 35, 32, 0.9, 2.0,
+        START + timedelta(minutes=30), START + timedelta(minutes=36),
+    )
+    direct = score_direct_evidence(store)
+    direct_timeline, _ = _direct_timeline(store, direct)
+    expected, _ = build_prediction_records(
+        (event,), direct_timeline, store, load_public_config("fault_taxonomy"),
+        direct_evidence=direct,
+    )
+
+    comparison_timeline, comparison_direct, comparison_heads = run._diagnosis_inputs(
+        store, neural_timeline, None, object(), comparison_mode="detector-only"
+    )
+    actual, audit = build_prediction_records(
+        (event,), comparison_timeline, store, load_public_config("fault_taxonomy"),
+        diagnosis_heads=comparison_heads, direct_evidence=comparison_direct,
+    )
+
+    assert actual == expected
+    assert actual[0]["root_cause_top5"][0]["network_element_id"] == root
+    assert audit[0]["classification"]["direct_category_override"] == {
+        "major_category": "resource", "sub_category": "cpu_pressure"
+    }
+
+
+def test_native_postprocessing_keeps_neural_timeline_and_heads(tmp_path) -> None:
+    store = build_feature_store(
+        [NumericObservation(START, "node", "beida-br-1", (), "node.cpu_usage", 2.0, (), "high")],
+        load_public_config("network_elements"), tmp_path / "store",
+    )
+    timeline = TimelineScores(
+        family=np.zeros((1, 3), dtype=np.float32),
+        node=np.zeros((1, 80), dtype=np.float32),
+        edge=np.zeros((1, 0), dtype=np.float32),
+        log=np.zeros((1, 80), dtype=np.float32),
+        coverage=np.ones(1, dtype=np.int32),
+    )
+    heads = object()
+    selected_timeline, direct, selected_heads = run._diagnosis_inputs(
+        store, timeline, None, heads, comparison_mode="native"
+    )
+
+    assert selected_timeline is timeline
+    assert direct is None
+    assert selected_heads is heads
+
+
+def test_predict_cli_accepts_detector_only_comparison() -> None:
+    args = run._parser().parse_args([
+        "predict", "--store", "store", "--checkpoint", "model.pt",
+        "--detector", "neural", "--comparison-mode", "detector-only",
+        "--output", "predictions.jsonl",
+    ])
+
+    assert args.comparison_mode == "detector-only"
+
+
+def test_predict_cli_accepts_separate_neural_score_audit() -> None:
+    args = run._parser().parse_args([
+        "predict", "--store", "store", "--checkpoint", "model.pt",
+        "--detector", "neural", "--output", "predictions.jsonl",
+        "--score-audit", "neural_score_audit.json",
+    ])
+
+    assert args.score_audit == Path("neural_score_audit.json")
+
+
+def test_detector_only_predict_keeps_checkpoint_head_availability_distinct_from_usage(tmp_path) -> None:
+    observations = [
+        NumericObservation(
+            START + timedelta(minutes=minute), "node", "beida-service-vm-1", (),
+            "node.cpu_usage", 70.0 if minute in (2, 3) else 2.0, (), "high",
+        )
+        for minute in range(6)
+    ]
+    observations.extend(
+        NumericObservation(
+            START + timedelta(minutes=minute), "traffic", "beida-traffic-vm",
+            ("beida-service-vm-1",), "traffic.web.latency_p95_seconds", 0.2,
+            (("target_region", "beida"), ("flow_type", "web")), "high",
+        )
+        for minute in range(6)
+    )
+    observations.append(NumericObservation(
+        START + timedelta(minutes=2), "frr", "beida-br-1", (), "frr.event_count", 1.0,
+        (("event_family", "bgp"), ("severity", "err")), "state",
+    ))
+    store = build_feature_store(
+        observations, load_public_config("network_elements"), tmp_path / "store"
+    )
+    artifact = train_detector(
+        store,
+        TrainConfig(epochs=1, batch_size=2, window_minutes=4, stride_minutes=2, hidden_size=8),
+        taxonomy=load_public_config("fault_taxonomy"),
+        diagnosis_examples_per_category=1,
+        diagnosis_epochs=1,
+    )
+    checkpoint = tmp_path / "checkpoint.pt"
+    save_checkpoint(artifact, checkpoint)
+    output = tmp_path / "predictions.jsonl"
+    inference = tmp_path / "inference.json"
+    score_audit = tmp_path / "score_audit.json"
+
+    run.predict(
+        store, checkpoint, output, inference_log=inference, score_audit=score_audit,
+        detector="neural", comparison_mode="detector-only",
+    )
+
+    metadata = json.loads(inference.read_text(encoding="utf-8"))["run_metadata"]
+    scores = json.loads(score_audit.read_text(encoding="utf-8"))
+    assert metadata["diagnosis_head_available"] is True
+    assert metadata["diagnosis_head_used"] is False
+    assert metadata["comparison_mode"] == "detector-only"
+    assert scores["summary"]["total_minute_count"] == 6

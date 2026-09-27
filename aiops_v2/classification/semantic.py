@@ -10,6 +10,7 @@ import torch
 from torch import nn
 
 from aiops_v2.data.feature_store import FeatureStore
+from aiops_v2.detection.direct_evidence import RESOURCE_ANCHOR_BOUNDS, RESOURCE_ANCHOR_MIN_CHANGES
 from aiops_v2.events.decoder import DecodedEvent
 
 
@@ -54,27 +55,54 @@ class ClassificationResult:
 
 
 def _deviation(values: np.ndarray, mask: np.ndarray, start: int, end: int, *, low: bool) -> float:
-    during_values = values[start:end][mask[start:end]]
-    if during_values.size == 0:
-        return 0.0
     baseline_start = max(0, start - 30)
-    baseline_values = values[baseline_start:start][mask[baseline_start:start]]
-    if baseline_values.size == 0:
-        return min(25.0, float(np.max(np.abs(during_values))))
-    center = float(np.median(baseline_values))
-    q25, q75 = np.percentile(baseline_values, [25.0, 75.0])
-    scale = max(float(q75 - q25), abs(center) * 0.05, 0.01)
-    change = center - float(np.min(during_values)) if low else float(np.max(during_values)) - center
-    return min(25.0, max(0.0, change / scale))
+    scores = []
+    for entity in range(values.shape[1]):
+        during_values = values[start:end, entity][mask[start:end, entity]]
+        baseline_values = values[baseline_start:start, entity][mask[baseline_start:start, entity]]
+        if during_values.size == 0 or baseline_values.size == 0:
+            continue
+        center = float(np.median(baseline_values))
+        q25, q75 = np.percentile(baseline_values, [25.0, 75.0])
+        scale = max(float(q75 - q25), abs(center) * 0.05, 0.01)
+        change = center - float(np.min(during_values)) if low else float(np.max(during_values)) - center
+        scores.append(min(25.0, max(0.0, change / scale)))
+    return max(scores, default=0.0)
 
 
 def _semantic_strength(
     feature: str, values: np.ndarray, mask: np.ndarray,
     start: int, end: int, *, low: bool,
 ) -> float:
-    strength = _deviation(values, mask, start, end, low=low)
+    bound = RESOURCE_ANCHOR_BOUNDS.get(feature)
+    change_floor = RESOURCE_ANCHOR_MIN_CHANGES.get(feature)
+    eligible = np.asarray(mask, dtype=bool)
+    if bound is not None or change_floor is not None:
+        eligible = eligible.copy()
+        baseline_start = max(0, start - 30)
+        for entity in range(values.shape[1]):
+            during = values[start:end, entity][eligible[start:end, entity]]
+            if during.size == 0:
+                continue
+            allowed = True
+            if bound is not None:
+                kind, cutoff = bound
+                allowed = (
+                    float(np.max(during)) >= cutoff if kind == "minimum"
+                    else float(np.min(during)) <= cutoff
+                )
+            if change_floor is not None:
+                baseline = values[baseline_start:start, entity][eligible[baseline_start:start, entity]]
+                change = (
+                    float(np.median(baseline) - np.min(during)) if low
+                    else float(np.max(during) - np.median(baseline))
+                ) if baseline.size else 0.0
+                allowed &= baseline.size > 0 and change >= change_floor
+            if not allowed:
+                eligible[start:end, entity] = False
+    strength = _deviation(values, eligible, start, end, low=low)
     if feature == "node.disk_io_util":
-        during = values[start:end][mask[start:end]]
+        during = values[start:end][eligible[start:end]]
         if during.size == 0:
             return 0.0
         # Disk utilization is a percentage. A 0.1 -> 1.0 change may have a
@@ -356,9 +384,8 @@ def _semantic_candidate_distribution(
     # cast a full category vote after per-candidate normalization.
     root_active = root_weights * strengths
     root_active = root_active / root_active.sum() if root_active.sum() else active / active.sum()
-    evidence_weights = strengths / strengths.sum()
-    candidate_weights = 0.5 * root_active + 0.5 * evidence_weights
-    distribution = np.zeros(len(categories), dtype=np.float64)
+    root_distribution = np.zeros(len(categories), dtype=np.float64)
+    category_evidence = np.zeros(len(categories), dtype=np.float64)
     candidate_probabilities: dict[str, dict[str, float]] = {}
     for index, (node, scores) in enumerate(
         zip(candidate_nodes, per_candidate_scores, strict=True)
@@ -372,10 +399,21 @@ def _semantic_candidate_distribution(
         }
         candidate_probabilities[node] = normalized
         if active[index]:
-            distribution += candidate_weights[index] * np.asarray(
+            root_distribution += root_active[index] * np.asarray(
                 [normalized[item["fault_name"]] for item in categories],
                 dtype=np.float64,
             )
+            # Multiple service VM candidates can inherit the same target-city
+            # traffic symptom. Its magnitude is evidence once per category,
+            # regardless of how many legal candidate IDs share it.
+            category_evidence = np.maximum(
+                category_evidence,
+                np.asarray(
+                    [max(0.0, scores[item["fault_name"]]) for item in categories],
+                    dtype=np.float64,
+                ),
+            )
+    distribution = 0.5 * root_distribution + 0.5 * category_evidence / category_evidence.sum()
     return distribution, candidate_probabilities
 
 

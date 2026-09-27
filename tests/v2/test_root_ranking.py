@@ -264,3 +264,31 @@ def test_new_netflow_shift_cannot_replace_root_without_direct_evidence(tmp_path)
     assert ranking.explanations[source]["netflow"] > 0.0
     assert ranking.explanations[source]["effective_netflow"] == 0.0
     assert ranking.top5[0] == root
+
+
+def test_new_direct_onset_outranks_chronic_pre_event_anomaly(tmp_path) -> None:
+    chronic = "chengdu-br-1"
+    root = "wuhan-br-1"
+    observations = [
+        NumericObservation(
+            START + timedelta(minutes=minute), "node", node, (),
+            "node.cpu_usage", 80.0, (), "high",
+        )
+        for minute in range(80)
+        for node in (chronic, root)
+    ]
+    store = build_feature_store(
+        observations, load_public_config("network_elements"), tmp_path / "store"
+    )
+    scores = _empty_scores(store, minutes=80)
+    scores.node[:36, store.entities.node_index(chronic)] = 4.0
+    scores.node[27:36, store.entities.node_index(root)] = 3.0
+    event = DecodedEvent(
+        30, 35, 32, 0.95, 2.0,
+        START + timedelta(minutes=30), START + timedelta(minutes=36),
+    )
+
+    ranking = rank_root_causes(event, scores, store)
+
+    assert ranking.top5[0] == root
+    assert ranking.explanations[root]["direct_pre"] > 0.0

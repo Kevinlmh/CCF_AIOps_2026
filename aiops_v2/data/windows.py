@@ -15,13 +15,24 @@ from aiops_v2.data.feature_store import FeatureStore
 
 @dataclass(frozen=True, slots=True)
 class RobustScaler:
-    """Per-feature median/IQR scaler fitted only on observed cells."""
+    """Per-feature median/IQR scaler fitted only on observed cells.
+
+    Old checkpoints omit ``transform_kind`` and retain linear scaling. New
+    training may compress the robust z-score before it reaches the model.
+    """
 
     center: np.ndarray
     scale: np.ndarray
+    transform_kind: str = "linear"
+
+    def __post_init__(self) -> None:
+        if self.transform_kind not in {"linear", "asinh"}:
+            raise ValueError(f"unsupported scaler transform: {self.transform_kind}")
 
     @classmethod
-    def fit(cls, values: np.ndarray, mask: np.ndarray) -> "RobustScaler":
+    def fit(
+        cls, values: np.ndarray, mask: np.ndarray, *, transform_kind: str = "linear"
+    ) -> "RobustScaler":
         if values.shape != mask.shape:
             raise ValueError("values and mask must have identical shapes")
         if values.ndim != 3:
@@ -43,23 +54,30 @@ class RobustScaler:
                     robust_scale = max(abs(median) * 0.01, 1.0)
                 center[entity, feature] = median
                 scale[entity, feature] = robust_scale
-        return cls(center=center, scale=scale)
+        return cls(center=center, scale=scale, transform_kind=transform_kind)
 
     def transform(self, values: np.ndarray, mask: np.ndarray) -> np.ndarray:
         if values.shape != mask.shape or values.shape[1:] != self.center.shape:
             raise ValueError("array shape does not match fitted scaler")
         result = (np.asarray(values, dtype=np.float32) - self.center) / self.scale
         result = np.where(mask, result, 0.0)
+        if self.transform_kind == "asinh":
+            result = np.clip(np.arcsinh(result), -20.0, 20.0)
         return np.asarray(result, dtype=np.float32)
 
-    def to_dict(self) -> dict[str, list[float]]:
-        return {"center": self.center.tolist(), "scale": self.scale.tolist()}
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "center": self.center.tolist(),
+            "scale": self.scale.tolist(),
+            "transform_kind": self.transform_kind,
+        }
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "RobustScaler":
         return cls(
             center=np.asarray(value["center"], dtype=np.float32),
             scale=np.asarray(value["scale"], dtype=np.float32),
+            transform_kind=str(value.get("transform_kind", "linear")),
         )
 
 

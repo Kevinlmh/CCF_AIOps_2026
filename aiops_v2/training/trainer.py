@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 import random
 from typing import Any
@@ -13,6 +13,7 @@ import torch
 
 from aiops_v2.data.feature_store import FeatureStore
 from aiops_v2.data.windows import RobustScaler, WindowDataset
+from aiops_v2.detection.direct_evidence import score_direct_evidence
 from aiops_v2.diagnosis_schema import EVENT_FEATURE_NAMES, ROOT_FEATURE_NAMES
 from aiops_v2.models.detector import (
     ModelDimensions,
@@ -22,6 +23,10 @@ from aiops_v2.models.detector import (
 from aiops_v2.models.heads import EventDiagnosisHeads
 from aiops_v2.training.calibration import AnomalyCalibrator, CalibrationSummary
 from aiops_v2.training.inference import score_timeline
+from aiops_v2.training.entity_calibration import (
+    EntityScoreCalibrator,
+    calibrated_family_scores,
+)
 from aiops_v2.training.synthetic import generate_synthetic_diagnosis_data
 
 
@@ -38,12 +43,30 @@ class TrainConfig:
     mask_probability: float = 0.15
     seed: int = 2026
     device: str = "cpu"
+    scaler_transform: str = "linear"
+    score_pooling: str = "mean"
+    validation_fraction: float = 0.0
 
     def __post_init__(self) -> None:
         if min(self.epochs, self.batch_size, self.window_minutes, self.stride_minutes) <= 0:
             raise ValueError("training counts and window sizes must be positive")
         if not 0 <= self.mask_probability <= 1:
             raise ValueError("mask probability must be in [0, 1]")
+        if self.scaler_transform not in {"linear", "asinh"}:
+            raise ValueError("scaler transform must be linear or asinh")
+        if self.score_pooling not in {"mean", "topk"}:
+            raise ValueError("score pooling must be mean or topk")
+        if not 0 <= self.validation_fraction < 1:
+            raise ValueError("validation fraction must be in [0, 1)")
+
+
+@dataclass(frozen=True, slots=True)
+class TemporalSplitSummary:
+    boundary_index: int
+    training_window_count: int
+    validation_window_count: int
+    last_training_window_end: int
+    first_validation_window_start: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +82,9 @@ class TrainingArtifact:
     diagnosis_summary: "DiagnosisTrainingSummary | None" = None
     synthetic_template_version: str | None = None
     taxonomy_identity: tuple[str, ...] | None = None
+    validation_history: tuple[float, ...] = ()
+    temporal_split: TemporalSplitSummary | None = None
+    entity_calibrators: dict[str, EntityScoreCalibrator] = field(default_factory=dict)
 
     @property
     def calibration_summary(self) -> CalibrationSummary | None:
@@ -87,18 +113,49 @@ class DiagnosisTrainingSummary:
         }
 
 
-def fit_store_scalers(store: FeatureStore) -> dict[str, RobustScaler]:
+def fit_store_scalers(
+    store: FeatureStore, *, transform_kind: str = "linear", reference_end: int | None = None
+) -> dict[str, RobustScaler]:
+    if reference_end is not None and not 0 < reference_end <= int(store.manifest["minute_count"]):
+        raise ValueError("reference_end must be within the feature-store timeline")
     result = {}
     for name in ("node", "edge", "log"):
-        values = np.asarray(getattr(store, f"{name}_values"))
-        mask = np.asarray(getattr(store, f"{name}_mask"))
+        values = np.asarray(getattr(store, f"{name}_values")[:reference_end])
+        mask = np.asarray(getattr(store, f"{name}_mask")[:reference_end])
         # Boundary-only calibration is unsafe for sparse telemetry: a short
         # incident near the start/end can occupy most observations in those
         # slices and inflate the IQR until that metric no longer registers as
         # anomalous. Fit the per-entity/feature robust statistics on every
         # observed value instead; the median/IQR tolerate sparse (<25%) tails.
-        result[name] = RobustScaler.fit(values, mask)
+        result[name] = RobustScaler.fit(values, mask, transform_kind=transform_kind)
     return result
+
+
+def _temporal_window_split(
+    dataset: WindowDataset, validation_fraction: float
+) -> tuple[list[int], list[int], TemporalSplitSummary | None]:
+    if validation_fraction == 0:
+        return list(range(len(dataset))), [], None
+    total = int(dataset.store.manifest["minute_count"])
+    boundary = int(total * (1.0 - validation_fraction))
+    training = [
+        index for index, start in enumerate(dataset.starts)
+        if start + dataset.window_minutes <= boundary
+    ]
+    validation = [
+        index for index, start in enumerate(dataset.starts)
+        if start >= boundary + dataset.window_minutes
+    ]
+    if not training or not validation:
+        raise ValueError("timeline is too short for non-overlapping temporal validation")
+    summary = TemporalSplitSummary(
+        boundary_index=boundary,
+        training_window_count=len(training),
+        validation_window_count=len(validation),
+        last_training_window_end=max(dataset.starts[index] + dataset.window_minutes for index in training),
+        first_validation_window_start=min(dataset.starts[index] for index in validation),
+    )
+    return training, validation, summary
 
 
 def fit_timeline_calibrator(
@@ -346,7 +403,19 @@ def train_detector(
     np.random.seed(settings.seed)
     torch.manual_seed(settings.seed)
     device = torch.device(settings.device)
-    scalers = fit_store_scalers(store)
+    index_dataset = WindowDataset(
+        store,
+        window_minutes=settings.window_minutes,
+        stride_minutes=settings.stride_minutes,
+    )
+    training_indices, validation_indices, temporal_split = _temporal_window_split(
+        index_dataset, settings.validation_fraction
+    )
+    scalers = fit_store_scalers(
+        store,
+        transform_kind=settings.scaler_transform,
+        reference_end=temporal_split.boundary_index if temporal_split else None,
+    )
     dataset = WindowDataset(
         store,
         window_minutes=settings.window_minutes,
@@ -360,14 +429,15 @@ def train_detector(
         hidden_size=settings.hidden_size,
         temporal_layers=settings.temporal_layers,
     )
-    model = MultiSourceDetector(dimensions).to(device)
+    model = MultiSourceDetector(dimensions, score_pooling=settings.score_pooling).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=settings.learning_rate,
         weight_decay=settings.weight_decay,
     )
     history = []
-    indices = list(range(len(dataset)))
+    validation_history = []
+    indices = list(training_indices)
     for _ in range(settings.epochs):
         random.shuffle(indices)
         model.train()
@@ -382,9 +452,58 @@ def train_detector(
             optimizer.step()
             epoch_losses.append(float(losses["total"].detach().cpu()))
         history.append(float(np.mean(epoch_losses)))
+        if validation_indices:
+            model.eval()
+            validation_losses = []
+            with torch.no_grad():
+                for offset in range(0, len(validation_indices), settings.batch_size):
+                    batch = _stack_batch(
+                        dataset, validation_indices[offset : offset + settings.batch_size], device
+                    )
+                    validation_losses.append(float(self_supervised_loss(model(batch), batch)["total"].cpu()))
+            validation_history.append(float(np.mean(validation_losses)))
 
     timeline = score_timeline(model, dataset, device=device)
-    calibrator = fit_timeline_calibrator(timeline.family, timeline.family_observed)
+    calibration_end = temporal_split.boundary_index if temporal_split else None
+    calibration_stop = calibration_end or int(store.manifest["minute_count"])
+    node_observed = np.asarray(store.node_mask[:calibration_stop]).any(axis=2)
+    edge_observed = np.asarray(store.edge_mask[:calibration_stop]).any(axis=2)
+    log_observed = np.asarray(store.log_mask[:calibration_stop]).any(axis=2)
+    traffic_edges = np.asarray(
+        [edge.relation == "traffic" for edge in store.entities.edges], dtype=bool
+    )
+    entity_calibrators = {
+        "node": EntityScoreCalibrator.fit(
+            timeline.node[:calibration_stop], node_observed
+        ),
+        "edge": EntityScoreCalibrator.fit(
+            timeline.edge[:calibration_stop],
+            edge_observed & traffic_edges[None, :],
+        ),
+        "log": EntityScoreCalibrator.fit(
+            timeline.log[:calibration_stop], log_observed
+        ),
+    }
+    direct_evidence = score_direct_evidence(store)
+    service_gate = direct_evidence.edge_symptom_scores
+    if service_gate is None:
+        service_gate = np.zeros_like(timeline.edge, dtype=bool)
+    else:
+        service_gate = service_gate[:calibration_stop] > 0
+    family_scores, family_observed = calibrated_family_scores(
+        node_scores=timeline.node[:calibration_stop],
+        edge_scores=timeline.edge[:calibration_stop],
+        log_scores=timeline.log[:calibration_stop],
+        node_observed=node_observed,
+        edge_observed=edge_observed,
+        log_observed=log_observed,
+        calibrators=entity_calibrators,
+        traffic_edges=traffic_edges,
+        service_gate=service_gate,
+        node_gate=direct_evidence.node_probability[:calibration_stop] >= 0.5,
+        log_gate=direct_evidence.node_probability[:calibration_stop] >= 0.5,
+    )
+    calibrator = fit_timeline_calibrator(family_scores, family_observed)
     diagnosis_heads = None
     diagnosis_summary = None
     if taxonomy is not None:
@@ -415,6 +534,9 @@ def train_detector(
             if taxonomy is not None
             else None
         ),
+        validation_history=tuple(validation_history),
+        temporal_split=temporal_split,
+        entity_calibrators=entity_calibrators,
     )
 
 
@@ -426,13 +548,20 @@ def save_checkpoint(
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "format_version": 4,
+        "format_version": 5,
         "dimensions": asdict(artifact.model.dimensions),
+        "score_pooling": artifact.model.score_pooling,
         "model_state": artifact.model.state_dict(),
         "scalers": {name: scaler.to_dict() for name, scaler in artifact.scalers.items()},
         "calibrator": artifact.calibrator.to_dict(),
+        "entity_calibrators": {
+            name: calibrator.to_dict()
+            for name, calibrator in artifact.entity_calibrators.items()
+        },
         "train_config": asdict(artifact.config),
         "history": list(artifact.history),
+        "validation_history": list(artifact.validation_history),
+        "temporal_split": asdict(artifact.temporal_split) if artifact.temporal_split else None,
         "feature_manifest": feature_manifest or artifact.feature_manifest,
         "diagnosis_head_config": (
             {
@@ -471,10 +600,12 @@ def load_checkpoint(
     target = torch.device(device)
     payload = torch.load(path, map_location=target, weights_only=True)
     version = payload.get("format_version")
-    if version not in {1, 2, 3, 4}:
+    if version not in {1, 2, 3, 4, 5}:
         raise ValueError("unsupported v2 checkpoint format")
     dimensions = ModelDimensions(**payload["dimensions"])
-    model = MultiSourceDetector(dimensions).to(target)
+    model = MultiSourceDetector(
+        dimensions, score_pooling=payload.get("score_pooling", "mean")
+    ).to(target)
     state = payload["model_state"]
     model.load_state_dict(state, strict=version >= 3)
     # Older checkpoints predate these fusion layers. Preserve their behavior
@@ -488,7 +619,7 @@ def load_checkpoint(
     diagnosis_summary = None
     taxonomy_identity = None
     synthetic_template_version = None
-    if version == 4:
+    if version in {4, 5}:
         if payload.get("root_feature_names") != list(ROOT_FEATURE_NAMES):
             raise ValueError("checkpoint root feature schema does not match v2.0")
         if payload.get("event_feature_names") != list(EVENT_FEATURE_NAMES):
@@ -528,16 +659,37 @@ def load_checkpoint(
             UserWarning,
             stacklevel=2,
         )
+    scalers = {
+        name: RobustScaler.from_dict(value)
+        for name, value in payload["scalers"].items()
+    }
+    train_config = dict(payload["train_config"])
+    if "score_pooling" not in train_config:
+        train_config["score_pooling"] = model.score_pooling
+    if "scaler_transform" not in train_config:
+        transforms = {scaler.transform_kind for scaler in scalers.values()}
+        if len(transforms) != 1:
+            raise ValueError("checkpoint scalers use inconsistent transforms")
+        train_config["scaler_transform"] = transforms.pop()
     return TrainingArtifact(
         model=model,
-        scalers={name: RobustScaler.from_dict(value) for name, value in payload["scalers"].items()},
+        scalers=scalers,
         calibrator=AnomalyCalibrator.from_dict(payload["calibrator"]),
-        config=TrainConfig(**payload["train_config"]),
+        config=TrainConfig(**train_config),
         history=tuple(float(value) for value in payload.get("history", [])),
+        validation_history=tuple(float(value) for value in payload.get("validation_history", [])),
+        temporal_split=(
+            TemporalSplitSummary(**payload["temporal_split"])
+            if payload.get("temporal_split") is not None else None
+        ),
         feature_manifest=payload.get("feature_manifest"),
         diagnosis_heads=diagnosis_heads,
         diagnosis_history=diagnosis_history,
         diagnosis_summary=diagnosis_summary,
         synthetic_template_version=synthetic_template_version,
         taxonomy_identity=taxonomy_identity,
+        entity_calibrators={
+            name: EntityScoreCalibrator.from_dict(value)
+            for name, value in payload.get("entity_calibrators", {}).items()
+        },
     )

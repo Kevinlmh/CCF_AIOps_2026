@@ -1,11 +1,20 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pytest
+from types import SimpleNamespace
 
-from aiops_v2.events.decoder import DecoderConfig, DecoderEvidence, decode_events
+from aiops_v2.detection.direct_evidence import DirectEvidence
+from aiops_v2.events.city_decoder import decode_city_events
+from aiops_v2.events.decoder import (
+    DecodedEvent,
+    DecoderConfig,
+    DecoderEvidence,
+    decode_events,
+    reconcile_events,
+)
 
 
 ORIGIN = datetime(2026, 8, 19, 4, 0, tzinfo=timezone.utc)
@@ -130,3 +139,123 @@ def test_decoder_rejects_invalid_probability_values() -> None:
         decode_events(np.array([0.1, np.nan]), ORIGIN)
     with pytest.raises(ValueError, match=r"\[0, 1\]"):
         decode_events(np.array([0.1, 1.2]), ORIGIN)
+
+
+def test_city_decoder_preserves_simultaneous_faults_in_different_cities() -> None:
+    probabilities = np.full((30, 2), 0.05, dtype=np.float32)
+    probabilities[8:15, 0] = 0.96
+    probabilities[8:15, 1] = 0.95
+    categories = np.zeros((30, 2, 1), dtype=np.float32)
+    observed = np.ones((30, 2), dtype=bool)
+    direct = DirectEvidence(
+        category_names=("cpu_pressure",),
+        category_scores=categories,
+        node_probability=probabilities,
+        global_probability=np.max(probabilities, axis=1),
+        observed=observed,
+        feature_audit={},
+        edge_symptom_scores=np.zeros((30, 0), dtype=np.float32),
+        service_probability=np.zeros(30, dtype=np.float32),
+    )
+    nodes = ("chengdu-service-vm-1", "wuhan-service-vm-1")
+
+    events = decode_city_events(direct, nodes, (), ORIGIN)
+
+    assert len(events) == 2
+    assert {(event.city_id, event.start_index, event.end_index) for event in events} == {
+        ("chengdu", 8, 14),
+        ("wuhan", 8, 14),
+    }
+    assert all(event.root_city_scoped for event in events)
+
+
+def test_reconciliation_keeps_strong_incident_over_two_overlapping_weak_candidates() -> None:
+    strong = DecodedEvent(
+        8, 18, 10, 0.95, 4.0,
+        ORIGIN + timedelta(minutes=8), ORIGIN + timedelta(minutes=19),
+        city_id="chengdu",
+    )
+    early = DecodedEvent(
+        8, 12, 9, 0.9, 2.4,
+        ORIGIN + timedelta(minutes=8), ORIGIN + timedelta(minutes=13),
+        city_id="wuhan", root_city_scoped=True,
+    )
+    late = DecodedEvent(
+        13, 18, 14, 0.9, 2.4,
+        ORIGIN + timedelta(minutes=13), ORIGIN + timedelta(minutes=19),
+        city_id="shanghai",
+    )
+
+    assert reconcile_events((early, late, strong)) == (strong,)
+
+
+def test_reconciliation_tiebreaks_direct_evidence_and_keeps_adjacent_event() -> None:
+    service = DecodedEvent(
+        8, 12, 9, 0.9, 2.0,
+        ORIGIN + timedelta(minutes=8), ORIGIN + timedelta(minutes=13),
+        city_id="chengdu",
+    )
+    direct = DecodedEvent(
+        8, 12, 9, 0.9, 2.0,
+        ORIGIN + timedelta(minutes=8), ORIGIN + timedelta(minutes=13),
+        city_id="wuhan", root_city_scoped=True,
+    )
+    adjacent = DecodedEvent(
+        13, 15, 14, 0.85, 1.0,
+        ORIGIN + timedelta(minutes=13), ORIGIN + timedelta(minutes=16),
+        city_id="shanghai",
+    )
+
+    assert reconcile_events((service, adjacent, direct)) == (direct, adjacent)
+
+
+def test_city_decoder_assigns_service_symptom_to_target_not_probe_city() -> None:
+    node_probability = np.full((30, 2), 0.05, dtype=np.float32)
+    categories = np.zeros((30, 2, 1), dtype=np.float32)
+    edge_scores = np.zeros((30, 1), dtype=np.float32)
+    edge_scores[8:14, 0] = 8.0
+    direct = DirectEvidence(
+        category_names=("cpu_pressure",),
+        category_scores=categories,
+        node_probability=node_probability,
+        global_probability=np.full(30, 0.9, dtype=np.float32),
+        observed=np.ones_like(node_probability, dtype=bool),
+        feature_audit={},
+        edge_symptom_scores=edge_scores,
+        service_probability=np.full(30, 0.9, dtype=np.float32),
+    )
+    nodes = ("chengdu-service-vm-1", "wuhan-service-vm-1")
+    edges = (SimpleNamespace(relation="traffic", target="service-group:wuhan:web"),)
+
+    events = decode_city_events(direct, nodes, edges, ORIGIN)
+
+    assert len(events) == 1
+    assert events[0].city_id == "wuhan"
+    assert not events[0].root_city_scoped
+
+
+def test_city_decoder_does_not_join_unrelated_adjacent_service_edges() -> None:
+    node_probability = np.full((30, 1), 0.05, dtype=np.float32)
+    categories = np.zeros((30, 1, 1), dtype=np.float32)
+    edge_scores = np.zeros((30, 2), dtype=np.float32)
+    edge_scores[10, 0] = 8.0
+    edge_scores[11, 1] = 8.0
+    direct = DirectEvidence(
+        category_names=("cpu_pressure",),
+        category_scores=categories,
+        node_probability=node_probability,
+        global_probability=np.full(30, 0.9, dtype=np.float32),
+        observed=np.ones_like(node_probability, dtype=bool),
+        feature_audit={},
+        edge_symptom_scores=edge_scores,
+        service_probability=np.full(30, 0.9, dtype=np.float32),
+    )
+    nodes = ("wuhan-service-vm-1",)
+    edges = (
+        SimpleNamespace(relation="traffic", target="service-group:wuhan:web"),
+        SimpleNamespace(relation="traffic", target="service-group:wuhan:auth"),
+    )
+
+    events = decode_city_events(direct, nodes, edges, ORIGIN)
+
+    assert events == ()

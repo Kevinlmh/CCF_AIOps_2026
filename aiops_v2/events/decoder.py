@@ -72,10 +72,40 @@ class DecodedEvent:
     start_time: datetime
     end_time: datetime
     evidence_scores: dict[str, float] = field(default_factory=dict)
+    city_id: str | None = None
+    root_city_scoped: bool = False
 
     @property
     def duration_minutes(self) -> int:
         return self.end_index - self.start_index + 1
+
+
+def reconcile_events(events: tuple[DecodedEvent, ...]) -> tuple[DecodedEvent, ...]:
+    """Keep the strongest compatible city candidates on a shared timeline.
+
+    Decoder scores from overlapping cities describe competing explanations
+    for one incident, so adding their scores would count the same evidence
+    more than once. A direct node trigger breaks otherwise equal scores.
+    """
+    selected: list[DecodedEvent] = []
+    for event in sorted(
+        events,
+        key=lambda item: (
+            -item.score,
+            -int(item.root_city_scoped),
+            -item.confidence,
+            item.start_index,
+            item.end_index,
+            item.city_id or "",
+        ),
+    ):
+        if all(
+            event.end_index < kept.start_index or kept.end_index < event.start_index
+            for kept in selected
+        ):
+            selected.append(event)
+    selected.sort(key=lambda item: (item.start_index, item.city_id or "", item.end_index))
+    return tuple(selected)
 
 
 @dataclass(frozen=True, slots=True)

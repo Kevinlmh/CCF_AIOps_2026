@@ -90,12 +90,92 @@ def test_store_scaler_avoids_sparse_incident_bias_in_boundary_slices(tmp_path) -
         tmp_path / "store",
     )
 
-    scaler = fit_store_scalers(store)["node"]
+    default_scaler = fit_store_scalers(store)["node"]
+    scaler = fit_store_scalers(store, transform_kind="asinh")["node"]
     node = store.entities.node_index("beida-service-vm-1")
     feature = store.features.index("node", "node.cpu_usage")
 
     assert float(scaler.center[node, feature]) == 1.0
     assert float(scaler.scale[node, feature]) == 1.0
+    assert scaler.transform_kind == "asinh"
+    assert default_scaler.transform_kind == "linear"
+
+
+def test_training_reference_scaler_excludes_chronological_holdout(tmp_path) -> None:
+    observations = [
+        NumericObservation(
+            timestamp=START + timedelta(minutes=minute),
+            source="node",
+            node_id="beida-br-1",
+            related_node_ids=(),
+            metric="node.cpu_usage",
+            value=1.0 if minute < 45 else 100.0,
+            dimensions=(),
+            direction="high",
+        )
+        for minute in range(60)
+    ]
+    store = build_feature_store(
+        observations, load_public_config("network_elements"), tmp_path / "store"
+    )
+    node = store.entities.node_index("beida-br-1")
+    feature = store.features.index("node", "node.cpu_usage")
+
+    scaler = fit_store_scalers(store, reference_end=45)["node"]
+
+    assert scaler.center[node, feature] == 1.0
+    assert scaler.scale[node, feature] == 1.0
+
+
+def test_training_temporal_holdout_records_validation_loss_and_purges_overlap(tmp_path) -> None:
+    observations = [
+        NumericObservation(
+            timestamp=START + timedelta(minutes=minute),
+            source="node",
+            node_id="beida-br-1",
+            related_node_ids=(),
+            metric="node.cpu_usage",
+            value=1.0 + (minute % 5) * 0.1,
+            dimensions=(),
+            direction="high",
+        )
+        for minute in range(72)
+    ]
+    store = build_feature_store(
+        observations, load_public_config("network_elements"), tmp_path / "store"
+    )
+
+    artifact = train_detector(
+        store,
+        TrainConfig(
+            epochs=2,
+            batch_size=2,
+            window_minutes=8,
+            stride_minutes=4,
+            hidden_size=8,
+            validation_fraction=0.25,
+        ),
+    )
+
+    assert len(artifact.validation_history) == 2
+    assert all(np.isfinite(value) for value in artifact.validation_history)
+    assert artifact.temporal_split is not None
+    assert artifact.temporal_split.boundary_index == 54
+    assert artifact.temporal_split.training_window_count > 0
+    assert artifact.temporal_split.validation_window_count > 0
+    assert artifact.temporal_split.last_training_window_end <= 54
+    assert artifact.temporal_split.first_validation_window_start >= 62
+
+    checkpoint = tmp_path / "validated.pt"
+    save_checkpoint(artifact, checkpoint, feature_manifest=store.manifest)
+    restored = load_checkpoint(checkpoint)
+    assert restored.validation_history == artifact.validation_history
+    assert restored.temporal_split == artifact.temporal_split
+    assert set(restored.entity_calibrators) == {"node", "edge", "log"}
+    assert np.allclose(
+        restored.entity_calibrators["node"].center,
+        artifact.entity_calibrators["node"].center,
+    )
 
 
 def test_timeline_calibrator_uses_boundary_reference_not_fault_plateau() -> None:
@@ -173,7 +253,7 @@ def test_checkpoint_round_trip_preserves_model_and_preprocessing_state(tmp_path)
     )
     artifact = train_detector(
         store,
-        TrainConfig(epochs=1, batch_size=2, window_minutes=4, stride_minutes=2, hidden_size=8, seed=4),
+        TrainConfig(epochs=1, batch_size=2, window_minutes=4, stride_minutes=2, hidden_size=8, seed=4, scaler_transform="asinh", score_pooling="topk"),
     )
     checkpoint = tmp_path / "model.pt"
 
@@ -182,12 +262,24 @@ def test_checkpoint_round_trip_preserves_model_and_preprocessing_state(tmp_path)
 
     assert restored.config == artifact.config
     assert restored.scalers["node"].to_dict() == artifact.scalers["node"].to_dict()
+    assert restored.scalers["node"].transform_kind == "asinh"
+    assert restored.model.score_pooling == "topk"
     assert restored.calibrator.to_dict() == artifact.calibrator.to_dict()
     first_key = next(iter(artifact.model.state_dict()))
     assert np.allclose(
         artifact.model.state_dict()[first_key].detach().cpu().numpy(),
         restored.model.state_dict()[first_key].detach().cpu().numpy(),
     )
+
+    # Checkpoints produced by the first asinh experiment stored the scaler
+    # marker but predated the TrainConfig field. The loaded config must reflect
+    # the actual preprocessing applied by that checkpoint.
+    payload = torch.load(checkpoint, weights_only=True)
+    del payload["train_config"]["scaler_transform"]
+    torch.save(payload, checkpoint)
+    migrated = load_checkpoint(checkpoint, device="cpu")
+    assert migrated.config.scaler_transform == "asinh"
+    assert migrated.model.score_pooling == "topk"
 
 
 def test_checkpoint_v4_round_trip_preserves_diagnosis_head_and_taxonomy(tmp_path) -> None:

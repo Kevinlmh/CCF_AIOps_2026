@@ -84,6 +84,29 @@ IDENTITY_FIELDS = {
 NULL_VALUES = {"", "null", "none", "nan", "\\n", "\\N"}
 LABEL_PATTERN = re.compile(r"([A-Za-z0-9_]+)\s*=\s*\"([^\"]*)\"")
 
+# Each tuple is an alternative group: at least one column in every group must
+# exist. This catches structurally incomplete CSVs before they become empty
+# or misleading feature tensors.
+REQUIRED_COLUMN_GROUPS = {
+    "node": (("timestamp",), ("node", "node_key")),
+    "interface": (("timestamp",), ("node", "node_key"), ("interface_id",)),
+    "routing": (("timestamp",), ("node", "node_key"), ("metric_name",), ("label",), ("value",)),
+    "scrape": (("timestamp",), ("node", "node_key"), ("target_id",), ("exporter_type",), ("scrape_up",)),
+    "traffic": (
+        ("timestamp_utc", "prometheus_sample_time_utc"),
+        ("series_key",), ("flow_type",), ("source_region",),
+        ("target_region",),
+    ),
+    "netflow": (
+        ("minute_utc", "first_seen"), ("node_key", "node"),
+        ("interface_id",), ("protocol",), ("packets",), ("bytes",),
+    ),
+    "frr": (
+        ("event_time", "received_at"), ("hostname", "node"),
+        ("severity",), ("program",), ("message",),
+    ),
+}
+
 
 @dataclass(frozen=True, slots=True)
 class ObservationBundle:
@@ -136,7 +159,7 @@ def iter_source_files(root: Path) -> Iterator[tuple[str, Path]]:
 
 
 def _number(value: str | None) -> float | None:
-    if value is None or value.strip() in NULL_VALUES or value.strip().lower() in NULL_VALUES:
+    if _is_missing(value):
         return None
     try:
         result = float(value)
@@ -145,10 +168,18 @@ def _number(value: str | None) -> float | None:
     return result if math.isfinite(result) else None
 
 
-def _row_time(row: dict[str, str], source: str) -> datetime | None:
+def _is_missing(value: str | None) -> bool:
+    return value is None or value.strip().lower() in NULL_VALUES
+
+
+def _row_time(
+    row: dict[str, str], source: str, stats: ParseStats | None = None
+) -> datetime | None:
     for field_name in TIME_FIELDS[source]:
         result = parse_time(row.get(field_name))
         if result is not None:
+            if stats is not None:
+                stats.record_timestamp(source, result)
             return result
     return None
 
@@ -157,18 +188,22 @@ def _dimensions(**values: str | None) -> tuple[tuple[str, str], ...]:
     return tuple(
         (key, value.strip())
         for key, value in values.items()
-        if value is not None and value.strip() and value.strip().lower() not in {"null", "none"}
+        if not _is_missing(value)
     )
 
 
 def _label_dimensions(value: str | None) -> tuple[tuple[str, str], ...]:
     if value is None:
         return ()
-    matches = tuple((key, item) for key, item in LABEL_PATTERN.findall(value))
+    matches = tuple(
+        (key, item)
+        for key, item in LABEL_PATTERN.findall(value)
+        if not _is_missing(item)
+    )
     if matches:
         return matches
     clean = value.strip()
-    return (("label", clean),) if clean and clean.lower() not in {"null", "none"} else ()
+    return (("label", clean),) if not _is_missing(clean) else ()
 
 
 def _direction(source: str, metric: str) -> str:
@@ -199,16 +234,42 @@ def _read_rows(path: Path, source: str, stats: ParseStats) -> Iterator[tuple[int
     try:
         handle = path.open(newline="", encoding="utf-8-sig", errors="replace")
     except OSError as exc:
-        stats.warn(f"{source}: cannot open {path}: {type(exc).__name__}")
-        return
+        message = f"{source}: cannot open {path}: {type(exc).__name__}"
+        stats.record_schema_issue(source, message)
+        raise OSError(message) from exc
     with handle:
         reader = csv.DictReader(handle)
         if reader.fieldnames is None:
-            stats.warn(f"{source}: missing header in {path}")
-            return
+            message = f"{source}: missing header in {path}"
+            stats.record_schema_issue(source, message)
+            raise ValueError(message)
+        normalized_fields = [str(value).strip().lower() for value in reader.fieldnames]
+        duplicates = sorted(
+            field for field, count in Counter(normalized_fields).items() if count > 1
+        )
+        if duplicates:
+            message = f"{source}: duplicate header columns in {path}: {duplicates}"
+            stats.record_schema_issue(source, message)
+            raise ValueError(message)
+        missing = [
+            alternatives
+            for alternatives in REQUIRED_COLUMN_GROUPS.get(source, ())
+            if not any(name in normalized_fields for name in alternatives)
+        ]
+        if missing:
+            message = f"{source}: missing required column group(s) in {path}: {missing}"
+            stats.record_schema_issue(source, message)
+            raise ValueError(message)
         for line_number, row in enumerate(reader, 2):
             stats.record_row(source)
-            yield line_number, row
+            if None in row or any(value is None for value in row.values()):
+                stats.record_bad_row(source)
+                continue
+            yield line_number, {
+                str(key).strip().lower(): value
+                for key, value in row.items()
+                if key is not None
+            }
 
 
 def _node_for_row(
@@ -229,7 +290,7 @@ def _parse_dense_file(
     numeric: list[NumericObservation] = []
     text: list[TextEvent] = []
     for _, row in _read_rows(path, source, stats):
-        timestamp = _row_time(row, source)
+        timestamp = _row_time(row, source, stats)
         node_id = _node_for_row(row, city, valid_roles)
         if timestamp is None:
             stats.record_bad_row(source)
@@ -238,6 +299,7 @@ def _parse_dense_file(
             # Public samples can contain explicitly excluded observation-only
             # roles such as probe-vm. They are valid rows, but cannot become a
             # root-cause candidate under the published element enumeration.
+            stats.record_unmapped_entity(source)
             continue
 
         if source == "interface":
@@ -271,12 +333,16 @@ def _parse_dense_file(
                     )
                 )
                 emitted += 1
+            elif not _is_missing(row.get("value")):
+                stats.record_invalid_numeric(source)
         else:
             for field_name, raw_value in row.items():
                 if field_name in IDENTITY_FIELDS:
                     continue
                 value = _number(raw_value)
                 if value is None:
+                    if not _is_missing(raw_value):
+                        stats.record_invalid_numeric(source)
                     continue
                 metric = f"{source}.{field_name}"
                 numeric.append(
@@ -305,6 +371,7 @@ def _parse_dense_file(
                         program=(row.get("exporter_type") or "exporter").strip(),
                         event_family="scrape_error",
                         message=error,
+                        dimensions=dimensions,
                     )
                 )
         # A long-form metric can legitimately be absent for one node/minute.
@@ -351,8 +418,9 @@ def _parse_traffic_file(
 ) -> list[NumericObservation]:
     observations: list[NumericObservation] = []
     previous: dict[tuple[str, str], float] = {}
+    previous_timestamp: dict[str, datetime] = {}
     for _, row in _read_rows(path, "traffic", stats):
-        timestamp = _row_time(row, "traffic")
+        timestamp = _row_time(row, "traffic", stats)
         flow_type = (row.get("flow_type") or "").strip().lower()
         source_city = (row.get("source_region") or "").strip().lower()
         target_city = (row.get("target_region") or "").strip().lower()
@@ -361,12 +429,17 @@ def _parse_traffic_file(
             continue
         source_node = normalize_node_id("traffic-vm", source_city, valid_roles)
         if source_node is None:
-            stats.record_bad_row("traffic")
+            stats.record_unmapped_entity("traffic")
             continue
         related = _traffic_related_nodes(target_city, valid_roles)
         dimensions = _traffic_dimensions(row)
         prefix = f"{flow_type}_flow_"
         identity = row.get("series_key") or "|".join(value for _, value in dimensions)
+        old_timestamp = previous_timestamp.get(identity)
+        if old_timestamp is not None and timestamp <= old_timestamp:
+            stats.record_out_of_order_row("traffic")
+            continue
+        previous_timestamp[identity] = timestamp
         row_deltas: dict[str, float] = {}
         emitted = 0
         reset_detected = False
@@ -375,6 +448,8 @@ def _parse_traffic_file(
                 continue
             value = _number(raw_value)
             if value is None:
+                if not _is_missing(raw_value):
+                    stats.record_invalid_numeric("traffic")
                 continue
             suffix = field_name[len(prefix) :]
             if _is_counter(suffix):
@@ -485,13 +560,24 @@ def _iter_netflow_file(
             )
             batch: list[tuple[object, ...]] = []
             for _, row in _read_rows(path, "netflow", stats):
-                timestamp = _row_time(row, "netflow")
+                timestamp = _row_time(row, "netflow", stats)
                 node_id = _node_for_row(row, city, valid_roles)
                 packets = _number(row.get("packets"))
                 bytes_value = _number(row.get("bytes"))
                 flow_records = _number(row.get("flow_record_count"))
-                if timestamp is None or node_id is None or packets is None or bytes_value is None:
+                if node_id is None:
+                    stats.record_unmapped_entity("netflow")
+                for raw_value in (
+                    row.get("packets"),
+                    row.get("bytes"),
+                    row.get("flow_record_count"),
+                ):
+                    if not _is_missing(raw_value) and _number(raw_value) is None:
+                        stats.record_invalid_numeric("netflow")
+                if timestamp is None or packets is None or bytes_value is None:
                     stats.record_bad_row("netflow")
+                    continue
+                if node_id is None:
                     continue
                 batch.append(
                     (
@@ -621,9 +707,11 @@ def _parse_frr_file(
     text_events: list[TextEvent] = []
     counts: Counter[tuple[datetime, str | None, str, str, str]] = Counter()
     for _, row in _read_rows(path, "frr", stats):
-        timestamp = _row_time(row, "frr")
+        timestamp = _row_time(row, "frr", stats)
         hostname = row.get("hostname") or row.get("node")
         node_id = normalize_node_id(hostname, city, valid_roles)
+        if node_id is None:
+            stats.record_unmapped_entity("frr")
         message = row.get("message") or ""
         program = (row.get("program") or "frr").strip().lower()
         severity = (row.get("severity") or "unknown").strip().lower()
@@ -675,7 +763,7 @@ def load_observations(
 
     for source, path in iter_source_files(root):
         discovered.add(source)
-        stats.record_file(source)
+        stats.record_file(source, path)
         city = city_from_path(path, aliases)
         if source in {"node", "interface", "routing", "scrape"}:
             values, text = _parse_dense_file(path, source, city, roles, stats)

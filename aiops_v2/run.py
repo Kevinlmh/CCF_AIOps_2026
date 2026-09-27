@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -13,11 +13,13 @@ from pathlib import Path
 import tempfile
 from typing import Any
 
+import numpy as np
+
 from aiops_challenge_2026.config import load_public_config
 from aiops_challenge_2026.schema import validate_prediction
 from aiops_v2.classification.semantic import classify_event
 from aiops_v2.data.feature_store import FeatureStore, build_feature_store
-from aiops_v2.data.source import CanonicalObservationStream
+from aiops_v2.data.source import CanonicalObservationStream, iter_source_files
 from aiops_v2.data.windows import WindowDataset
 from aiops_v2.detection import DirectEvidence, score_direct_evidence
 from aiops_v2.detection.direct_evidence import select_specific_category
@@ -28,7 +30,9 @@ from aiops_v2.events.decoder import (
     DecoderConfig,
     DecoderEvidence,
     decode_events,
+    reconcile_events,
 )
+from aiops_v2.events.city_decoder import decode_city_events
 from aiops_v2.localization.ranking import rank_root_causes
 from aiops_v2.models.llm_review import (
     EventReview,
@@ -36,7 +40,9 @@ from aiops_v2.models.llm_review import (
     OpenAICompatibleConfig,
     TransformersBackend,
 )
+from aiops_v2.score_audit import build_score_audit
 from aiops_v2.training.inference import TimelineScores, score_timeline
+from aiops_v2.training.entity_calibration import calibrated_family_scores
 from aiops_v2.training.trainer import (
     TrainConfig,
     load_checkpoint,
@@ -93,6 +99,18 @@ def write_predictions(records: list[dict[str, Any]], path: Path) -> None:
 
 def build_features(data_root: Path, store_path: Path) -> FeatureStore:
     network = load_public_config("network_elements")
+    required_sources = {"node", "interface", "routing", "scrape", "traffic", "netflow", "frr"}
+    sources_by_bundle: dict[Path, set[str]] = {}
+    for source, path in iter_source_files(data_root):
+        sources_by_bundle.setdefault(path.parent.parent, set()).add(source)
+    if not sources_by_bundle:
+        raise ValueError(f"missing required source files under {data_root}")
+    for bundle, found_sources in sorted(sources_by_bundle.items()):
+        missing_sources = required_sources - found_sources
+        if missing_sources:
+            raise ValueError(
+                f"{bundle}: missing required source files: {sorted(missing_sources)}"
+            )
     aliases = {city: city for city in network["cities"]}
     stream = CanonicalObservationStream(
         data_root,
@@ -303,12 +321,19 @@ def build_prediction_records(
                     {
                         "direct_probability_peak": float(
                             direct_evidence.node_probability[
-                                event.start_index : event.end_index + 1
+                                event.start_index : event.end_index + 1,
+                                [i for i, node in enumerate(store.entities.nodes)
+                                 if event.city_id is None or node.startswith(f"{event.city_id}-")],
                             ].max()
                         ),
                         "service_symptom_strength_peak": float(
                             direct_evidence.edge_symptom_scores[
-                                event.start_index : event.end_index + 1
+                                event.start_index : event.end_index + 1,
+                                [i for i, edge in enumerate(store.entities.edges)
+                                 if event.city_id is None or (
+                                     edge.relation == "traffic"
+                                     and edge.target.startswith(f"service-group:{event.city_id}:")
+                                 )],
                             ].max()
                         ) if direct_evidence.edge_symptom_scores is not None
                         and direct_evidence.edge_symptom_scores.size else 0.0,
@@ -319,6 +344,8 @@ def build_prediction_records(
                     "start_index": event.start_index,
                     "end_index": event.end_index,
                     "peak_index": event.peak_index,
+                    "city_id": event.city_id,
+                    "root_city_scoped": event.root_city_scoped,
                     "confidence": event.confidence,
                     "decoder_score": event.score,
                     "decoder_evidence": event.evidence_scores,
@@ -417,6 +444,26 @@ def _direct_timeline(store: FeatureStore, direct_evidence: DirectEvidence) -> tu
     return timeline, decoder_evidence
 
 
+def _diagnosis_inputs(
+    store: FeatureStore,
+    timeline: TimelineScores,
+    direct_evidence: DirectEvidence | None,
+    diagnosis_heads,
+    *,
+    comparison_mode: str,
+) -> tuple[TimelineScores, DirectEvidence | None, Any]:
+    """Hold RCA/classification fixed when comparing detector event boundaries."""
+    if comparison_mode == "native":
+        return timeline, direct_evidence, diagnosis_heads
+    if comparison_mode != "detector-only":
+        raise ValueError(f"unknown comparison mode: {comparison_mode}")
+    if direct_evidence is not None:
+        return timeline, direct_evidence, None
+    direct_evidence = score_direct_evidence(store)
+    direct_timeline, _ = _direct_timeline(store, direct_evidence)
+    return direct_timeline, direct_evidence, None
+
+
 def predict(
     store: FeatureStore,
     checkpoint: Path | None,
@@ -427,13 +474,18 @@ def predict(
     decoder_config: DecoderConfig | None = None,
     reviewer: EventReview | None = None,
     detector: str = "direct",
+    comparison_mode: str = "native",
+    score_audit: Path | None = None,
 ) -> int:
+    if score_audit is not None and detector != "neural":
+        raise ValueError("--score-audit currently requires --detector neural")
     taxonomy = load_public_config("fault_taxonomy")
     expected_taxonomy = tuple(
         item["fault_name"] for item in taxonomy["fault_categories"]
     )
     artifact = None
     direct_evidence = None
+    edge_trigger_eligibility = None
     if detector == "direct":
         direct_evidence = score_direct_evidence(store)
         timeline, decoder_evidence = _direct_timeline(store, direct_evidence)
@@ -452,6 +504,41 @@ def predict(
             scalers=artifact.scalers,
         )
         timeline = score_timeline(artifact.model, dataset, device=device)
+        if artifact.entity_calibrators:
+            direct_evidence = score_direct_evidence(store)
+            node_observed = np.asarray(store.node_mask).any(axis=2)
+            edge_observed = np.asarray(store.edge_mask).any(axis=2)
+            log_observed = np.asarray(store.log_mask).any(axis=2)
+            traffic_edges = np.asarray(
+                [edge.relation == "traffic" for edge in store.entities.edges],
+                dtype=bool,
+            )
+            service_gate = direct_evidence.edge_symptom_scores
+            if service_gate is None:
+                service_gate = np.zeros_like(timeline.edge, dtype=bool)
+            else:
+                service_gate = service_gate > 0
+            edge_trigger_eligibility = (
+                edge_observed
+                & traffic_edges[None, :]
+                & service_gate
+            )
+            family_scores, family_observed = calibrated_family_scores(
+                node_scores=timeline.node,
+                edge_scores=timeline.edge,
+                log_scores=timeline.log,
+                node_observed=node_observed,
+                edge_observed=edge_observed,
+                log_observed=log_observed,
+                calibrators=artifact.entity_calibrators,
+                traffic_edges=traffic_edges,
+                service_gate=service_gate,
+                node_gate=direct_evidence.node_probability >= 0.5,
+                log_gate=direct_evidence.node_probability >= 0.5,
+            )
+            timeline = replace(
+                timeline, family=family_scores, family_observed=family_observed
+            )
         probabilities = artifact.calibrator.transform(timeline.family, timeline.family_observed)
         decoder_evidence = DecoderEvidence(
             family_z_scores=artifact.calibrator.standardize(timeline.family, timeline.family_observed),
@@ -462,23 +549,55 @@ def predict(
         )
     else:
         raise ValueError(f"unknown detector: {detector}")
-    events = decode_events(
-        probabilities,
-        store.start_time,
-        decoder_config,
-        evidence=decoder_evidence,
+    if detector == "direct":
+        candidate_events = decode_city_events(
+            direct_evidence,
+            store.entities.nodes,
+            store.entities.edges,
+            store.start_time,
+            decoder_config,
+        )
+        events = reconcile_events(candidate_events)
+    else:
+        candidate_events = decode_events(
+            probabilities,
+            store.start_time,
+            decoder_config,
+            evidence=decoder_evidence,
+        )
+        events = candidate_events
+    diagnosis_timeline, diagnosis_direct, diagnosis_heads = _diagnosis_inputs(
+        store,
+        timeline,
+        direct_evidence,
+        artifact.diagnosis_heads if artifact is not None else None,
+        comparison_mode=comparison_mode,
     )
     records, audit = build_prediction_records(
         events,
-        timeline,
+        diagnosis_timeline,
         store,
         taxonomy,
         reviewer=reviewer,
-        diagnosis_heads=artifact.diagnosis_heads if artifact is not None else None,
+        diagnosis_heads=diagnosis_heads,
         device=device,
-        direct_evidence=direct_evidence,
+        direct_evidence=diagnosis_direct,
     )
     write_predictions(records, output)
+    score_audit_summary = None
+    if score_audit is not None:
+        assert artifact is not None
+        score_report = build_score_audit(
+            probabilities,
+            timeline,
+            artifact.calibrator.standardize(timeline.family, timeline.family_observed),
+            store.start_time,
+            nodes=store.entities.nodes,
+            edges=store.entities.edges,
+            edge_trigger_eligibility=edge_trigger_eligibility,
+        )
+        _write_json(score_report, score_audit)
+        score_audit_summary = score_report["summary"]
     if inference_log is not None:
         _write_json(
             {
@@ -496,6 +615,10 @@ def predict(
                 ),
                 "direct_feature_audit": direct_evidence.feature_audit if direct_evidence else None,
                 "event_count": len(events),
+                "event_reconciliation": {
+                    "candidate_count": len(candidate_events),
+                    "suppressed_count": len(candidate_events) - len(events),
+                },
                 "llm_review_status_counts": dict(
                     sorted(Counter(item["llm_review"]["status"] for item in audit).items())
                 ),
@@ -504,6 +627,7 @@ def predict(
                     "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                     "device": device,
                     "detector": detector,
+                    "comparison_mode": comparison_mode,
                     "checkpoint_sha256": _sha256_file(checkpoint) if checkpoint is not None and artifact is not None else None,
                     "feature_manifest_sha256": _sha256_file(store.path / "manifest.json"),
                     "feature_store_shapes": store.manifest.get("shapes", {}),
@@ -522,6 +646,8 @@ def predict(
                         else None
                     ),
                     "diagnosis_head_available": artifact is not None and artifact.diagnosis_heads is not None,
+                    "diagnosis_head_used": diagnosis_heads is not None,
+                    "score_audit": score_audit_summary,
                     "llm_review": type(reviewer.backend).__name__ if reviewer else "disabled",
                 },
                 "events": audit,
@@ -547,13 +673,18 @@ def _parser() -> argparse.ArgumentParser:
     train.add_argument("--stride-minutes", type=int, default=30)
     train.add_argument("--hidden-size", type=int, default=64)
     train.add_argument("--device", default="cpu")
+    train.add_argument("--scaler-transform", choices=("linear", "asinh"), default="linear")
+    train.add_argument("--score-pooling", choices=("mean", "topk"), default="mean")
+    train.add_argument("--validation-fraction", type=float, default=0.0)
 
     prediction = commands.add_parser("predict")
     prediction.add_argument("--store", type=Path, required=True)
     prediction.add_argument("--checkpoint", type=Path)
     prediction.add_argument("--detector", choices=("direct", "neural"), default="direct")
+    prediction.add_argument("--comparison-mode", choices=("native", "detector-only"), default="native")
     prediction.add_argument("--output", type=Path, required=True)
     prediction.add_argument("--inference-log", type=Path)
+    prediction.add_argument("--score-audit", type=Path, help="neural high-score minute attribution JSON")
     prediction.add_argument("--device", default="cpu")
     _add_llm_options(prediction)
 
@@ -568,14 +699,19 @@ def _parser() -> argparse.ArgumentParser:
     complete.add_argument("--store", type=Path, required=True)
     complete.add_argument("--checkpoint", type=Path)
     complete.add_argument("--detector", choices=("direct", "neural"), default="direct")
+    complete.add_argument("--comparison-mode", choices=("native", "detector-only"), default="native")
     complete.add_argument("--output", type=Path, required=True)
     complete.add_argument("--inference-log", type=Path)
+    complete.add_argument("--score-audit", type=Path, help="neural high-score minute attribution JSON")
     complete.add_argument("--epochs", type=int, default=5)
     complete.add_argument("--batch-size", type=int, default=8)
     complete.add_argument("--window-minutes", type=int, default=120)
     complete.add_argument("--stride-minutes", type=int, default=30)
     complete.add_argument("--hidden-size", type=int, default=64)
     complete.add_argument("--device", default="cpu")
+    complete.add_argument("--scaler-transform", choices=("linear", "asinh"), default="linear")
+    complete.add_argument("--score-pooling", choices=("mean", "topk"), default="mean")
+    complete.add_argument("--validation-fraction", type=float, default=0.0)
     _add_llm_options(complete)
     return parser
 
@@ -626,6 +762,9 @@ def _train_from_args(args, store: FeatureStore, taxonomy: dict[str, Any]):
         stride_minutes=args.stride_minutes,
         hidden_size=args.hidden_size,
         device=args.device,
+        scaler_transform=args.scaler_transform,
+        score_pooling=args.score_pooling,
+        validation_fraction=args.validation_fraction,
     )
     artifact = train_detector(store, config, taxonomy=taxonomy)
     save_checkpoint(artifact, args.checkpoint, feature_manifest=store.manifest)
@@ -650,6 +789,10 @@ def main() -> int:
             result = {
                 "checkpoint": str(args.checkpoint),
                 "loss_history": list(artifact.history),
+                "validation_loss_history": list(artifact.validation_history),
+                "temporal_split": (
+                    asdict(artifact.temporal_split) if artifact.temporal_split else None
+                ),
                 "diagnosis_training": (
                     artifact.diagnosis_summary.to_dict()
                     if artifact.diagnosis_summary is not None
@@ -667,6 +810,8 @@ def main() -> int:
                 device=args.device,
                 reviewer=_reviewer_from_args(args, taxonomy),
                 detector=args.detector,
+                comparison_mode=args.comparison_mode,
+                score_audit=args.score_audit,
             )
             result = {"events": count, "output": str(args.output)}
         else:
@@ -684,6 +829,8 @@ def main() -> int:
                 device=args.device,
                 reviewer=_reviewer_from_args(args, taxonomy),
                 detector=args.detector,
+                comparison_mode=args.comparison_mode,
+                score_audit=args.score_audit,
             )
             result = {"events": count, "output": str(args.output)}
         print(json.dumps(result, ensure_ascii=False))

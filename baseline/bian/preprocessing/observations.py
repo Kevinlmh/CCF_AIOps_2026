@@ -108,12 +108,14 @@ class TextEvent:
     program: str
     event_family: str
     message: str
+    dimensions: DimensionTuple = ()
 
     def __post_init__(self) -> None:
         _validate_timestamp(self.timestamp)
         if not self.source or not self.event_family:
             raise ValueError("source and event family are required")
         object.__setattr__(self, "message", " ".join(self.message.split())[:240])
+        object.__setattr__(self, "dimensions", _canonical_dimensions(self.dimensions))
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,20 +175,91 @@ class ParseStats:
     files_by_source: dict[str, int] = field(default_factory=dict)
     rows_by_source: dict[str, int] = field(default_factory=dict)
     bad_rows_by_source: dict[str, int] = field(default_factory=dict)
+    invalid_numeric_values_by_source: dict[str, int] = field(default_factory=dict)
+    unmapped_entities_by_source: dict[str, int] = field(default_factory=dict)
+    out_of_order_rows_by_source: dict[str, int] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    timestamp_ranges_by_source: dict[str, dict[str, str]] = field(default_factory=dict)
+    file_audit: dict[str, dict[str, object]] = field(default_factory=dict)
+    current_file: str | None = None
 
     @staticmethod
     def _increment(values: dict[str, int], source: str) -> None:
         values[source] = values.get(source, 0) + 1
 
-    def record_file(self, source: str) -> None:
+    def record_file(self, source: str, path: Path | None = None) -> None:
         self._increment(self.files_by_source, source)
+        self.current_file = str(path) if path is not None else None
+        if self.current_file is not None:
+            self.file_audit[self.current_file] = {
+                "source": source,
+                "rows": 0,
+                "bad_rows": 0,
+                "invalid_numeric_values": 0,
+                "unmapped_entities": 0,
+                "out_of_order_rows": 0,
+                "timestamps": 0,
+                "first_timestamp": None,
+                "last_timestamp": None,
+            }
 
     def record_row(self, source: str) -> None:
         self._increment(self.rows_by_source, source)
+        audit = self._current_audit()
+        if audit is not None:
+            audit["rows"] = int(audit["rows"]) + 1
 
     def record_bad_row(self, source: str) -> None:
         self._increment(self.bad_rows_by_source, source)
+        audit = self._current_audit()
+        if audit is not None:
+            audit["bad_rows"] = int(audit["bad_rows"]) + 1
+
+    def record_invalid_numeric(self, source: str) -> None:
+        self._increment(self.invalid_numeric_values_by_source, source)
+        audit = self._current_audit()
+        if audit is not None:
+            audit["invalid_numeric_values"] = int(audit["invalid_numeric_values"]) + 1
+
+    def record_unmapped_entity(self, source: str) -> None:
+        self._increment(self.unmapped_entities_by_source, source)
+        audit = self._current_audit()
+        if audit is not None:
+            audit["unmapped_entities"] = int(audit["unmapped_entities"]) + 1
+
+    def record_out_of_order_row(self, source: str) -> None:
+        self._increment(self.out_of_order_rows_by_source, source)
+        audit = self._current_audit()
+        if audit is not None:
+            audit["out_of_order_rows"] = int(audit["out_of_order_rows"]) + 1
+
+    def record_timestamp(self, source: str, value: datetime) -> None:
+        rendered = value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        bounds = self.timestamp_ranges_by_source.setdefault(
+            source, {"first": rendered, "last": rendered}
+        )
+        if rendered < bounds["first"]:
+            bounds["first"] = rendered
+        if rendered > bounds["last"]:
+            bounds["last"] = rendered
+        audit = self._current_audit()
+        if audit is not None:
+            audit["timestamps"] = int(audit["timestamps"]) + 1
+            if audit["first_timestamp"] is None or rendered < str(audit["first_timestamp"]):
+                audit["first_timestamp"] = rendered
+            if audit["last_timestamp"] is None or rendered > str(audit["last_timestamp"]):
+                audit["last_timestamp"] = rendered
+
+    def record_schema_issue(self, source: str, message: str) -> None:
+        self.warn(message)
+        audit = self._current_audit()
+        if audit is not None:
+            audit["schema_issue"] = message
+
+    def _current_audit(self) -> dict[str, object] | None:
+        if self.current_file is None:
+            return None
+        return self.file_audit.get(self.current_file)
 
     def warn(self, message: str) -> None:
         self.warnings.append(message)

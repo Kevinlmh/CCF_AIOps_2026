@@ -14,6 +14,7 @@ from baseline.bian.preprocessing.multisource import (
     _is_counter,
     _label_dimensions,
     _node_for_row,
+    _is_missing,
     _number,
     _parse_frr_file,
     _iter_netflow_file,
@@ -26,6 +27,7 @@ from baseline.bian.preprocessing.multisource import (
 from baseline.bian.preprocessing.observations import (
     NumericObservation,
     ParseStats,
+    TextEvent,
     city_from_path,
     normalize_node_id,
 )
@@ -37,14 +39,16 @@ def _iter_dense(
     city: str | None,
     roles: tuple[str, ...],
     stats: ParseStats,
+    text_events: list[TextEvent],
 ) -> Iterator[NumericObservation]:
     for _, row in _read_rows(path, source, stats):
-        timestamp = _row_time(row, source)
+        timestamp = _row_time(row, source, stats)
         node_id = _node_for_row(row, city, roles)
         if timestamp is None:
             stats.record_bad_row(source)
             continue
         if node_id is None:
+            stats.record_unmapped_entity(source)
             continue
         if source == "interface":
             dimensions = _dimensions(
@@ -72,12 +76,16 @@ def _iter_dense(
                     dimensions=_label_dimensions(row.get("label")),
                     direction=_direction(source, metric_name),
                 )
+            elif not _is_missing(row.get("value")):
+                stats.record_invalid_numeric(source)
             continue
         for field_name, raw_value in row.items():
             if field_name in IDENTITY_FIELDS:
                 continue
             value = _number(raw_value)
             if value is None:
+                if not _is_missing(raw_value):
+                    stats.record_invalid_numeric(source)
                 continue
             metric = f"{source}.{field_name}"
             yield NumericObservation(
@@ -90,6 +98,21 @@ def _iter_dense(
                 dimensions=dimensions,
                 direction=_direction(source, metric),
             )
+        if source == "scrape":
+            error = (row.get("scrape_error") or "").strip()
+            if error and not _is_missing(error):
+                text_events.append(
+                    TextEvent(
+                        timestamp=timestamp,
+                        source="scrape",
+                        node_id=node_id,
+                        severity="error",
+                        program=(row.get("exporter_type") or "exporter").strip(),
+                        event_family="scrape_error",
+                        message=error,
+                        dimensions=dimensions,
+                    )
+                )
 
 
 def _iter_traffic(
@@ -98,8 +121,9 @@ def _iter_traffic(
     stats: ParseStats,
 ) -> Iterator[NumericObservation]:
     previous: dict[tuple[str, str], tuple[datetime, float]] = {}
+    previous_timestamp: dict[str, datetime] = {}
     for _, row in _read_rows(path, "traffic", stats):
-        timestamp = _row_time(row, "traffic")
+        timestamp = _row_time(row, "traffic", stats)
         flow_type = (row.get("flow_type") or "").strip().lower()
         source_city = (row.get("source_region") or "").strip().lower()
         target_city = (row.get("target_region") or "").strip().lower()
@@ -108,12 +132,17 @@ def _iter_traffic(
             continue
         source_node = normalize_node_id("traffic-vm", source_city, roles)
         if source_node is None:
-            stats.record_bad_row("traffic")
+            stats.record_unmapped_entity("traffic")
             continue
         related = _traffic_related_nodes(target_city, roles)
         dimensions = _traffic_dimensions(row)
         prefix = f"{flow_type}_flow_"
         identity = row.get("series_key") or "|".join(value for _, value in dimensions)
+        old_timestamp = previous_timestamp.get(identity)
+        if old_timestamp is not None and timestamp <= old_timestamp:
+            stats.record_out_of_order_row("traffic")
+            continue
+        previous_timestamp[identity] = timestamp
         counts: dict[str, float] = {}
         reset = False
         for field_name, raw_value in row.items():
@@ -121,6 +150,8 @@ def _iter_traffic(
                 continue
             value = _number(raw_value)
             if value is None:
+                if field_name.startswith(prefix) and not _is_missing(raw_value):
+                    stats.record_invalid_numeric("traffic")
                 continue
             suffix = field_name[len(prefix) :]
             if _is_counter(suffix):
@@ -202,21 +233,31 @@ class CanonicalObservationStream:
         self.aliases = dict(aliases)
         self.roles = tuple(valid_roles)
         self.stats = ParseStats()
+        self.text_events: list[TextEvent] = []
         self._used = False
+
+    def drain_text_events(self) -> tuple[TextEvent, ...]:
+        """Release parsed text evidence incrementally while retaining bounded memory."""
+        events = tuple(self.text_events)
+        self.text_events.clear()
+        return events
 
     def __iter__(self) -> Iterator[NumericObservation]:
         if self._used:
             raise RuntimeError("canonical observation stream is single-use")
         self._used = True
         for source, path in iter_source_files(self.root):
-            self.stats.record_file(source)
+            self.stats.record_file(source, path)
             city = city_from_path(path, self.aliases)
             if source in {"node", "interface", "routing", "scrape"}:
-                yield from _iter_dense(path, source, city, self.roles, self.stats)
+                yield from _iter_dense(
+                    path, source, city, self.roles, self.stats, self.text_events
+                )
             elif source == "traffic":
                 yield from _iter_traffic(path, self.roles, self.stats)
             elif source == "netflow":
                 yield from _iter_netflow_file(path, city, self.roles, self.stats)
             elif source == "frr":
-                numeric, _ = _parse_frr_file(path, city, self.roles, self.stats)
+                numeric, text = _parse_frr_file(path, city, self.roles, self.stats)
+                self.text_events.extend(text)
                 yield from numeric

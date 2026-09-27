@@ -8,7 +8,13 @@ import torch
 
 from aiops_challenge_2026.config import load_public_config
 from aiops_v2.classification.semantic import classify_event, extract_candidate_signals
-from aiops_v2.classification.semantic import SEMANTIC_SIGNAL_NAMES, _signal_name
+from aiops_v2.classification.semantic import (
+    SEMANTIC_SIGNAL_NAMES,
+    _deviation,
+    _semantic_candidate_distribution,
+    _semantic_strength,
+    _signal_name,
+)
 from aiops_v2.data.feature_store import build_feature_store
 from aiops_v2.events.decoder import DecodedEvent
 from aiops_v2.localization.ranking import rank_root_causes
@@ -102,6 +108,42 @@ def test_fixed_semantic_schema_covers_every_metric_mapping() -> None:
     }
 
     assert mapped <= set(SEMANTIC_SIGNAL_NAMES)
+
+
+def test_classification_has_no_deviation_without_prior_observations() -> None:
+    values = np.asarray([[80.0], [80.0]], dtype=np.float32)
+    assert _deviation(values, np.ones_like(values, dtype=bool), 0, 2, low=False) == 0.0
+
+
+def test_resource_semantic_signal_requires_the_direct_detector_absolute_gate() -> None:
+    baseline = np.full((5, 1), 0.5, dtype=np.float32)
+    observed = np.ones((6, 1), dtype=bool)
+    tiny_cpu = np.vstack((baseline, [[0.9]])).astype(np.float32)
+    high_cpu = np.vstack((baseline, [[30.0]])).astype(np.float32)
+    assert _semantic_strength("node.cpu_usage", tiny_cpu, observed, 5, 6, low=False) == 0.0
+    assert _semantic_strength("node.cpu_usage", high_cpu, observed, 5, 6, low=False) > 0.0
+
+    low_disk = np.vstack((baseline, [[20.0]])).astype(np.float32)
+    high_disk = np.vstack((baseline, [[90.0]])).astype(np.float32)
+    assert _semantic_strength("node.disk_io_util", low_disk, observed, 5, 6, low=False) == 0.0
+    assert _semantic_strength("node.disk_io_util", high_disk, observed, 5, 6, low=False) > 0.0
+
+    high_memory = np.vstack((np.full((5, 1), 0.95), [[0.92]])).astype(np.float32)
+    low_memory = np.vstack((np.full((5, 1), 0.95), [[0.85]])).astype(np.float32)
+    assert _semantic_strength("node.memory_available_ratio", high_memory, observed, 5, 6, low=True) == 0.0
+    assert _semantic_strength("node.memory_available_ratio", low_memory, observed, 5, 6, low=True) > 0.0
+    tiny_memory_drop = np.vstack((np.full((5, 1), 0.85), [[0.84]])).astype(np.float32)
+    assert _semantic_strength("node.memory_available_ratio", tiny_memory_drop, observed, 5, 6, low=True) == 0.0
+
+    ordinary_process = np.vstack((np.full((5, 1), 190), [[200]])).astype(np.float32)
+    high_process = np.vstack((np.full((5, 1), 190), [[250]])).astype(np.float32)
+    assert _semantic_strength("node.process_count", ordinary_process, observed, 5, 6, low=False) == 0.0
+    assert _semantic_strength("node.process_count", high_process, observed, 5, 6, low=False) > 0.0
+
+
+def test_classification_does_not_mix_distinct_entity_baselines() -> None:
+    values = np.asarray([[1.0, 100.0]] * 4, dtype=np.float32)
+    assert _deviation(values, np.ones_like(values, dtype=bool), 2, 4, low=False) == 0.0
 
 
 def test_throughput_decline_is_not_itself_a_rate_limit_diagnosis() -> None:
@@ -258,6 +300,26 @@ def test_weak_root_disk_signal_does_not_receive_full_category_vote(tmp_path) -> 
     )
 
     assert result.category == {"major_category": "resource", "sub_category": "cpu_pressure"}
+
+
+def test_shared_service_symptom_is_one_category_vote() -> None:
+    categories = load_public_config("fault_taxonomy")["fault_categories"]
+    root = "wuhan-br-1"
+    single = _semantic_candidate_distribution(
+        (root, "wuhan-service-vm-1"),
+        [{"cpu": 8.0}, {"web_error": 8.0}],
+        np.asarray([0.7, 0.3]),
+        categories,
+    )
+    repeated = _semantic_candidate_distribution(
+        (root, "wuhan-service-vm-1", "wuhan-service-vm-2", "wuhan-service-vm-3"),
+        [{"cpu": 8.0}] + [{"web_error": 8.0}] * 3,
+        np.asarray([0.7, 0.1, 0.1, 0.1]),
+        categories,
+    )
+
+    assert single is not None and repeated is not None
+    np.testing.assert_allclose(repeated[0], single[0])
 
 
 def test_classification_output_always_belongs_to_official_taxonomy(tmp_path) -> None:

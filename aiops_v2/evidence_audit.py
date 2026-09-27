@@ -23,19 +23,41 @@ _ANCHORS = {
 }
 
 
-def _peak_driver(store, direct, peak: int) -> dict[str, Any]:
-    node_scores = direct.node_probability[peak]
+def _peak_driver(store, direct, peak: int, city_id: str | None = None) -> dict[str, Any]:
+    node_indexes = [
+        index for index, node in enumerate(store.entities.nodes)
+        if city_id is None or node.startswith(f"{city_id}-")
+    ]
+    node_scores = direct.node_probability[peak, node_indexes]
     top_node = float(np.max(node_scores, initial=0.0))
-    service = float(direct.service_probability[peak]) if direct.service_probability is not None else 0.0
+    edge_indexes = [
+        index for index, edge in enumerate(store.entities.edges)
+        if edge.relation == "traffic"
+        and (city_id is None or edge.target.startswith(f"service-group:{city_id}:"))
+    ]
+    edge_probabilities: dict[int, float] = {}
+    if direct.edge_symptom_scores is not None:
+        for edge_index in edge_indexes:
+            strength = float(direct.edge_symptom_scores[peak, edge_index])
+            if strength <= 0:
+                continue
+            raw = 1.0 / (1.0 + np.exp(-np.clip((strength - 3.0) / 0.9, -20.0, 20.0)))
+            adjacent = (
+                peak > 0 and direct.edge_symptom_scores[peak - 1, edge_index] >= 2.5
+            ) or (
+                peak + 1 < direct.edge_symptom_scores.shape[0]
+                and direct.edge_symptom_scores[peak + 1, edge_index] >= 2.5
+            )
+            edge_probabilities[edge_index] = (0.9 if adjacent else 0.4) * raw
+    service = max(edge_probabilities.values(), default=0.0)
     if max(top_node, service) <= 0:
         return {"kind": "undetermined", "entity": None, "score": 0.0}
     if abs(top_node - service) <= 1e-6 and service > 0:
         return {"kind": "ambiguous", "entity": None, "score": max(top_node, service)}
     if service > top_node:
-        edges = direct.edge_symptom_scores[peak]
-        maximum = float(np.max(edges, initial=0.0))
-        indexes = np.flatnonzero(np.isclose(edges, maximum, atol=1e-6))
-        if indexes.size != 1:
+        maximum = max(edge_probabilities.values())
+        indexes = [index for index, score in edge_probabilities.items() if np.isclose(score, maximum, atol=1e-6)]
+        if len(indexes) != 1:
             return {"kind": "ambiguous", "entity": None, "score": service}
         edge = store.entities.edges[int(indexes[0])]
         return {"kind": "service", "entity": edge.to_dict(), "score": service}
@@ -44,7 +66,7 @@ def _peak_driver(store, direct, peak: int) -> dict[str, Any]:
         return {"kind": "ambiguous", "entity": None, "score": top_node}
     return {
         "kind": "node",
-        "entity": store.entities.nodes[int(indexes[0])],
+        "entity": store.entities.nodes[node_indexes[int(indexes[0])]],
         "score": top_node,
     }
 
@@ -113,6 +135,8 @@ def audit_run(store, predictions_path: Path, inference_path: Path) -> dict[str, 
     anchor_counts: Counter[str] = Counter()
     unsupported_disk = 0
     trigger_root_city_conflicts = 0
+    cross_city_roots = 0
+    scoped_root_city_violations = 0
     for item in events:
         identity = item["prediction_id"]
         if identity not in predictions:
@@ -124,7 +148,9 @@ def audit_run(store, predictions_path: Path, inference_path: Path) -> dict[str, 
             raise ValueError(f"invalid event indexes: {identity}")
         root = prediction["root_cause_top5"][0]["network_element_id"]
         root_index = store.entities.node_index(root)
-        driver = _peak_driver(store, direct, peak)
+        city_id = event.get("city_id")
+        root_city_scoped = bool(event.get("root_city_scoped", False))
+        driver = _peak_driver(store, direct, peak, city_id)
         anchor = _anchor(store, direct, root_index, start, stop, prediction["fault_category"])
         support_indexes = netflow_by_source.get(root, ())
         netflow_peak = (
@@ -145,13 +171,26 @@ def audit_run(store, predictions_path: Path, inference_path: Path) -> dict[str, 
         category_counts[label_name] += 1
         anchor_counts[anchor["status"]] += 1
         unsupported_disk += label_name == "resource.disk_io_pressure" and anchor["status"] == "unsupported"
-        if driver["kind"] == "node" and str(driver["entity"]).split("-", 1)[0] != root.split("-", 1)[0]:
+        driver_city = (
+            str(driver["entity"]).split("-", 1)[0]
+            if driver["kind"] == "node"
+            else str(driver["entity"].get("target", "")).split(":")[1]
+            if driver["kind"] == "service" and driver["entity"]
+            else None
+        )
+        if driver_city and driver_city != root.split("-", 1)[0]:
             trigger_root_city_conflicts += 1
+        if city_id and root.split("-", 1)[0] != city_id:
+            cross_city_roots += 1
+            if root_city_scoped:
+                scoped_root_city_violations += 1
         traces.append({
             "prediction_id": identity,
             "start_index": start,
             "end_index": stop - 1,
             "peak_index": peak,
+            "city_id": city_id,
+            "root_city_scoped": root_city_scoped,
             "peak_driver": driver,
             "root_node": root,
             "root_direct_strength": float(np.max(direct.category_scores[start:stop, root_index])),
@@ -171,6 +210,8 @@ def audit_run(store, predictions_path: Path, inference_path: Path) -> dict[str, 
             "anchor_status_counts": dict(anchor_counts),
             "unsupported_disk_root_count": int(unsupported_disk),
             "trigger_root_city_conflict_count": trigger_root_city_conflicts,
+            "cross_city_root_count": cross_city_roots,
+            "root_city_scope_violation_count": scoped_root_city_violations,
         },
         "events": traces,
     }

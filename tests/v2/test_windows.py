@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
+import pytest
 
 from aiops_challenge_2026.config import load_public_config
 from aiops_v2.data.feature_store import build_feature_store
@@ -55,6 +56,38 @@ def test_robust_scaler_fits_each_entity_instead_of_mixing_node_baselines() -> No
     assert scaler.center.tolist() == [[2.0], [1100.0]]
     assert transformed[1, 0, 0] == 0.0
     assert transformed[1, 1, 0] == 0.0
+
+
+def test_asinh_scaler_compresses_extreme_observed_values_without_reordering() -> None:
+    values = np.array([[[0.0]], [[1.0]], [[100000.0]], [[9999999.0]]], dtype=np.float32)
+    mask = np.array([[[True]], [[True]], [[True]], [[False]]])
+    scaler = RobustScaler(
+        center=np.array([[0.0]], dtype=np.float32),
+        scale=np.array([[1.0]], dtype=np.float32),
+        transform_kind="asinh",
+    )
+
+    transformed = scaler.transform(values, mask)[:, 0, 0]
+
+    assert transformed[0] == 0.0
+    assert transformed[1] == pytest.approx(0.8813736)
+    assert 10.0 < transformed[2] < 20.0
+    assert transformed[0] < transformed[1] < transformed[2]
+    assert transformed[3] == 0.0
+
+
+def test_scaler_checkpoint_metadata_keeps_legacy_linear_behavior() -> None:
+    legacy = RobustScaler.from_dict({"center": [[0.0]], "scale": [[1.0]]})
+    value = np.array([[[100000.0]]], dtype=np.float32)
+    mask = np.ones_like(value, dtype=bool)
+
+    assert float(legacy.transform(value, mask)[0, 0, 0]) == 100000.0
+
+    compressed = RobustScaler.from_dict(
+        {"center": [[0.0]], "scale": [[1.0]], "transform_kind": "asinh"}
+    )
+    assert compressed.to_dict()["transform_kind"] == "asinh"
+    assert float(compressed.transform(value, mask)[0, 0, 0]) < 20.0
 
 
 def test_window_dataset_returns_fixed_tensor_shapes_and_time_features(tmp_path) -> None:

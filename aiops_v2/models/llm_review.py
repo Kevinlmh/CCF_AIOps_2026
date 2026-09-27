@@ -268,6 +268,8 @@ class EventReview:
                 event_opinion=fallback.event_opinion,
                 root_cause_top5=fallback.root_cause_top5,
                 fault_category=fallback.fault_category,
+                suggested_root_cause_top5=fallback.suggested_root_cause_top5,
+                suggested_fault_category=fallback.suggested_fault_category,
                 evidence_ids=fallback.evidence_ids,
                 confidence=fallback.confidence,
                 rationale=fallback.rationale,
