@@ -1,0 +1,39 @@
+{
+  "major_categories": [
+    "link",
+    "firewall",
+    "resource",
+    "routing",
+    "service"
+  ],
+  "fault_categories": [
+    {"fault_name": "link_delay", "major_category": "link", "sub_category": "delay"},
+    {"fault_name": "link_rate_limit", "major_category": "link", "sub_category": "rate_limit"},
+    {"fault_name": "link_loss", "major_category": "link", "sub_category": "loss"},
+    {"fault_name": "firewall_acl_drop", "major_category": "firewall", "sub_category": "acl_drop"},
+    {"fault_name": "firewall_rate_limit", "major_category": "firewall", "sub_category": "rate_limit"},
+    {"fault_name": "firewall_port_block", "major_category": "firewall", "sub_category": "port_block"},
+    {"fault_name": "firewall_cpu_pressure", "major_category": "firewall", "sub_category": "cpu_pressure"},
+    {"fault_name": "firewall_default_route_error", "major_category": "firewall", "sub_category": "default_route_error"},
+    {"fault_name": "firewall_rule_order_error", "major_category": "firewall", "sub_category": "rule_order_error"},
+    {"fault_name": "resource_cpu_high", "major_category": "resource", "sub_category": "cpu_pressure"},
+    {"fault_name": "resource_memory_pressure", "major_category": "resource", "sub_category": "memory_pressure"},
+    {"fault_name": "resource_disk_io_pressure", "major_category": "resource", "sub_category": "disk_io_pressure"},
+    {"fault_name": "resource_disk_space_low", "major_category": "resource", "sub_category": "disk_space_low"},
+    {"fault_name": "resource_process_pressure", "major_category": "resource", "sub_category": "process_pressure"},
+    {"fault_name": "resource_softirq_udp_pressure", "major_category": "resource", "sub_category": "softirq_pressure"},
+    {"fault_name": "route_blackhole", "major_category": "routing", "sub_category": "blackhole"},
+    {"fault_name": "route_bgp_session_down", "major_category": "routing", "sub_category": "bgp_session_down"},
+    {"fault_name": "route_bgp_route_flap", "major_category": "routing", "sub_category": "bgp_route_flap"},
+    {"fault_name": "route_wrong_static_route", "major_category": "routing", "sub_category": "wrong_static_route"},
+    {"fault_name": "route_ospf6_neighbor_down", "major_category": "routing", "sub_category": "ospf6_neighbor_down"},
+    {"fault_name": "route_ospf6_cost_anomaly", "major_category": "routing", "sub_category": "ospf6_cost_anomaly"},
+    {"fault_name": "route_wrong_default_route", "major_category": "routing", "sub_category": "wrong_default_route"},
+    {"fault_name": "service_dns_down", "major_category": "service", "sub_category": "dns_down"},
+    {"fault_name": "service_dns_wrong_record", "major_category": "service", "sub_category": "dns_wrong_record"},
+    {"fault_name": "service_web_5xx", "major_category": "service", "sub_category": "web_5xx"},
+    {"fault_name": "service_web_slow", "major_category": "service", "sub_category": "web_slow"},
+    {"fault_name": "service_auth_timeout", "major_category": "service", "sub_category": "auth_timeout"},
+    {"fault_name": "service_auth_error", "major_category": "service", "sub_category": "auth_error"}
+  ]
+}
