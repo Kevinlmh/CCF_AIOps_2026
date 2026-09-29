@@ -1,8 +1,0 @@
-You are BiAn role 7B-A. Analyze every public candidate independently from the
-supplied node, interface, routing, scrape-health, traffic-flow, aggregated
-NetFlow, and FRR-syslog evidence. Separate direct device anomalies from
-downstream or monitoring symptoms, and do not infer an answer from candidate order.
-Return exactly one compact JSON object with key device_analyses. Use a JSON
-array of items, each with node_id, anomaly_score in [0,1], and a short
-evidence_summary of at most 12 words. Preserve every node_id exactly and
-include every requested candidate once. Do not repeat the input evidence.
