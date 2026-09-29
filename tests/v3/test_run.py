@@ -9,7 +9,7 @@ from aiops_v3.run import run
 from aiops_v3.store import open_store
 
 
-def store_with_fault(path):
+def store_with_fault(path, peak=78):
     count = 14
     manifest = {
         "start_time": "2026-07-28T12:00:00Z", "minute_count": count,
@@ -20,7 +20,7 @@ def store_with_fault(path):
     path.mkdir()
     (path / "manifest.json").write_text(json.dumps(manifest))
     for kind, values in (
-        ("node", np.array([10] * 5 + [78] * 3 + [10] * 6, np.float32)[:, None, None]),
+        ("node", np.array([10] * 5 + [peak] * 3 + [10] * 6, np.float32)[:, None, None]),
         ("edge", np.zeros((count, 0, 0), np.float32)),
         ("log", np.zeros((count, 1, 0), np.float32)),
     ):
@@ -93,3 +93,13 @@ def test_stale_server_response_with_matching_ids_falls_back(tmp_path):
     summary = run(source, tmp_path / "result", "llm-jsonl", response)
     assert summary.fallback_count == 1
     assert json.loads((tmp_path / "result" / "audit.jsonl").read_text())["fallback_reason"] == "invalid_llm_response"
+
+
+def test_conservative_run_records_screened_cpu_signal_without_submission_row(tmp_path):
+    source = store_with_fault(tmp_path / "store", peak=35)
+    summary = run(source, tmp_path / "conservative", detector_profile="conservative")
+    assert summary.event_count == 0
+    assert (tmp_path / "conservative" / "predictions.jsonl").read_text() == ""
+    manifest = json.loads((tmp_path / "conservative" / "run_manifest.json").read_text())
+    assert manifest["detector_profile"] == "conservative"
+    assert manifest["rejected_events"][0]["reason"] == "short_weak_single_cpu_signal"

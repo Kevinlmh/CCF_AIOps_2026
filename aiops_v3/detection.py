@@ -21,6 +21,8 @@ class DetectorSettings:
     coincident_overlap_fraction: float = .5
     trajectory_correlation_min: float = .75
     min_component_dice: float = .4
+    weak_cpu_max_minutes: int = 0
+    weak_cpu_max_score: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -85,7 +87,15 @@ def _scores(data: np.ndarray, mask: np.ndarray, rule: _Rule) -> tuple[np.ndarray
         warnings.simplefilter("ignore", RuntimeWarning)
         center = np.nanmedian(clean, axis=0)
         mad = np.nanmedian(np.abs(clean - center), axis=0)
-    enough = mask.sum(axis=0) >= 8
+        observed_count = mask.sum(axis=0)
+        # Public cases contain short excerpts around a fault. When the fault
+        # occupies most observed samples, the median is the fault level.
+        # Use the healthy-side tail only for sparse series; long series retain
+        # the more stable median baseline.
+        for column in np.flatnonzero((observed_count >= 8) & (observed_count < 60)):
+            center[column] = np.nanpercentile(clean[:, column], 20 if rule.direction == 1 else 80)
+            mad[column] = np.nanpercentile(np.abs(clean[:, column] - center[column]), 20)
+    enough = observed_count >= 8
     scale = np.maximum(np.nan_to_num(1.4826 * mad, nan=0), rule.floor)
     deviation = rule.direction * (data - center[None, :])
     score = np.where(mask & enough[None, :] & np.isfinite(data), deviation / scale[None, :], 0)
@@ -354,6 +364,24 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
                 continue
         retained.append(Event(f"v3-e{len(retained) + 1:06d}", event.start_minute, event.end_minute, event.signals))
     final, merged = _consolidate(store, retained, settings)
+    if settings.weak_cpu_max_minutes > 0 and settings.weak_cpu_max_score > 0:
+        screened: list[Event] = []
+        for event in final:
+            direct = [signal for signal in event.signals if signal.role == "direct"]
+            weak_cpu_only = (
+                event.end_minute - event.start_minute <= settings.weak_cpu_max_minutes
+                and bool(direct)
+                and {signal.category for signal in direct} == {"cpu_pressure"}
+                and len({signal.node for signal in direct}) == 1
+                and not any(signal.role == "symptom" for signal in event.signals)
+                and max(signal.score for signal in direct) < settings.weak_cpu_max_score
+            )
+            if weak_cpu_only:
+                rejected.append({"event_id": event.event_id, "start_minute": event.start_minute,
+                                 "end_minute": event.end_minute, "reason": "short_weak_single_cpu_signal"})
+            else:
+                screened.append(event)
+        final = screened
     return DetectionResult(tuple(final), tuple(rejected), tuple(merged))
 
 

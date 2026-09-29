@@ -15,9 +15,16 @@ python -m aiops_v3.run \
   --input-store data/feature_store/v2/stage1_all_cities_v2_20260926 \
   --output-dir outputs/v3/stage1_rules
 
+# 可选保守检测对照：筛除短时、低强度、单设备、仅 CPU 的候选；
+# 标准版仍是默认配置，保守版是否提升隐藏集得分需要提交验证。
+python -m aiops_v3.run \
+  --input-store data/feature_store/v2/stage1_all_cities_v2_20260926 \
+  --output-dir outputs/v3/stage1_rules_conservative \
+  --detector-profile conservative
+
 # 也可从公开原始 CSV 构建 v3 特征库后运行。
 python -m aiops_v3.run \
-  --raw-root sample \
+  --raw-root sample/case_001 \
   --build-store-to outputs/v3/sample_store \
   --output-dir outputs/v3/sample_rules
 ```
@@ -58,4 +65,4 @@ python -m aiops_v3.run \
 
 ## 已知边界
 
-当前候选检索只使用直接设备证据、目标城市症状和同城上下文。接口对端与服务域名到具体实例缺少权威映射，服务类事件的 Top-1 因而可能只是低证据候选；审计中的候选原因会明确标注。证据 ID 定位到分钟特征单元，现有 v2 特征库没有原始 CSV 行号；需要逐行来源时须重新构建带行号索引的特征库。第一批没有公开全量真值，当前 375 条候选不能视为准确率或最终分数；与用户确认的官方第一批 292 条之差见[检测审计](docs/v3-stage1-detection-audit-2026-09-29.md)。第二批尚未下载，原始第二批构建与完整提交还未验证。
+当前候选检索只使用直接设备证据、目标城市症状和同城上下文。接口对端与服务域名到具体实例缺少权威映射，服务类事件的 Top-1 因而可能只是低证据候选；审计中的候选原因会明确标注。证据 ID 定位到分钟特征单元，现有 v2 特征库没有原始 CSV 行号；需要逐行来源时须重新构建带行号索引的特征库。第一批没有公开全量真值，标准配置的 375 条和保守配置的 316 条候选都不能视为准确率或最终分数；与用户确认的官方第一批 292 条之差及本轮实验见[检测审计](docs/v3-detection-feature-audit-2026-09-29.md)。第二批尚未下载，原始第二批构建与完整提交还未验证。

@@ -112,6 +112,12 @@ def build_sample_store(raw_root: Path, destination: Path) -> Path:
     files = [(path, source) for path, source in files if source]
     if not files:
         raise ValueError(f"no processed telemetry CSVs under {raw_root}")
+    sample_cases = {
+        part for path, _ in files for part in path.relative_to(raw_root).parts
+        if re.fullmatch(r"case_\d+", part)
+    }
+    if len(sample_cases) > 1:
+        raise ValueError("independent cases must be built separately; choose one case directory")
     windows = {_window(path) for path, _ in files}
     start = min(item[0] for item in windows)
     end = max(item[1] for item in windows)
@@ -122,9 +128,22 @@ def build_sample_store(raw_root: Path, destination: Path) -> Path:
     cities = {node.split("-", 1)[0] for node in contract.nodes}
     nodes = sorted(contract.nodes)
     node_index = {name: i for i, name in enumerate(nodes)}
+    # Keep service identity in the edge key. A city can host several
+    # independent monitored services, and grouping them by city merges faults.
+    traffic_pairs: set[tuple[str, str, str]] = set()
+    for path, source in files:
+        if source != "traffic":
+            continue
+        with path.open(encoding="utf-8-sig", errors="replace", newline="") as handle:
+            for row in csv.DictReader(handle):
+                source_city = (row.get("source_region") or "").lower()
+                target_city = (row.get("target_region") or "").lower()
+                flow = (row.get("flow_type") or "").lower()
+                if source_city in cities and target_city in cities and flow in {"dns", "web", "auth", "elephant"}:
+                    traffic_pairs.add((source_city, target_city, flow))
     edges = [
-        {"source": f"{source}-traffic-vm", "target": f"city:{target}", "relation": "traffic"}
-        for source in sorted(cities) for target in sorted(cities)
+        {"source": f"{source}-traffic-vm", "target": f"service-group:{target}:{flow}", "relation": "traffic"}
+        for source, target, flow in sorted(traffic_pairs)
     ]
     edges.extend(
         {"source": f"{city}-{role}", "target": f"interface:{city}-{role}:{interface}", "relation": "netflow"}
@@ -145,7 +164,8 @@ def build_sample_store(raw_root: Path, destination: Path) -> Path:
     accepted_rows = dict.fromkeys(SOURCES, 0)
     rejected_rows = dict.fromkeys(SOURCES, 0)
     rejected = defaultdict(int)
-    counters: dict[tuple[str, str], float] = {}
+    counters: dict[tuple[str, str, str, str, str], float] = {}
+    traffic_error_totals: dict[tuple[int, int, str], list[float]] = defaultdict(lambda: [0.0, 0.0])
 
     def set_cell(kind: str, t: int, entity: int, name: str, value: float, *, add: bool = False, minimum: bool = False) -> None:
         column = feature_index[kind].get(name)
@@ -178,8 +198,8 @@ def build_sample_store(raw_root: Path, destination: Path) -> Path:
                 if source == "traffic":
                     source_city = (row.get("source_region") or "").lower()
                     target_city = (row.get("target_region") or "").lower()
-                    edge = edge_index.get((f"{source_city}-traffic-vm", f"city:{target_city}"))
                     flow = (row.get("flow_type") or "").lower()
+                    edge = edge_index.get((f"{source_city}-traffic-vm", f"service-group:{target_city}:{flow}"))
                     if edge is None or flow not in {"dns", "web", "auth", "elephant"}:
                         rejected["unmapped_traffic"] += 1
                         rejected_rows[source] += 1
@@ -191,14 +211,16 @@ def build_sample_store(raw_root: Path, destination: Path) -> Path:
                         current = _number(row.get(f"{flow}_flow_{field}"))
                         if current is None:
                             continue
-                        key = (identity, field)
+                        key = (source_city, target_city, flow, identity, field)
                         previous = counters.get(key)
                         counters[key] = current
                         if previous is not None:
                             deltas[field] = current - previous if current >= previous else current
                     requests = deltas.get("requests_total", 0)
                     if requests > 0 and "error_total" in deltas:
-                        set_cell("edge", t, edge, f"traffic.{flow}.error_ratio", min(1.0, deltas["error_total"] / requests))
+                        total = traffic_error_totals[(t, edge, flow)]
+                        total[0] += max(0.0, deltas["error_total"])
+                        total[1] += requests
                     for field in ("latency_p95_seconds", "loss_rate"):
                         number = _number(row.get(f"{flow}_flow_{field}"))
                         if number is not None:
@@ -251,6 +273,9 @@ def build_sample_store(raw_root: Path, destination: Path) -> Path:
                         message = (row.get("message") or "").lower()
                         family = "bgp" if "bgp" in message else "ospf" if "ospf" in message else "other"
                         set_cell("log", t, node, f"frr.{family}.err.count", 1, add=True)
+
+    for (t, edge, flow), (errors, requests) in traffic_error_totals.items():
+        set_cell("edge", t, edge, f"traffic.{flow}.error_ratio", min(1.0, errors / requests))
 
     if destination.exists() and any(destination.iterdir()):
         raise FileExistsError(destination)

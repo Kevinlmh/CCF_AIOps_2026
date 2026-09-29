@@ -175,3 +175,25 @@ def test_sparse_bgp_flaps_do_not_form_unmatchably_long_interval(tmp_path):
     store = multi_node_store(tmp_path, ["xian-br-1"], ["routing.bgp_peer_up"], values)
     events = detect(store)
     assert [(event.start_minute, event.end_minute) for event in events] == [(5, 12), (15, 17)]
+
+
+def test_conservative_profile_audits_short_weak_cpu_only_event(tmp_path):
+    store = fixture_store(tmp_path, [10] * 5 + [35] * 3 + [10] * 8)
+    assert len(detect(store)) == 1
+    result = detect_with_audit(store, DetectorSettings(weak_cpu_max_minutes=3, weak_cpu_max_score=8))
+    assert result.events == ()
+    assert [item["reason"] for item in result.rejected] == ["short_weak_single_cpu_signal"]
+
+
+def test_conservative_profile_keeps_sustained_cpu_incident(tmp_path):
+    store = fixture_store(tmp_path, [10] * 5 + [78] * 7 + [10] * 10)
+    result = detect_with_audit(store, DetectorSettings(weak_cpu_max_minutes=3, weak_cpu_max_score=8))
+    assert [(event.start_minute, event.end_minute) for event in result.events] == [(5, 12)]
+
+
+def test_sparse_sample_baseline_recovers_fault_longer_than_healthy_context(tmp_path):
+    cpu = [10] * 5 + [78] * 13 + [10] * 5 + [0] * 17
+    observed = [True] * 23 + [False] * 17
+    store = fixture_store(tmp_path, cpu, observed)
+    events = detect(store)
+    assert [(event.start_minute, event.end_minute) for event in events] == [(5, 18)]
