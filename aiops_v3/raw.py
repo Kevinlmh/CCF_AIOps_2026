@@ -33,6 +33,7 @@ EDGE_FEATURES = [
     for flow in ("dns", "web", "auth", "elephant")
     for metric in ("error_ratio", "latency_p95_seconds", "loss_rate")
 ]
+EDGE_FEATURES += [f"netflow.bytes.protocol_{protocol}" for protocol in (0, 6, 17, 58, 89, 255)]
 LOG_FEATURES = ["frr.bgp.err.count", "frr.ospf.err.count", "frr.other.err.count"]
 SOURCES = ("node", "interface", "routing", "scrape", "netflow", "frr", "traffic")
 
@@ -125,6 +126,12 @@ def build_sample_store(raw_root: Path, destination: Path) -> Path:
         {"source": f"{source}-traffic-vm", "target": f"city:{target}", "relation": "traffic"}
         for source in sorted(cities) for target in sorted(cities)
     ]
+    edges.extend(
+        {"source": f"{city}-{role}", "target": f"interface:{city}-{role}:{interface}", "relation": "netflow"}
+        for city in sorted(cities)
+        for role in ("br-1", "br-2", "cr-1", "cr-2")
+        for interface in ("ens4", "ens5")
+    )
     edge_index = {(edge["source"], edge["target"]): i for i, edge in enumerate(edges)}
     values = {
         "node": np.zeros((minutes, len(nodes), len(NODE_FEATURES)), np.float32),
@@ -135,6 +142,8 @@ def build_sample_store(raw_root: Path, destination: Path) -> Path:
     features = {"node": NODE_FEATURES, "edge": EDGE_FEATURES, "log": LOG_FEATURES}
     feature_index = {kind: {name: i for i, name in enumerate(names)} for kind, names in features.items()}
     source_counts = dict.fromkeys(SOURCES, 0)
+    accepted_rows = dict.fromkeys(SOURCES, 0)
+    rejected_rows = dict.fromkeys(SOURCES, 0)
     rejected = defaultdict(int)
     counters: dict[tuple[str, str], float] = {}
 
@@ -152,17 +161,19 @@ def build_sample_store(raw_root: Path, destination: Path) -> Path:
 
     for path, source in files:
         city = _city(path, cities)
-        if city is None:
-            rejected["unknown_city"] += 1
-            continue
         with path.open(encoding="utf-8-sig", errors="replace", newline="") as handle:
             reader = csv.DictReader(handle)
             for row in reader:
                 source_counts[source] += 1
+                if city is None:
+                    rejected["unknown_city"] += 1
+                    rejected_rows[source] += 1
+                    continue
                 time_field = {"netflow": "minute_utc", "frr": "event_time", "traffic": "timestamp_utc"}.get(source, "timestamp")
                 t = _minute(row.get(time_field), start, minutes)
                 if t is None:
                     rejected["invalid_or_outside_time"] += 1
+                    rejected_rows[source] += 1
                     continue
                 if source == "traffic":
                     source_city = (row.get("source_region") or "").lower()
@@ -171,7 +182,9 @@ def build_sample_store(raw_root: Path, destination: Path) -> Path:
                     flow = (row.get("flow_type") or "").lower()
                     if edge is None or flow not in {"dns", "web", "auth", "elephant"}:
                         rejected["unmapped_traffic"] += 1
+                        rejected_rows[source] += 1
                         continue
+                    accepted_rows[source] += 1
                     identity = row.get("series_key") or f"{source_city}:{target_city}:{flow}"
                     deltas = {}
                     for field in ("requests_total", "error_total"):
@@ -195,7 +208,9 @@ def build_sample_store(raw_root: Path, destination: Path) -> Path:
                 node = node_index.get(f"{city}-{role}") if role else None
                 if node is None:
                     rejected["unmapped_node"] += 1
+                    rejected_rows[source] += 1
                     continue
+                accepted_rows[source] += 1
                 if source == "node":
                     for name in NODE_FEATURES:
                         if name.startswith("node."):
@@ -224,6 +239,11 @@ def build_sample_store(raw_root: Path, destination: Path) -> Path:
                     number = _number(row.get("bytes"))
                     if number is not None:
                         set_cell("node", t, node, "netflow.bytes", number, add=True)
+                        interface = (row.get("interface_id") or "").lower()
+                        protocol = (row.get("protocol") or "").strip()
+                        edge = edge_index.get((f"{city}-{role}", f"interface:{city}-{role}:{interface}"))
+                        if edge is not None and protocol in {"0", "6", "17", "58", "89", "255"}:
+                            set_cell("edge", t, edge, f"netflow.bytes.protocol_{protocol}", number, add=True)
                 elif source == "frr":
                     severity = (row.get("severity") or "").lower()
                     code = (row.get("severity_code") or "").strip()
@@ -243,7 +263,8 @@ def build_sample_store(raw_root: Path, destination: Path) -> Path:
         "end_time": end.isoformat().replace("+00:00", "Z"), "minute_count": minutes,
         "entities": {"nodes": nodes, "edges": edges}, "features": features,
         "shapes": {kind: list(array.shape) for kind, array in values.items()},
-        "source_counts": source_counts, "rejected_rows": dict(rejected),
+        "source_counts": source_counts, "accepted_rows_by_source": accepted_rows,
+        "rejected_rows_by_source": rejected_rows, "rejected_rows": dict(rejected),
         "source_files": [str(path) for path, _ in files],
     }
     (destination / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2))

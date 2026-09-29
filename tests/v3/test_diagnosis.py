@@ -41,6 +41,16 @@ def test_stronger_memory_anchor_beats_weaker_disk_anchor():
     assert diagnose_rules(pack, load_contract()).category == ("resource", "memory_pressure")
 
 
+def test_weaker_duplicate_cannot_erase_strong_disk_anchor():
+    event = Event("v3-e000006", 5, 8, (
+        signal("xian-service-vm-1", "disk_io_pressure", 10, "node.disk_io_util", "strong"),
+        signal("xian-service-vm-1", "cpu_pressure", 6, "node.cpu_usage", "cpu"),
+        signal("xian-service-vm-1", "disk_io_pressure", 1, "node.disk_io_util", "weak"),
+    ))
+    pack = build_evidence(TinyStore(), event, load_contract())
+    assert diagnose_rules(pack, load_contract()).category == ("resource", "disk_io_pressure")
+
+
 def test_disk_anchor_prefers_disk_category_and_nonlegal_symptom_is_not_root():
     event = Event("v3-e000002", 5, 8, (
         signal("wuhan-service-vm-2", "cpu_pressure", 20, "node.cpu_usage", "cpu"),

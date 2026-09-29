@@ -19,7 +19,7 @@ def test_seven_sources_build_masked_store_and_counter_reset(tmp_path):
     write_csv(root / "interface_metrics.csv", [{"timestamp": t1, "node": "br-1", "rx_error_rate": "1"}])
     write_csv(root / "routing_metrics.csv", [{"timestamp": t1, "node": "br-1", "metric_name": "bgp_peer_up", "value": "0"}])
     write_csv(root / "scrape_health.csv", [{"timestamp": t1, "node": "br-1", "scrape_up": "1"}])
-    write_csv(root / "netflow_5tuple_minute_readable.csv", [{"minute_utc": t1, "node_key": "br1", "bytes": "100"}])
+    write_csv(root / "netflow_5tuple_minute_readable.csv", [{"minute_utc": t1, "node_key": "br1", "interface_id": "ens4", "protocol": "6", "bytes": "100"}])
     write_csv(root / "frr_syslog_events.csv", [{"event_time": t1, "hostname": "br-1", "severity": "error", "message": "BGP peer down"}])
     write_csv(root / "traffic_flow_metrics.csv", [
         {"timestamp_utc": t1, "series_key": "a", "flow_type": "dns", "source_region": "xian", "target_region": "beida", "dns_flow_requests_total": "10", "dns_flow_error_total": "2"},
@@ -30,6 +30,8 @@ def test_seven_sources_build_masked_store_and_counter_reset(tmp_path):
     node = store.nodes.index("xian-br-1")
     assert store.observed_node(1, node, "node.cpu_usage") == 30
     assert store.observed_node(1, node, "netflow.bytes") == 100
+    netflow_edge = store.edges.index({"source": "xian-br-1", "target": "interface:xian-br-1:ens4", "relation": "netflow"})
+    assert store.edge_values[1, netflow_edge, store.feature_index("edge", "netflow.bytes.protocol_6")] == 100
     assert store.observed_node(0, node, "node.cpu_usage") is None
     edge = store.edges.index({"source": "xian-traffic-vm", "target": "city:beida", "relation": "traffic"})
     feature = store.feature_index("edge", "traffic.dns.error_ratio")
@@ -55,3 +57,15 @@ def test_any_down_bgp_peer_is_retained_within_one_minute(tmp_path):
     ])
     store = open_store(build_sample_store(tmp_path, tmp_path / "out"))
     assert store.observed_node(1, store.nodes.index("xian-br-1"), "routing.bgp_peer_up") == 0
+
+
+def test_raw_manifest_accounts_for_every_row_including_unmapped_probe(tmp_path):
+    root = tmp_path / "case_001" / "20260728040000_20260728040400" / "xian_20260728040000_20260728040400" / "processed"
+    write_csv(root / "node_metrics.csv", [
+        {"timestamp": "2026-07-28 04:01:00", "node": "br-1", "cpu_usage": "10"},
+        {"timestamp": "2026-07-28 04:02:00", "node": "probe-vm", "cpu_usage": "10"},
+    ])
+    manifest = open_store(build_sample_store(tmp_path, tmp_path / "out")).manifest
+    assert manifest["source_counts"]["node"] == 2
+    assert manifest["accepted_rows_by_source"]["node"] == 1
+    assert manifest["rejected_rows_by_source"]["node"] == 1

@@ -33,8 +33,8 @@ def choose_diagnosis(
 ) -> tuple[Diagnosis, str | None]:
     if response is None:
         return rules, "missing_llm_response"
-    allowed = {"event_id", "root_cause_top5", "fault_category", "evidence_ids", "model"}
-    if not isinstance(response, dict) or not {"event_id", "root_cause_top5", "fault_category", "evidence_ids"} <= set(response) or set(response) - allowed:
+    allowed = {"event_id", "evidence_sha256", "root_cause_top5", "fault_category", "evidence_ids", "model"}
+    if not isinstance(response, dict) or not {"event_id", "evidence_sha256", "root_cause_top5", "fault_category", "evidence_ids"} <= set(response) or set(response) - allowed:
         return rules, "invalid_llm_response"
     roots = response["root_cause_top5"]
     category = response["fault_category"]
@@ -43,6 +43,7 @@ def choose_diagnosis(
     available_ids = {item.evidence_id for item in pack.signals}
     if (
         response["event_id"] != pack.event_id
+        or response["evidence_sha256"] != pack.sha256()
         or not isinstance(roots, list) or len(roots) != 5
         or any(not isinstance(root, str) or root not in candidates for root in roots)
         or len(set(roots)) != 5

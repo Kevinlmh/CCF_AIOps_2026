@@ -38,6 +38,12 @@ def test_unobserved_high_value_never_opens_event(tmp_path):
     assert detect(store, DetectorSettings()) == []
 
 
+def test_long_single_node_episode_is_split_to_legal_windows(tmp_path):
+    store = fixture_store(tmp_path, [10] * 5 + [78] * 38 + [10] * 40)
+    events = detect(store)
+    assert [(event.start_minute, event.end_minute) for event in events] == [(5, 35), (35, 43)]
+
+
 def test_subsecond_service_latency_without_direct_fault_does_not_open_event(tmp_path):
     count = 14
     manifest = {
@@ -55,3 +61,44 @@ def test_subsecond_service_latency_without_direct_fault_does_not_open_event(tmp_
         np.save(tmp_path / f"{kind}_values.npy", values)
         np.save(tmp_path / f"{kind}_mask.npy", np.ones_like(values, bool))
     assert detect(open_store(tmp_path), DetectorSettings()) == []
+
+
+def test_adjacent_faults_on_distinct_nodes_remain_separate(tmp_path):
+    count = 48
+    values = np.full((count, 2, 1), 10, np.float32)
+    values[5:24, 0, 0] = 78
+    values[24:43, 1, 0] = 78
+    manifest = {
+        "start_time": "2026-07-28T12:00:00Z", "minute_count": count,
+        "entities": {"nodes": ["xian-service-vm-1", "xian-service-vm-2"], "edges": []},
+        "features": {"node": ["node.cpu_usage"], "edge": [], "log": []},
+        "shapes": {"node": [count, 2, 1], "edge": [count, 0, 0], "log": [count, 2, 0]},
+    }
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    for kind, array in (("node", values), ("edge", np.zeros((count, 0, 0))), ("log", np.zeros((count, 2, 0)))):
+        np.save(tmp_path / f"{kind}_values.npy", array)
+        np.save(tmp_path / f"{kind}_mask.npy", np.ones_like(array, bool))
+    events = detect(open_store(tmp_path))
+    assert [(event.start_minute, event.end_minute, event.signals[0].node) for event in events] == [
+        (5, 24, "xian-service-vm-1"), (24, 43, "xian-service-vm-2"),
+    ]
+
+
+def test_weaker_monitor_signal_inside_service_fault_is_deduplicated(tmp_path):
+    count = 20
+    values = np.full((count, 2, 1), 10, np.float32)
+    values[5:13, 0, 0] = 80
+    values[7:11, 1, 0] = 50
+    manifest = {
+        "start_time": "2026-07-28T12:00:00Z", "minute_count": count,
+        "entities": {"nodes": ["xian-service-vm-1", "xian-monitor-vm"], "edges": []},
+        "features": {"node": ["node.cpu_usage"], "edge": [], "log": []},
+        "shapes": {"node": [count, 2, 1], "edge": [count, 0, 0], "log": [count, 2, 0]},
+    }
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    for kind, array in (("node", values), ("edge", np.zeros((count, 0, 0))), ("log", np.zeros((count, 2, 0)))):
+        np.save(tmp_path / f"{kind}_values.npy", array)
+        np.save(tmp_path / f"{kind}_mask.npy", np.ones_like(array, bool))
+    events = detect(open_store(tmp_path))
+    assert len(events) == 1
+    assert events[0].signals[0].node == "xian-service-vm-1"

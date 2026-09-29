@@ -101,9 +101,43 @@ def _supported(score: np.ndarray, threshold: float, immediate: bool) -> np.ndarr
     return active & (previous | following)
 
 
+def _groups(active: np.ndarray, settings: DetectorSettings) -> list[tuple[int, int]]:
+    positions = np.flatnonzero(active)
+    if not len(positions):
+        return []
+    spans: list[tuple[int, int]] = []
+    begin = previous = int(positions[0])
+    for position in positions[1:]:
+        current = int(position)
+        if current - previous > settings.merge_gap_minutes + 1:
+            spans.append((begin, previous + 1))
+            begin = current
+        previous = current
+    spans.append((begin, previous + 1))
+    return [
+        (part, min(end, part + settings.max_event_minutes))
+        for start, end in spans
+        for part in range(start, end, settings.max_event_minutes)
+    ]
+
+
+def _target_city(target: str) -> str | None:
+    if target.startswith("city:"):
+        return target.split(":", 1)[1]
+    if target.startswith("service-group:"):
+        return target.split(":")[1]
+    return target.split("-", 1)[0] if "-" in target else None
+
+
 def detect_with_audit(store: FeatureStore, settings: DetectorSettings = DetectorSettings()) -> DetectionResult:
     count = store.manifest["minute_count"]
-    global_active = np.zeros(count, bool)
+    direct_active = np.zeros((count, len(store.nodes)), bool)
+    symptom_active: dict[str, np.ndarray] = {}
+    target_edges: dict[str, list[int]] = {}
+    for index, edge in enumerate(store.edges):
+        if edge.get("relation") == "traffic":
+            target_edges.setdefault(edge["target"], []).append(index)
+            symptom_active.setdefault(edge["target"], np.zeros(count, bool))
     scored: list[tuple[_Rule, np.ndarray, np.ndarray, str]] = []
     for rule in _NODE_RULES:
         column = store.feature_index("node", rule.feature)
@@ -114,7 +148,7 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
         score, center = _scores(data, mask, rule)
         active = _supported(score, settings.score_threshold, rule.immediate)
         score = np.where(active, score, 0)
-        global_active |= active.any(axis=1)
+        direct_active |= active
         scored.append((rule, score, center, "node"))
     for name in store.manifest["features"]["edge"]:
         if not name.startswith("traffic.") or not name.endswith((".error_ratio", ".loss_rate", ".latency_p95_seconds")):
@@ -130,41 +164,43 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
         if name.endswith("latency_p95_seconds"):
             # Periodic subsecond latency oscillations are common. A standalone
             # latency event needs a severe value observed by two probes.
-            by_target: dict[str, list[int]] = {}
-            for index, edge in enumerate(store.edges):
-                if edge.get("relation") == "traffic":
-                    by_target.setdefault(edge["target"], []).append(index)
-            for indexes in by_target.values():
-                global_active |= ((active[:, indexes] & (data[:, indexes] >= 1.0)).sum(axis=1) >= 2)
+            for target, indexes in target_edges.items():
+                symptom_active[target] |= ((active[:, indexes] & (data[:, indexes] >= 1.0)).sum(axis=1) >= 2)
         else:
-            global_active |= active.any(axis=1)
+            for target, indexes in target_edges.items():
+                symptom_active[target] |= active[:, indexes].any(axis=1)
         scored.append((rule, score, center, "edge"))
 
-    positions = np.flatnonzero(global_active)
-    if not len(positions):
-        return DetectionResult((), ())
-    groups: list[tuple[int, int]] = []
-    begin = previous = int(positions[0])
-    for position in positions[1:]:
-        current = int(position)
-        if current - previous > settings.merge_gap_minutes + 1:
-            groups.append((begin, previous + 1))
-            begin = current
-        previous = current
-    groups.append((begin, previous + 1))
-
+    anchors: list[tuple[int, int, str, int | str]] = []
+    for entity in range(len(store.nodes)):
+        anchors.extend((start, end, "node", entity) for start, end in _groups(direct_active[:, entity], settings))
+    for target, active in symptom_active.items():
+        uncovered = active.copy()
+        city = _target_city(target)
+        if city:
+            for start, end, kind, entity in anchors:
+                if kind == "node" and store.nodes[int(entity)].startswith(city + "-"):
+                    uncovered[start:end] = False
+        anchors.extend((start, end, "edge", target) for start, end in _groups(uncovered, settings) if end - start >= 2)
+    anchors.sort(key=lambda item: (item[0], item[1], item[2], str(item[3])))
     events: list[Event] = []
     rejected: list[dict] = []
-    for start, end in groups:
-        if end - start > settings.max_event_minutes:
-            rejected.append({"start_minute": start, "end_minute": end, "reason": "duration_over_30_minutes"})
-            continue
+    for start, end, anchor_kind, anchor_entity in anchors:
         signals: list[Signal] = []
         for rule, score, center, kind in scored:
             window = score[start:end]
             if not np.any(window):
                 continue
-            for entity in np.flatnonzero(np.max(window, axis=0) > 0):
+            if kind == "node":
+                entities = [int(anchor_entity)] if anchor_kind == "node" else []
+            elif anchor_kind == "edge":
+                entities = target_edges[str(anchor_entity)]
+            else:
+                city = store.nodes[int(anchor_entity)].split("-", 1)[0]
+                entities = [index for target, indexes in target_edges.items() if _target_city(target) == city for index in indexes]
+            for entity in entities:
+                if not np.any(window[:, entity]):
+                    continue
                 offset = int(np.argmax(window[:, entity]))
                 minute = start + offset
                 value = float((store.node_values if kind == "node" else store.edge_values)[minute, entity, store.feature_index(kind, rule.feature)])
@@ -179,7 +215,28 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
             rejected.append({"start_minute": start, "end_minute": end, "reason": "no_valid_signal"})
             continue
         events.append(Event(f"v3-e{len(events) + 1:06d}", start, end, tuple(signals[:settings.max_signals_per_event])))
-    return DetectionResult(tuple(events), tuple(rejected))
+    retained: list[Event] = []
+    for event in events:
+        monitor = next((item for item in event.signals if item.role == "direct" and item.node.endswith("-monitor-vm")), None)
+        if monitor is not None:
+            city = monitor.node.split("-", 1)[0]
+            related = any(
+                other is not event
+                and other.start_minute <= event.start_minute
+                and min(event.end_minute, other.end_minute) - max(event.start_minute, other.start_minute) >= (event.end_minute - event.start_minute) / 2
+                and any(
+                    signal.role == "direct" and signal.node.startswith(city + "-service-vm-")
+                    and signal.category == monitor.category and signal.score > monitor.score
+                    for signal in other.signals
+                )
+                for other in events
+            )
+            if related:
+                rejected.append({"start_minute": event.start_minute, "end_minute": event.end_minute,
+                                 "reason": "correlated_weaker_monitor_signal", "node": monitor.node})
+                continue
+        retained.append(Event(f"v3-e{len(retained) + 1:06d}", event.start_minute, event.end_minute, event.signals))
+    return DetectionResult(tuple(retained), tuple(rejected))
 
 
 def detect(store: FeatureStore, settings: DetectorSettings = DetectorSettings()) -> list[Event]:

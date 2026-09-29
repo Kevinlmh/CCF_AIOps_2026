@@ -30,6 +30,14 @@ def _write_jsonl(path: Path, records: list[dict]) -> None:
             handle.write(json.dumps(record, ensure_ascii=False, allow_nan=False, sort_keys=True) + "\n")
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def run(
     input_store: Path,
     output_dir: Path,
@@ -61,7 +69,7 @@ def run(
         else:
             diagnosis, reason = rules, None
         predictions.append(prediction_record(pack, diagnosis, contract))
-        evidence.append(asdict(pack))
+        evidence.append({**asdict(pack), "evidence_sha256": pack.sha256()})
         audit.append({
             "event_id": event.event_id,
             "diagnosis_source": diagnosis.source,
@@ -76,11 +84,25 @@ def run(
     _write_jsonl(output_dir / "evidence.jsonl", evidence)
     _write_jsonl(output_dir / "audit.jsonl", audit)
     manifest_bytes = (Path(input_store) / "manifest.json").read_bytes()
+    package_dir = Path(__file__).parent
     summary = {
         "format_version": 1,
         "mode": mode,
         "input_store": str(input_store),
         "input_manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+        "input_array_sha256": {
+            f"{kind}_{item}": _sha256(Path(input_store) / f"{kind}_{item}.npy")
+            for kind in ("node", "edge", "log") for item in ("values", "mask")
+        },
+        "llm_responses_sha256": _sha256(llm_responses) if llm_responses else None,
+        "code_sha256": {
+            str(path.relative_to(package_dir)): _sha256(path)
+            for path in sorted((*package_dir.glob("*.py"), *package_dir.glob("config/*.json")))
+        },
+        "output_sha256": {
+            name: _sha256(output_dir / name)
+            for name in ("predictions.jsonl", "evidence.jsonl", "audit.jsonl")
+        },
         "source_counts": store.manifest.get("source_counts", {}),
         "detector_settings": asdict(settings),
         "event_count": len(predictions),

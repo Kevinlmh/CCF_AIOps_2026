@@ -97,3 +97,12 @@
 - [x] Write exact-match and false-positive scoring tests and observe missing-module failure.
 - [x] Implement published Dice matching and 40/40/10/10 formula.
 - [x] Compare public sample report with the original evaluator; both report 96.011111/100.
+
+### Task 8: Final review fixes and handoff
+
+- [x] Keep independent device episodes separate, split long episodes to legal windows, and deduplicate a weaker monitor signal covered by a service fault.
+- [x] Preserve the strongest category evidence when several signals share a label.
+- [x] Permit distinct concurrent predictions when merging batches; reject exact duplicates.
+- [x] Include per-source row conservation and interface/protocol NetFlow features in the raw builder.
+- [x] Bind server responses to the full evidence pack hash and record input arrays, code, responses and output hashes.
+- [x] Recheck public examples, first-batch schema, and all tests; document missing raw-row lineage and second-batch validation.

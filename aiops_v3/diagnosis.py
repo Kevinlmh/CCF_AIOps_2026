@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+import hashlib
+import json
 
 import numpy as np
 
@@ -25,6 +27,10 @@ class EvidencePack:
     end_time: str
     signals: tuple[Signal, ...]
     candidates: tuple[Candidate, ...]
+
+    def sha256(self) -> str:
+        payload = json.dumps(asdict(self), ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -133,7 +139,9 @@ def build_evidence(store, event: Event, contract: OfficialContract) -> EvidenceP
 
 
 def _category(signals: list[Signal], root: str, contract: OfficialContract) -> tuple[str, str]:
-    scores = {item.category: max(item.score, 0) for item in signals}
+    scores: dict[str, float] = {}
+    for item in signals:
+        scores[item.category] = max(scores.get(item.category, 0), item.score)
     specific = [
         (label, scores[label])
         for label, threshold in (("disk_io_pressure", 5), ("memory_pressure", 4), ("disk_space_low", 4))

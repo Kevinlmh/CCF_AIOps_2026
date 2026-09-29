@@ -17,6 +17,7 @@ def merge_predictions(inputs: list[Path], output: Path) -> int:
         raise FileExistsError(output)
     contract = load_contract()
     rows: list[dict] = []
+    seen_events: set[tuple] = set()
     for batch, path in enumerate(inputs, 1):
         for line_number, line in enumerate(Path(path).read_text().splitlines(), 1):
             if not line.strip():
@@ -26,12 +27,17 @@ def merge_predictions(inputs: list[Path], output: Path) -> int:
                 validate_prediction(item, contract)
             except (json.JSONDecodeError, ValueError) as exc:
                 raise ValueError(f"{path}:{line_number}: {exc}") from exc
+            signature = (
+                parse_time(item["start_time"]), parse_time(item["end_time"]),
+                tuple(root["network_element_id"] for root in item["root_cause_top5"]),
+                item["fault_category"]["major_category"], item["fault_category"]["sub_category"],
+            )
+            if signature in seen_events:
+                raise ValueError(f"duplicate prediction across inputs: {path}:{line_number}")
+            seen_events.add(signature)
             item["prediction_id"] = f"v3-b{batch}-{item['prediction_id']}"
             rows.append(item)
     rows.sort(key=lambda item: parse_time(item["start_time"]))
-    for previous, current in zip(rows, rows[1:]):
-        if parse_time(current["start_time"]) < parse_time(previous["end_time"]):
-            raise ValueError(f"overlap between {previous['prediction_id']} and {current['prediction_id']}")
     if len({item["prediction_id"] for item in rows}) != len(rows):
         raise ValueError("duplicate merged prediction_id")
     output.parent.mkdir(parents=True, exist_ok=True)
