@@ -32,6 +32,15 @@ def test_specific_memory_cause_beats_cpu_cosymptom_for_same_root():
     assert {"ev-cpu", "ev-mem"} <= set(result.evidence_ids)
 
 
+def test_stronger_memory_anchor_beats_weaker_disk_anchor():
+    event = Event("v3-e000005", 5, 8, (
+        signal("guangzhou-service-vm-3", "memory_pressure", 10, "node.memory_available_ratio", "mem"),
+        signal("guangzhou-service-vm-3", "disk_io_pressure", 5.5, "node.disk_io_util", "disk"),
+    ))
+    pack = build_evidence(TinyStore(), event, load_contract())
+    assert diagnose_rules(pack, load_contract()).category == ("resource", "memory_pressure")
+
+
 def test_disk_anchor_prefers_disk_category_and_nonlegal_symptom_is_not_root():
     event = Event("v3-e000002", 5, 8, (
         signal("wuhan-service-vm-2", "cpu_pressure", 20, "node.cpu_usage", "cpu"),

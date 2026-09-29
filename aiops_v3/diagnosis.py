@@ -134,11 +134,13 @@ def build_evidence(store, event: Event, contract: OfficialContract) -> EvidenceP
 
 def _category(signals: list[Signal], root: str, contract: OfficialContract) -> tuple[str, str]:
     scores = {item.category: max(item.score, 0) for item in signals}
-    for label in ("disk_io_pressure", "memory_pressure", "disk_space_low"):
-        if scores.get(label, 0) >= (5 if label == "disk_io_pressure" else 4):
-            pair = ("resource", label)
-            if pair in contract.categories:
-                return pair
+    specific = [
+        (label, scores[label])
+        for label, threshold in (("disk_io_pressure", 5), ("memory_pressure", 4), ("disk_space_low", 4))
+        if scores.get(label, 0) >= threshold and ("resource", label) in contract.categories
+    ]
+    if specific:
+        return ("resource", max(specific, key=lambda item: item[1])[0])
     ordered = sorted(signals, key=lambda item: -item.score)
     for signal in ordered:
         mapping = {
