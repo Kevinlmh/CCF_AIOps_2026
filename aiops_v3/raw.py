@@ -82,7 +82,7 @@ def _city(path: Path, cities: set[str]) -> str | None:
 
 def _window(path: Path) -> tuple[datetime, datetime]:
     for part in path.parts:
-        match = re.fullmatch(r"(\d{14})_(\d{14})", part)
+        match = re.search(r"(\d{14})_(\d{14})", part)
         if match:
             return tuple(datetime.strptime(value, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc) for value in match.groups())
     raise ValueError(f"no time window in {path}")
@@ -104,7 +104,10 @@ def _minute(value: str | None, start: datetime, count: int) -> int | None:
 def build_sample_store(raw_root: Path, destination: Path) -> Path:
     """Project raw CSVs into a small v3 store, with missing cells masked."""
     raw_root, destination = Path(raw_root), Path(destination)
-    files = [(path, _source(path)) for path in sorted(raw_root.rglob("*.csv")) if path.parent.name == "processed"]
+    files = [
+        (path, _source(path)) for path in sorted(raw_root.rglob("*.csv"))
+        if path.parent.name == "processed" or path.parent.name.endswith("_data")
+    ]
     files = [(path, source) for path, source in files if source]
     if not files:
         raise ValueError(f"no processed telemetry CSVs under {raw_root}")

@@ -36,3 +36,12 @@ def test_seven_sources_build_masked_store_and_counter_reset(tmp_path):
     assert store.edge_mask[2, edge, feature]
     assert abs(store.edge_values[2, edge, feature] - 0.2) < 1e-6
     assert set(store.manifest["source_counts"]) == {"node", "interface", "routing", "scrape", "netflow", "frr", "traffic"}
+
+
+def test_stage_one_region_data_layout_is_discovered(tmp_path):
+    root = tmp_path / "regions" / "xian_20260819040000_20260819040400" / "xian_20260819040000_20260819040400_data"
+    write_csv(root / "node_metrics_20260819040000_20260819040400.csv", [
+        {"timestamp": "2026-08-19 04:01:00", "node": "br-1", "cpu_usage": "51"},
+    ])
+    store = open_store(build_sample_store(tmp_path, tmp_path / "out"))
+    assert store.observed_node(1, store.nodes.index("xian-br-1"), "node.cpu_usage") == 51

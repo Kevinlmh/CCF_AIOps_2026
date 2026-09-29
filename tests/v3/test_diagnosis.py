@@ -48,3 +48,11 @@ def test_unmapped_remote_symptom_does_not_outrank_local_context():
     ))
     pack = build_evidence(TinyStore(), event, load_contract())
     assert pack.candidates[1].node.startswith("xian-")
+
+
+def test_service_group_target_city_is_used_for_candidate_retrieval():
+    event = Event("v3-e000004", 5, 8, (
+        Signal("ev-service", 6, "service-group:wuhan:auth", "traffic.auth.error_ratio", "auth", .7, .01, 8, "symptom"),
+    ))
+    pack = build_evidence(TinyStore(), event, load_contract())
+    assert pack.candidates[0].node.startswith("wuhan-")

@@ -127,7 +127,17 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
         score, center = _scores(data, mask, rule)
         active = _supported(score, settings.score_threshold, False)
         score = np.where(active, score, 0)
-        global_active |= active.any(axis=1)
+        if name.endswith("latency_p95_seconds"):
+            # Periodic subsecond latency oscillations are common. A standalone
+            # latency event needs a severe value observed by two probes.
+            by_target: dict[str, list[int]] = {}
+            for index, edge in enumerate(store.edges):
+                if edge.get("relation") == "traffic":
+                    by_target.setdefault(edge["target"], []).append(index)
+            for indexes in by_target.values():
+                global_active |= ((active[:, indexes] & (data[:, indexes] >= 1.0)).sum(axis=1) >= 2)
+        else:
+            global_active |= active.any(axis=1)
         scored.append((rule, score, center, "edge"))
 
     positions = np.flatnonzero(global_active)

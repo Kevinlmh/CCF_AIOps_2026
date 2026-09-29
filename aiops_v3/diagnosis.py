@@ -36,6 +36,9 @@ class Diagnosis:
 def _city(node: str) -> str | None:
     if node.startswith("city:"):
         return node.split(":", 1)[1]
+    if node.startswith("service-group:"):
+        parts = node.split(":")
+        return parts[1] if len(parts) >= 3 else None
     return node.split("-", 1)[0] if "-" in node else None
 
 
