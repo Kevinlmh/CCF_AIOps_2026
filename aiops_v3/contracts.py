@@ -57,6 +57,8 @@ def validate_prediction(record: dict, contract: OfficialContract) -> None:
     start, end = parse_time(record["start_time"]), parse_time(record["end_time"])
     if end <= start:
         raise ContractError("end_time must follow start_time")
+    if (end - start).total_seconds() > 30 * 60:
+        raise ContractError("event duration cannot exceed 30 minutes")
     roots = record["root_cause_top5"]
     if not isinstance(roots, list) or len(roots) != 5:
         raise ContractError("exactly five root candidates required")

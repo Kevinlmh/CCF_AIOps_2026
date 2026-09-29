@@ -1,6 +1,6 @@
 # v3 Mac Deterministic Pipeline Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 在 Mac 上完成无需 LLM 权重的七源特征输入、事件检测、证据追踪、根因 Top-5、官方分类、合法提交及可选服务器诊断结果导入。
 
@@ -34,9 +34,9 @@
 
 **Interfaces:** `load_contract() -> OfficialContract`；`validate_prediction(record, contract) -> None`；`parse_time(str) -> datetime`。
 
-- [ ] 写合法与非法 Top-5、类别、时间测试并确认先失败。
-- [ ] 复制官方静态配置到 v3 包，实作严格校验与时间解析。
-- [ ] 运行 `pytest -q tests/v3/test_contracts.py`，确认通过后提交。
+- [x] 写合法与非法 Top-5、类别、时间测试并确认先失败。
+- [x] 复制官方静态配置到 v3 包，实作严格校验与时间解析。
+- [x] 运行 `pytest -q tests/v3/test_contracts.py`，确认通过后提交。
 
 ### Task 2: 七源特征输入及轻量样例构建
 
@@ -44,9 +44,9 @@
 
 **Interfaces:** `open_store(path: Path) -> FeatureStore`；`build_sample_store(raw_root: Path, destination: Path) -> Path`；`FeatureStore` 提供 `manifest`、`node_values/mask`、`edge_values/mask`、`log_values/mask`。
 
-- [ ] 写内存映射读取、形状/清单不一致、缺失掩码和七源样例文件识别测试并确认先失败。
-- [ ] 实作对已有特征库的只读适配；样例原始构建仅写必要特征且逐文件审计，保留计数器复位与观测状态。
-- [ ] 运行任务测试并在公开样例上构建一次，核对七源行数和合理体积后提交。
+- [x] 写内存映射读取、形状/清单不一致、缺失掩码和七源样例文件识别测试并确认先失败。
+- [x] 实作对已有特征库的只读适配；样例原始构建仅写必要特征且逐文件审计，保留计数器复位与观测状态。
+- [x] 运行任务测试并在公开样例上构建一次，核对七源行数和合理体积后提交。
 
 ### Task 3: 可追溯事件检测
 
@@ -54,9 +54,9 @@
 
 **Interfaces:** `detect(store: FeatureStore, settings: DetectorSettings) -> list[Event]`，每个 `Event` 含时间边界与证据 ID。
 
-- [ ] 写持续突变、缺失值、同源去重、跨实体症状和边界测试并确认先失败。
-- [ ] 实作节点直接证据、业务质量症状、FRR/NetFlow 辅助分量和时间合并；记录拒绝原因。
-- [ ] 运行任务测试并在公开样例上核对事件时间覆盖，提交。
+- [x] 写持续突变、缺失值、同源去重、跨实体症状和边界测试并确认先失败。
+- [x] 实作节点直接证据、业务质量症状、FRR/NetFlow 辅助分量和时间合并；记录拒绝原因。
+- [x] 运行任务测试并在公开样例上核对事件时间覆盖，提交。
 
 ### Task 4: 根因候选、规则分类与证据包
 
@@ -64,9 +64,9 @@
 
 **Interfaces:** `build_evidence(store, event) -> EvidencePack`；`diagnose_rules(pack, contract) -> Diagnosis`。
 
-- [ ] 写合法候选、直接证据优先、症状不冒充根因、资源/链路/路由/服务类别组合测试并确认先失败。
-- [ ] 实作 8–12 候选的有依据召回、Top-5 排序、官方分类与证据 ID；所有假设性拓扑关系明确标注未知。
-- [ ] 运行任务测试和公开三例回归，提交。
+- [x] 写合法候选、直接证据优先、症状不冒充根因、资源/链路/路由/服务类别组合测试并确认先失败。
+- [x] 实作 8–12 候选的有依据召回、Top-5 排序、官方分类与证据 ID；所有假设性拓扑关系明确标注未知。
+- [x] 运行任务测试和公开三例回归，提交。
 
 ### Task 5: 可选服务器响应、输出与运行审计
 
@@ -74,9 +74,9 @@
 
 **Interfaces:** `load_diagnoses(path) -> dict[str, dict]`；`choose_diagnosis(event, rules, response, pack, contract) -> Diagnosis`；`run(input_store, output_dir, mode='rules', llm_responses=None) -> RunSummary`。
 
-- [ ] 写默认无 LLM、合法服务器响应、非法响应回退、JSONL 规范和运行审计测试并确认先失败。
-- [ ] 实作 `rules`/`llm-jsonl` 两种模式、证据包导出、官方预测 JSONL、机器审计和输入版本清单。
-- [ ] 运行任务测试、全套测试、公开样例及第一批现有特征库干跑；核对产物大小和合法性，提交。
+- [x] 写默认无 LLM、合法服务器响应、非法响应回退、JSONL 规范和运行审计测试并确认先失败。
+- [x] 实作 `rules`/`llm-jsonl` 两种模式、证据包导出、官方预测 JSONL、机器审计和输入版本清单。
+- [x] 运行任务测试、全套测试、公开样例及第一批现有特征库干跑；核对产物大小和合法性，提交。
 
 ### Task 6: 使用说明和服务器交接
 
@@ -84,6 +84,16 @@
 
 **Interfaces:** CLI 输入输出示例、服务器诊断 JSONL 模板、模型版本记录字段。
 
-- [ ] 写明 Mac 无权重运行、七源输入、公开样例和第一批命令、第二批接入方式、官方校验与已知限制。
-- [ ] 创建 v3 专属忽略规则保护本机数据与模型权重。
-- [ ] 核对文档命令可执行、`git status` 不出现原始数据、最终提交。
+- [x] 写明 Mac 无权重运行、七源输入、公开样例和第一批命令、第二批接入方式、官方校验与已知限制。
+- [x] 创建 v3 专属忽略规则保护本机数据与模型权重。
+- [x] 核对文档命令可执行、`git status` 不出现原始数据、最终提交。
+
+### Task 7: Local public evaluator
+
+**Files:** `aiops_v3/evaluation.py`, `tests/v3/test_evaluation.py`.
+
+**Interfaces:** `evaluate_records(truths, predictions) -> dict` and `python -m aiops_v3.evaluation`.
+
+- [x] Write exact-match and false-positive scoring tests and observe missing-module failure.
+- [x] Implement published Dice matching and 40/40/10/10 formula.
+- [x] Compare public sample report with the original evaluator; both report 96.011111/100.

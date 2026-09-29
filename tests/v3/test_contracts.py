@@ -29,7 +29,7 @@ def test_official_contract_accepts_five_unique_nodes_and_category():
     assert parse_time("2026-07-28T12:39:00Z").tzinfo == timezone.utc
 
 
-@pytest.mark.parametrize("change", ["duplicate", "rank", "category", "naive", "end"])
+@pytest.mark.parametrize("change", ["duplicate", "rank", "category", "naive", "end", "too_long"])
 def test_invalid_public_prediction_is_rejected(change):
     record = valid_record()
     if change == "duplicate":
@@ -40,6 +40,8 @@ def test_invalid_public_prediction_is_rejected(change):
         record["fault_category"]["sub_category"] = "invented"
     elif change == "naive":
         record["start_time"] = "2026-07-28T12:39:00"
+    elif change == "too_long":
+        record["end_time"] = "2026-07-28T13:11:00Z"
     else:
         record["end_time"] = "2026-07-28T12:38:00Z"
     with pytest.raises(ContractError):

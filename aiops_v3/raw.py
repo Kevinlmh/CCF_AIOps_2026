@@ -138,12 +138,14 @@ def build_sample_store(raw_root: Path, destination: Path) -> Path:
     rejected = defaultdict(int)
     counters: dict[tuple[str, str], float] = {}
 
-    def set_cell(kind: str, t: int, entity: int, name: str, value: float, *, add: bool = False) -> None:
+    def set_cell(kind: str, t: int, entity: int, name: str, value: float, *, add: bool = False, minimum: bool = False) -> None:
         column = feature_index[kind].get(name)
         if column is None:
             return
         if add and masks[kind][t, entity, column]:
             values[kind][t, entity, column] += value
+        elif minimum and masks[kind][t, entity, column]:
+            values[kind][t, entity, column] = min(values[kind][t, entity, column], value)
         elif not masks[kind][t, entity, column] or value > values[kind][t, entity, column]:
             values[kind][t, entity, column] = value
         masks[kind][t, entity, column] = True
@@ -209,11 +211,15 @@ def build_sample_store(raw_root: Path, destination: Path) -> Path:
                 elif source == "routing":
                     number = _number(row.get("value"))
                     if number is not None:
-                        set_cell("node", t, node, f"routing.{row.get('metric_name', '').lower()}", number)
+                        name = f"routing.{row.get('metric_name', '').lower()}"
+                        set_cell("node", t, node, name, number, minimum=name in {
+                            "routing.bgp_peer_up", "routing.bgp_command_success",
+                            "routing.ipv6_route_exists", "routing.ospf6_neighbor_state_code",
+                        })
                 elif source == "scrape":
                     number = _number(row.get("scrape_up"))
                     if number is not None:
-                        set_cell("node", t, node, "scrape.scrape_up", number)
+                        set_cell("node", t, node, "scrape.scrape_up", number, minimum=True)
                 elif source == "netflow":
                     number = _number(row.get("bytes"))
                     if number is not None:

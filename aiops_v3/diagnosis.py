@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
+
 from .contracts import OfficialContract
 from .detection import Event, Signal
 
@@ -43,6 +45,7 @@ def _city(node: str) -> str | None:
 
 
 def build_evidence(store, event: Event, contract: OfficialContract) -> EvidencePack:
+    signals = list(event.signals)
     direct: dict[str, list[Signal]] = {}
     symptom_cities: set[str] = set()
     for signal in event.signals:
@@ -52,6 +55,52 @@ def build_evidence(store, event: Event, contract: OfficialContract) -> EvidenceP
             city = _city(signal.node)
             if city:
                 symptom_cities.add(city)
+    if hasattr(store, "node_mask"):
+        node_index = {name: i for i, name in enumerate(store.nodes)}
+        for node in sorted(direct, key=lambda item: -max(signal.score for signal in direct[item]))[:5]:
+            index = node_index.get(node)
+            if index is None:
+                continue
+            for kind, names in (
+                ("node", ("netflow.bytes", "scrape.scrape_up")),
+                ("log", tuple(name for name in store.manifest["features"]["log"] if name.startswith("frr.") and ".err." in name)),
+            ):
+                for name in names:
+                    column = store.feature_index(kind, name)
+                    if column is None:
+                        continue
+                    mask = getattr(store, f"{kind}_mask")[event.start_minute:event.end_minute, index, column]
+                    if not np.any(mask):
+                        continue
+                    values = getattr(store, f"{kind}_values")[event.start_minute:event.end_minute, index, column]
+                    observed = np.flatnonzero(mask)
+                    offset = int(observed[np.argmin(values[observed]) if name == "scrape.scrape_up" else np.argmax(values[observed])])
+                    value = float(values[offset])
+                    if kind == "log" and value <= 0:
+                        continue
+                    if name == "scrape.scrape_up" and value != 0:
+                        continue
+                    minute = event.start_minute + offset
+                    role = "quality" if name == "scrape.scrape_up" else "auxiliary"
+                    signals.append(Signal(f"{kind}:{minute}:{index}:{name}", minute, node, name, "context", value, 0, 0, role))
+            netflow_features = [name for name in store.manifest["features"]["edge"] if name.startswith("netflow.bytes.protocol_")]
+            edge_indexes = [i for i, edge in enumerate(store.edges) if edge.get("relation") == "netflow" and edge.get("source") == node]
+            additions = 0
+            for edge_index in edge_indexes:
+                for name in netflow_features:
+                    column = store.feature_index("edge", name)
+                    mask = store.edge_mask[event.start_minute:event.end_minute, edge_index, column]
+                    if not np.any(mask):
+                        continue
+                    values = store.edge_values[event.start_minute:event.end_minute, edge_index, column]
+                    offset = int(np.argmax(np.where(mask, values, -np.inf)))
+                    minute = event.start_minute + offset
+                    signals.append(Signal(f"edge:{minute}:{edge_index}:{name}", minute, node, name, "context", float(values[offset]), 0, 0, "auxiliary"))
+                    additions += 1
+                    if additions >= 3:
+                        break
+                if additions >= 3:
+                    break
     leader = max(direct, key=lambda node: max(item.score for item in direct[node])) if direct else None
     primary_city = _city(leader) if leader else (sorted(symptom_cities)[0] if symptom_cities else None)
     candidates: list[Candidate] = []
@@ -78,7 +127,7 @@ def build_evidence(store, event: Event, contract: OfficialContract) -> EvidenceP
         event.event_id,
         store.time_at(event.start_minute).isoformat().replace("+00:00", "Z"),
         store.time_at(event.end_minute).isoformat().replace("+00:00", "Z"),
-        event.signals,
+        tuple(signals),
         tuple(candidates),
     )
 

@@ -45,3 +45,13 @@ def test_stage_one_region_data_layout_is_discovered(tmp_path):
     ])
     store = open_store(build_sample_store(tmp_path, tmp_path / "out"))
     assert store.observed_node(1, store.nodes.index("xian-br-1"), "node.cpu_usage") == 51
+
+
+def test_any_down_bgp_peer_is_retained_within_one_minute(tmp_path):
+    root = tmp_path / "case_001" / "20260728040000_20260728040400" / "xian_20260728040000_20260728040400" / "processed"
+    write_csv(root / "routing_metrics.csv", [
+        {"timestamp": "2026-07-28 04:01:00", "node": "br-1", "metric_name": "bgp_peer_up", "value": "1"},
+        {"timestamp": "2026-07-28 04:01:00", "node": "br-1", "metric_name": "bgp_peer_up", "value": "0"},
+    ])
+    store = open_store(build_sample_store(tmp_path, tmp_path / "out"))
+    assert store.observed_node(1, store.nodes.index("xian-br-1"), "routing.bgp_peer_up") == 0
