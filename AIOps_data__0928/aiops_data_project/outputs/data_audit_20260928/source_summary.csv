@@ -1,0 +1,7 @@
+source,files,cities,rows,storage,first_timestamp_utc,last_timestamp_utc,missing_minutes_global_total,malformed_rows,timestamp_parse_failures,duplicate_exact_adjacent,duplicate_semantic_adjacent
+frr_syslog_events,8,8,3481,extracted,2026-08-19T04:57:08Z,2026-09-02T00:27:08Z,0,0,0,0,42
+interface_metrics,8,8,9712086,extracted,2026-08-19T04:00:00Z,2026-09-02T03:59:00Z,14,0,0,0,0
+node_metrics,8,8,1450970,extracted,2026-08-19T04:00:00Z,2026-09-02T03:59:00Z,14,0,0,0,0
+routing_metrics,8,8,42139971,extracted,2026-08-19T04:00:00Z,2026-09-02T03:59:00Z,8,0,0,0,0
+scrape_health,8,8,2096458,extracted,2026-08-19T04:00:00Z,2026-09-02T03:59:00Z,14,0,0,0,0
+traffic_flow_metrics,8,8,421227,extracted,2026-08-19T04:00:00Z,2026-09-02T03:59:00Z,151,0,0,0,0

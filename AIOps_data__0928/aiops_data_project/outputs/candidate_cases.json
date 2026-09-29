@@ -1,0 +1,397 @@
+[
+  {
+    "case_id": "candidate_case_0001",
+    "start_time": "2026-08-25T08:32:00Z",
+    "end_time": "2026-08-25T08:33:00Z",
+    "duration_minutes": 1.0,
+    "bucket_count": 1,
+    "root_cause_top5": [
+      {
+        "rank": 1,
+        "network_element_id": "beida-br-2",
+        "root_score": 29.8042,
+        "anomaly_count": 2,
+        "sources": [
+          "routing_metrics"
+        ],
+        "first_evidence_time": "2026-08-25T08:32:00Z",
+        "evidence": [
+          {
+            "timestamp_utc": "2026-08-25T08:32:00Z",
+            "source": "routing_metrics",
+            "category": "routing",
+            "metric": "bgp_peer_up",
+            "magnitude": 20.0,
+            "value": 0.0,
+            "note": "baseline_mean=1;baseline_std=0;scale=0.05"
+          },
+          {
+            "timestamp_utc": "2026-08-25T08:32:00Z",
+            "source": "routing_metrics",
+            "category": "routing",
+            "metric": "bgp_peer_prefix_received",
+            "magnitude": 5.2766,
+            "value": 0.0,
+            "note": "baseline_mean=5.75;baseline_std=1.08972;scale=1.08972"
+          }
+        ]
+      }
+    ],
+    "fault_category": {
+      "major_category": "routing",
+      "sub_category": "bgp_session_down"
+    },
+    "root_cause_reason": "首位候选 beida-br-2 在 2026-08-25T08:32:00Z 首先出现证据，累计 2 个异常点，覆盖 routing_metrics；关键字段 bgp_peer_up=0, bgp_peer_prefix_received=0；该排序是基于异常强度、时间先后和多源支持的可解释启发式结果。",
+    "classification_reason": "routing/bgp_session_down：检测到 BGP 会话状态证据（bgp_peer_up=0, bgp_peer_prefix_received=0），其中 peer_up 下降/为 0 且伴随 prefix_received 异常；该模式比普通业务流量波动更直接地指向控制面会话中断。",
+    "category_scores": {
+      "routing": 27.8042
+    },
+    "limitations": [
+      "这是无监督候选 Case，不是官方 ground truth。",
+      "netflow 未展开时，流量证据不完整。",
+      "公开拓扑是参考拓扑，尚未替代真实链路拓扑。"
+    ]
+  },
+  {
+    "case_id": "candidate_case_0002",
+    "start_time": "2026-08-27T12:27:00Z",
+    "end_time": "2026-08-27T12:28:00Z",
+    "duration_minutes": 1.0,
+    "bucket_count": 1,
+    "root_cause_top5": [
+      {
+        "rank": 1,
+        "network_element_id": "shanghai-br-1",
+        "root_score": 33.1136,
+        "anomaly_count": 2,
+        "sources": [
+          "routing_metrics"
+        ],
+        "first_evidence_time": "2026-08-27T12:27:00Z",
+        "evidence": [
+          {
+            "timestamp_utc": "2026-08-27T12:27:00Z",
+            "source": "routing_metrics",
+            "category": "routing",
+            "metric": "bgp_peer_up",
+            "magnitude": 20.0,
+            "value": 0.0,
+            "note": "baseline_mean=1;baseline_std=0;scale=0.05"
+          },
+          {
+            "timestamp_utc": "2026-08-27T12:27:00Z",
+            "source": "routing_metrics",
+            "category": "routing",
+            "metric": "bgp_peer_prefix_received",
+            "magnitude": 8.2851,
+            "value": 0.0,
+            "note": "baseline_mean=6.2;baseline_std=0.748331;scale=0.748331"
+          }
+        ]
+      }
+    ],
+    "fault_category": {
+      "major_category": "routing",
+      "sub_category": "bgp_session_down"
+    },
+    "root_cause_reason": "首位候选 shanghai-br-1 在 2026-08-27T12:27:00Z 首先出现证据，累计 2 个异常点，覆盖 routing_metrics；关键字段 bgp_peer_up=0, bgp_peer_prefix_received=0；该排序是基于异常强度、时间先后和多源支持的可解释启发式结果。",
+    "classification_reason": "routing/bgp_session_down：检测到 BGP 会话状态证据（bgp_peer_up=0, bgp_peer_prefix_received=0），其中 peer_up 下降/为 0 且伴随 prefix_received 异常；该模式比普通业务流量波动更直接地指向控制面会话中断。",
+    "category_scores": {
+      "routing": 31.1136
+    },
+    "limitations": [
+      "这是无监督候选 Case，不是官方 ground truth。",
+      "netflow 未展开时，流量证据不完整。",
+      "公开拓扑是参考拓扑，尚未替代真实链路拓扑。"
+    ]
+  },
+  {
+    "case_id": "candidate_case_0003",
+    "start_time": "2026-08-28T02:14:00Z",
+    "end_time": "2026-08-28T02:15:00Z",
+    "duration_minutes": 1.0,
+    "bucket_count": 1,
+    "root_cause_top5": [
+      {
+        "rank": 1,
+        "network_element_id": "wuhan-br-1",
+        "root_score": 24.0,
+        "anomaly_count": 1,
+        "sources": [
+          "routing_metrics"
+        ],
+        "first_evidence_time": "2026-08-28T02:14:00Z",
+        "evidence": [
+          {
+            "timestamp_utc": "2026-08-28T02:14:00Z",
+            "source": "routing_metrics",
+            "category": "routing",
+            "metric": "bgp_peer_up",
+            "magnitude": 20.0,
+            "value": 0.0,
+            "note": "baseline_mean=1;baseline_std=0;scale=0.05"
+          }
+        ]
+      },
+      {
+        "rank": 2,
+        "network_element_id": "shanghai-br-1",
+        "root_score": 9.6437,
+        "anomaly_count": 1,
+        "sources": [
+          "routing_metrics"
+        ],
+        "first_evidence_time": "2026-08-28T02:14:00Z",
+        "evidence": [
+          {
+            "timestamp_utc": "2026-08-28T02:14:00Z",
+            "source": "routing_metrics",
+            "category": "routing",
+            "metric": "bgp_peer_prefix_received",
+            "magnitude": 6.9488,
+            "value": 1.0,
+            "note": "baseline_mean=6.2;baseline_std=0.748331;scale=0.748331"
+          }
+        ]
+      }
+    ],
+    "fault_category": {
+      "major_category": "routing",
+      "sub_category": "bgp_session_down"
+    },
+    "root_cause_reason": "首位候选 wuhan-br-1 在 2026-08-28T02:14:00Z 首先出现证据，累计 1 个异常点，覆盖 routing_metrics；关键字段 bgp_peer_up=0；该排序是基于异常强度、时间先后和多源支持的可解释启发式结果。",
+    "classification_reason": "routing/bgp_session_down：检测到 BGP 会话状态证据（bgp_peer_prefix_received=1, bgp_peer_up=0），其中 peer_up 下降/为 0 且伴随 prefix_received 异常；该模式比普通业务流量波动更直接地指向控制面会话中断。",
+    "category_scores": {
+      "routing": 29.6437
+    },
+    "limitations": [
+      "这是无监督候选 Case，不是官方 ground truth。",
+      "netflow 未展开时，流量证据不完整。",
+      "公开拓扑是参考拓扑，尚未替代真实链路拓扑。"
+    ]
+  },
+  {
+    "case_id": "candidate_case_0004",
+    "start_time": "2026-08-30T18:45:00Z",
+    "end_time": "2026-08-30T18:46:00Z",
+    "duration_minutes": 1.0,
+    "bucket_count": 1,
+    "root_cause_top5": [
+      {
+        "rank": 1,
+        "network_element_id": "wuhan-br-1",
+        "root_score": 24.0,
+        "anomaly_count": 1,
+        "sources": [
+          "routing_metrics"
+        ],
+        "first_evidence_time": "2026-08-30T18:45:00Z",
+        "evidence": [
+          {
+            "timestamp_utc": "2026-08-30T18:45:00Z",
+            "source": "routing_metrics",
+            "category": "routing",
+            "metric": "bgp_peer_up",
+            "magnitude": 20.0,
+            "value": 0.0,
+            "note": "baseline_mean=1;baseline_std=0;scale=0.05"
+          }
+        ]
+      },
+      {
+        "rank": 2,
+        "network_element_id": "shanghai-br-1",
+        "root_score": 9.6437,
+        "anomaly_count": 1,
+        "sources": [
+          "routing_metrics"
+        ],
+        "first_evidence_time": "2026-08-30T18:45:00Z",
+        "evidence": [
+          {
+            "timestamp_utc": "2026-08-30T18:45:00Z",
+            "source": "routing_metrics",
+            "category": "routing",
+            "metric": "bgp_peer_prefix_received",
+            "magnitude": 6.9488,
+            "value": 1.0,
+            "note": "baseline_mean=6.2;baseline_std=0.748331;scale=0.748331"
+          }
+        ]
+      }
+    ],
+    "fault_category": {
+      "major_category": "routing",
+      "sub_category": "bgp_session_down"
+    },
+    "root_cause_reason": "首位候选 wuhan-br-1 在 2026-08-30T18:45:00Z 首先出现证据，累计 1 个异常点，覆盖 routing_metrics；关键字段 bgp_peer_up=0；该排序是基于异常强度、时间先后和多源支持的可解释启发式结果。",
+    "classification_reason": "routing/bgp_session_down：检测到 BGP 会话状态证据（bgp_peer_prefix_received=1, bgp_peer_up=0），其中 peer_up 下降/为 0 且伴随 prefix_received 异常；该模式比普通业务流量波动更直接地指向控制面会话中断。",
+    "category_scores": {
+      "routing": 29.6437
+    },
+    "limitations": [
+      "这是无监督候选 Case，不是官方 ground truth。",
+      "netflow 未展开时，流量证据不完整。",
+      "公开拓扑是参考拓扑，尚未替代真实链路拓扑。"
+    ]
+  },
+  {
+    "case_id": "candidate_case_0005",
+    "start_time": "2026-08-31T11:06:00Z",
+    "end_time": "2026-08-31T11:07:00Z",
+    "duration_minutes": 1.0,
+    "bucket_count": 1,
+    "root_cause_top5": [
+      {
+        "rank": 1,
+        "network_element_id": "beida-br-1",
+        "root_score": 29.8042,
+        "anomaly_count": 2,
+        "sources": [
+          "routing_metrics"
+        ],
+        "first_evidence_time": "2026-08-31T11:06:00Z",
+        "evidence": [
+          {
+            "timestamp_utc": "2026-08-31T11:06:00Z",
+            "source": "routing_metrics",
+            "category": "routing",
+            "metric": "bgp_peer_up",
+            "magnitude": 20.0,
+            "value": 0.0,
+            "note": "baseline_mean=1;baseline_std=0;scale=0.05"
+          },
+          {
+            "timestamp_utc": "2026-08-31T11:06:00Z",
+            "source": "routing_metrics",
+            "category": "routing",
+            "metric": "bgp_peer_prefix_received",
+            "magnitude": 5.2766,
+            "value": 0.0,
+            "note": "baseline_mean=5.75;baseline_std=1.08972;scale=1.08972"
+          }
+        ]
+      }
+    ],
+    "fault_category": {
+      "major_category": "routing",
+      "sub_category": "bgp_session_down"
+    },
+    "root_cause_reason": "首位候选 beida-br-1 在 2026-08-31T11:06:00Z 首先出现证据，累计 2 个异常点，覆盖 routing_metrics；关键字段 bgp_peer_up=0, bgp_peer_prefix_received=0；该排序是基于异常强度、时间先后和多源支持的可解释启发式结果。",
+    "classification_reason": "routing/bgp_session_down：检测到 BGP 会话状态证据（bgp_peer_up=0, bgp_peer_prefix_received=0），其中 peer_up 下降/为 0 且伴随 prefix_received 异常；该模式比普通业务流量波动更直接地指向控制面会话中断。",
+    "category_scores": {
+      "routing": 27.8042
+    },
+    "limitations": [
+      "这是无监督候选 Case，不是官方 ground truth。",
+      "netflow 未展开时，流量证据不完整。",
+      "公开拓扑是参考拓扑，尚未替代真实链路拓扑。"
+    ]
+  },
+  {
+    "case_id": "candidate_case_0006",
+    "start_time": "2026-09-01T10:33:00Z",
+    "end_time": "2026-09-01T10:34:00Z",
+    "duration_minutes": 1.0,
+    "bucket_count": 1,
+    "root_cause_top5": [
+      {
+        "rank": 1,
+        "network_element_id": "shanghai-br-1",
+        "root_score": 33.1136,
+        "anomaly_count": 2,
+        "sources": [
+          "routing_metrics"
+        ],
+        "first_evidence_time": "2026-09-01T10:33:00Z",
+        "evidence": [
+          {
+            "timestamp_utc": "2026-09-01T10:33:00Z",
+            "source": "routing_metrics",
+            "category": "routing",
+            "metric": "bgp_peer_up",
+            "magnitude": 20.0,
+            "value": 0.0,
+            "note": "baseline_mean=1;baseline_std=0;scale=0.05"
+          },
+          {
+            "timestamp_utc": "2026-09-01T10:33:00Z",
+            "source": "routing_metrics",
+            "category": "routing",
+            "metric": "bgp_peer_prefix_received",
+            "magnitude": 8.2851,
+            "value": 0.0,
+            "note": "baseline_mean=6.2;baseline_std=0.748331;scale=0.748331"
+          }
+        ]
+      }
+    ],
+    "fault_category": {
+      "major_category": "routing",
+      "sub_category": "bgp_session_down"
+    },
+    "root_cause_reason": "首位候选 shanghai-br-1 在 2026-09-01T10:33:00Z 首先出现证据，累计 2 个异常点，覆盖 routing_metrics；关键字段 bgp_peer_up=0, bgp_peer_prefix_received=0；该排序是基于异常强度、时间先后和多源支持的可解释启发式结果。",
+    "classification_reason": "routing/bgp_session_down：检测到 BGP 会话状态证据（bgp_peer_up=0, bgp_peer_prefix_received=0），其中 peer_up 下降/为 0 且伴随 prefix_received 异常；该模式比普通业务流量波动更直接地指向控制面会话中断。",
+    "category_scores": {
+      "routing": 31.1136
+    },
+    "limitations": [
+      "这是无监督候选 Case，不是官方 ground truth。",
+      "netflow 未展开时，流量证据不完整。",
+      "公开拓扑是参考拓扑，尚未替代真实链路拓扑。"
+    ]
+  },
+  {
+    "case_id": "candidate_case_0007",
+    "start_time": "2026-09-01T23:43:00Z",
+    "end_time": "2026-09-01T23:44:00Z",
+    "duration_minutes": 1.0,
+    "bucket_count": 1,
+    "root_cause_top5": [
+      {
+        "rank": 1,
+        "network_element_id": "shanghai-br-2",
+        "root_score": 29.8246,
+        "anomaly_count": 2,
+        "sources": [
+          "routing_metrics"
+        ],
+        "first_evidence_time": "2026-09-01T23:43:00Z",
+        "evidence": [
+          {
+            "timestamp_utc": "2026-09-01T23:43:00Z",
+            "source": "routing_metrics",
+            "category": "routing",
+            "metric": "bgp_peer_up",
+            "magnitude": 20.0,
+            "value": 0.0,
+            "note": "baseline_mean=1;baseline_std=0;scale=0.05"
+          },
+          {
+            "timestamp_utc": "2026-09-01T23:43:00Z",
+            "source": "routing_metrics",
+            "category": "routing",
+            "metric": "bgp_peer_prefix_received",
+            "magnitude": 5.2951,
+            "value": 0.0,
+            "note": "baseline_mean=5.4;baseline_std=1.0198;scale=1.0198"
+          }
+        ]
+      }
+    ],
+    "fault_category": {
+      "major_category": "routing",
+      "sub_category": "bgp_session_down"
+    },
+    "root_cause_reason": "首位候选 shanghai-br-2 在 2026-09-01T23:43:00Z 首先出现证据，累计 2 个异常点，覆盖 routing_metrics；关键字段 bgp_peer_up=0, bgp_peer_prefix_received=0；该排序是基于异常强度、时间先后和多源支持的可解释启发式结果。",
+    "classification_reason": "routing/bgp_session_down：检测到 BGP 会话状态证据（bgp_peer_up=0, bgp_peer_prefix_received=0），其中 peer_up 下降/为 0 且伴随 prefix_received 异常；该模式比普通业务流量波动更直接地指向控制面会话中断。",
+    "category_scores": {
+      "routing": 27.8246
+    },
+    "limitations": [
+      "这是无监督候选 Case，不是官方 ground truth。",
+      "netflow 未展开时，流量证据不完整。",
+      "公开拓扑是参考拓扑，尚未替代真实链路拓扑。"
+    ]
+  }
+]

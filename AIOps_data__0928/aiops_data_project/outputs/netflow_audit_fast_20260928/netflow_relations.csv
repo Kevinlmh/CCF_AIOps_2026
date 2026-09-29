@@ -1,0 +1,97 @@
+relation_type,left_type,left_id,right_type,right_id,city,sources,raw_fields,provenance,confidence,reason
+has_netflow_alias,network_element,beida-br-1,netflow_node_key,br1,beida,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,beida-br-2,netflow_node_key,br2,beida,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,beida-cr-1,netflow_node_key,cr1,beida,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,beida-cr-2,netflow_node_key,cr2,beida,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+observed_netflow_interface,network_element,beida-br-1,interface,beida-br-1:ens4,beida,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,beida-br-1,interface,beida-br-1:ens5,beida,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,beida-br-2,interface,beida-br-2:ens4,beida,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,beida-br-2,interface,beida-br-2:ens5,beida,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,beida-cr-1,interface,beida-cr-1:ens4,beida,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,beida-cr-1,interface,beida-cr-1:ens5,beida,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,beida-cr-2,interface,beida-cr-2:ens4,beida,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,beida-cr-2,interface,beida-cr-2:ens5,beida,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+has_netflow_alias,network_element,chengdu-br-1,netflow_node_key,br1,chengdu,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,chengdu-br-2,netflow_node_key,br2,chengdu,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,chengdu-cr-1,netflow_node_key,cr1,chengdu,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,chengdu-cr-2,netflow_node_key,cr2,chengdu,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+observed_netflow_interface,network_element,chengdu-br-1,interface,chengdu-br-1:ens4,chengdu,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,chengdu-br-1,interface,chengdu-br-1:ens5,chengdu,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,chengdu-br-2,interface,chengdu-br-2:ens4,chengdu,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,chengdu-br-2,interface,chengdu-br-2:ens5,chengdu,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,chengdu-cr-1,interface,chengdu-cr-1:ens4,chengdu,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,chengdu-cr-1,interface,chengdu-cr-1:ens5,chengdu,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,chengdu-cr-2,interface,chengdu-cr-2:ens4,chengdu,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,chengdu-cr-2,interface,chengdu-cr-2:ens5,chengdu,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+has_netflow_alias,network_element,guangzhou-br-1,netflow_node_key,br1,guangzhou,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,guangzhou-br-2,netflow_node_key,br2,guangzhou,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,guangzhou-cr-1,netflow_node_key,cr1,guangzhou,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,guangzhou-cr-2,netflow_node_key,cr2,guangzhou,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+observed_netflow_interface,network_element,guangzhou-br-1,interface,guangzhou-br-1:ens4,guangzhou,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,guangzhou-br-1,interface,guangzhou-br-1:ens5,guangzhou,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,guangzhou-br-2,interface,guangzhou-br-2:ens4,guangzhou,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,guangzhou-br-2,interface,guangzhou-br-2:ens5,guangzhou,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,guangzhou-cr-1,interface,guangzhou-cr-1:ens4,guangzhou,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,guangzhou-cr-1,interface,guangzhou-cr-1:ens5,guangzhou,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,guangzhou-cr-2,interface,guangzhou-cr-2:ens4,guangzhou,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,guangzhou-cr-2,interface,guangzhou-cr-2:ens5,guangzhou,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+has_netflow_alias,network_element,nanjing-br-1,netflow_node_key,br1,nanjing,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,nanjing-br-2,netflow_node_key,br2,nanjing,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,nanjing-cr-1,netflow_node_key,cr1,nanjing,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,nanjing-cr-2,netflow_node_key,cr2,nanjing,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+observed_netflow_interface,network_element,nanjing-br-1,interface,nanjing-br-1:ens4,nanjing,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,nanjing-br-1,interface,nanjing-br-1:ens5,nanjing,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,nanjing-br-2,interface,nanjing-br-2:ens4,nanjing,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,nanjing-br-2,interface,nanjing-br-2:ens5,nanjing,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,nanjing-cr-1,interface,nanjing-cr-1:ens4,nanjing,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,nanjing-cr-1,interface,nanjing-cr-1:ens5,nanjing,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,nanjing-cr-2,interface,nanjing-cr-2:ens4,nanjing,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,nanjing-cr-2,interface,nanjing-cr-2:ens5,nanjing,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+has_netflow_alias,network_element,shanghai-br-1,netflow_node_key,br1,shanghai,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,shanghai-br-2,netflow_node_key,br2,shanghai,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,shanghai-cr-1,netflow_node_key,cr1,shanghai,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,shanghai-cr-2,netflow_node_key,cr2,shanghai,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+observed_netflow_interface,network_element,shanghai-br-1,interface,shanghai-br-1:ens4,shanghai,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,shanghai-br-1,interface,shanghai-br-1:ens5,shanghai,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,shanghai-br-2,interface,shanghai-br-2:ens4,shanghai,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,shanghai-br-2,interface,shanghai-br-2:ens5,shanghai,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,shanghai-cr-1,interface,shanghai-cr-1:ens4,shanghai,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,shanghai-cr-1,interface,shanghai-cr-1:ens5,shanghai,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,shanghai-cr-2,interface,shanghai-cr-2:ens4,shanghai,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,shanghai-cr-2,interface,shanghai-cr-2:ens5,shanghai,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+has_netflow_alias,network_element,shenyang-br-1,netflow_node_key,br1,shenyang,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,shenyang-br-2,netflow_node_key,br2,shenyang,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,shenyang-cr-1,netflow_node_key,cr1,shenyang,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,shenyang-cr-2,netflow_node_key,cr2,shenyang,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+observed_netflow_interface,network_element,shenyang-br-1,interface,shenyang-br-1:ens4,shenyang,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,shenyang-br-1,interface,shenyang-br-1:ens5,shenyang,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,shenyang-br-2,interface,shenyang-br-2:ens4,shenyang,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,shenyang-br-2,interface,shenyang-br-2:ens5,shenyang,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,shenyang-cr-1,interface,shenyang-cr-1:ens4,shenyang,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,shenyang-cr-1,interface,shenyang-cr-1:ens5,shenyang,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,shenyang-cr-2,interface,shenyang-cr-2:ens4,shenyang,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,shenyang-cr-2,interface,shenyang-cr-2:ens5,shenyang,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+has_netflow_alias,network_element,wuhan-br-1,netflow_node_key,br1,wuhan,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,wuhan-br-2,netflow_node_key,br2,wuhan,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,wuhan-cr-1,netflow_node_key,cr1,wuhan,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,wuhan-cr-2,netflow_node_key,cr2,wuhan,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+observed_netflow_interface,network_element,wuhan-br-1,interface,wuhan-br-1:ens4,wuhan,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,wuhan-br-1,interface,wuhan-br-1:ens5,wuhan,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,wuhan-br-2,interface,wuhan-br-2:ens4,wuhan,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,wuhan-br-2,interface,wuhan-br-2:ens5,wuhan,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,wuhan-cr-1,interface,wuhan-cr-1:ens4,wuhan,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,wuhan-cr-1,interface,wuhan-cr-1:ens5,wuhan,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,wuhan-cr-2,interface,wuhan-cr-2:ens4,wuhan,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,wuhan-cr-2,interface,wuhan-cr-2:ens5,wuhan,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+has_netflow_alias,network_element,xian-br-1,netflow_node_key,br1,xian,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,xian-br-2,netflow_node_key,br2,xian,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,xian-cr-1,netflow_node_key,cr1,xian,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+has_netflow_alias,network_element,xian-cr-2,netflow_node_key,cr2,xian,netflow_5tuple,node|node_key,observed+derived,high,NetFlow node and node_key occur in the same raw record
+observed_netflow_interface,network_element,xian-br-1,interface,xian-br-1:ens4,xian,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,xian-br-1,interface,xian-br-1:ens5,xian,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,xian-br-2,interface,xian-br-2:ens4,xian,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,xian-br-2,interface,xian-br-2:ens5,xian,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,xian-cr-1,interface,xian-cr-1:ens4,xian,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,xian-cr-1,interface,xian-cr-1:ens5,xian,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,xian-cr-2,interface,xian-cr-2:ens4,xian,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record
+observed_netflow_interface,network_element,xian-cr-2,interface,xian-cr-2:ens5,xian,netflow_5tuple,node|interface_id|if_role,observed+derived,high,NetFlow interface occurs in the same raw record

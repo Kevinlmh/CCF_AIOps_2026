@@ -1,0 +1,9 @@
+source,files,cities,rows,storage,first_timestamp_utc,last_timestamp_utc,missing_minutes_global_total,malformed_rows,timestamp_parse_failures,duplicate_exact_adjacent,duplicate_semantic_adjacent
+netflow_5tuple,1,1,109490525,compressed_stream,2026-08-19T04:00:00Z,2026-09-02T03:59:00Z,0,0,0,0,0
+netflow_5tuple,1,1,32956265,compressed_stream,2026-08-19T04:00:00Z,2026-09-02T03:59:00Z,0,0,0,0,0
+netflow_5tuple,1,1,33812982,compressed_stream,2026-08-19T04:00:00Z,2026-09-02T03:59:00Z,0,0,0,0,0
+netflow_5tuple,1,1,34484309,compressed_stream,2026-08-19T04:00:00Z,2026-09-02T03:59:00Z,0,0,0,0,0
+netflow_5tuple,1,1,121624072,compressed_stream,2026-08-19T04:00:00Z,2026-09-02T03:59:00Z,0,0,0,0,0
+netflow_5tuple,1,1,34595845,compressed_stream,2026-08-19T04:00:00Z,2026-09-02T03:59:00Z,0,0,0,0,0
+netflow_5tuple,1,1,63067603,compressed_stream,2026-08-19T04:00:00Z,2026-09-02T03:59:00Z,0,0,0,0,0
+netflow_5tuple,1,1,35635775,compressed_stream,2026-08-19T04:00:00Z,2026-09-02T03:59:00Z,0,0,0,0,0

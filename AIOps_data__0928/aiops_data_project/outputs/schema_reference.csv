@@ -1,0 +1,82 @@
+source,field,type,unit,meaning,analytical_role,schema_status,raw_missing_tokens
+frr_syslog_events,id,integer,event id,event record id,record key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,received_at,datetime,UTC,collector receive time,transport timing,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,event_time,datetime,UTC,event occurrence time,join key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,received_at_raw,datetime,UTC,raw collector timestamp,audit field,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,event_time_raw,datetime,UTC,raw event timestamp,audit field,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,source_ip,string,IP address,syslog sender,entity context,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,hostname,string,hostname,emitting network element,root-cause entity,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,region,categorical,city alias,log region,join key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,facility,categorical,syslog facility,syslog facility,log context,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,severity,categorical,level,log severity name,event weight,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,severity_code,integer,syslog code,numeric severity code,event weight,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,program,categorical,process,FRR daemon name,routing signature,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,pid,integer,process id,daemon process id,log context,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,message,string,free text,event message,routing evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,inserted_at,datetime,UTC,database insertion time,audit field,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+interface_metrics,timestamp,datetime,UTC minute,interface metric observation time,join key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+interface_metrics,region,categorical,city alias,observation region,join key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+interface_metrics,node,categorical,node id,interface owner,root-cause entity,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+interface_metrics,node_type,categorical,role family,interface owner role family,candidate context,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+interface_metrics,interface_id,categorical,interface id,observed interface,link localization,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+interface_metrics,if_role,categorical,role label,interface function when available,link context,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+interface_metrics,rx_bytes_rate,float,bytes/s,received byte rate,traffic evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+interface_metrics,tx_bytes_rate,float,bytes/s,transmitted byte rate,traffic evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+interface_metrics,rx_packets_rate,float,packets/s,received packet rate,traffic evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+interface_metrics,tx_packets_rate,float,packets/s,transmitted packet rate,traffic evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+interface_metrics,rx_drop_rate,float,drops/s,received packet drop rate,loss evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+interface_metrics,tx_drop_rate,float,drops/s,transmitted packet drop rate,loss evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+interface_metrics,rx_error_rate,float,errors/s,received packet error rate,loss evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+interface_metrics,tx_error_rate,float,errors/s,transmitted packet error rate,loss evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+interface_metrics,carrier_changes,float,count,interface carrier changes,link stability evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,minute_utc,datetime,UTC minute,flow aggregation minute,join key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,region_code,categorical,city alias,source collection region code,join key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,region,categorical,city label,source collection region,join key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,node_key,categorical,collector node key,compact node identifier,entity mapping,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,node,string,node label,flow-observing node,root-cause entity,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,node_type,categorical,role family,flow-observing node role,candidate context,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,interface_id,categorical,interface id,flow-observing interface,link context,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,if_role,categorical,role label,interface function when available,link context,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,collector_port,integer,port,flow collector port,collector context,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,protocol,integer,IP protocol number,transport/network protocol number,flow context,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,src_addr,string,IP address,flow source address,five-tuple key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,src_port,integer,port,flow source port,five-tuple key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,dst_addr,string,IP address,flow destination address,five-tuple key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,dst_port,integer,port,flow destination port,five-tuple key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,packets,integer,packets/minute,packet count in minute,traffic evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,bytes,integer,bytes/minute,byte count in minute,traffic evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,flow_record_count,integer,records,underlying flow record count,aggregation context,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,first_seen,datetime,UTC,first packet/event time in bucket,flow timing,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+netflow_5tuple,last_seen,datetime,UTC,last packet/event time in bucket,flow timing,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+node_metrics,timestamp,datetime,UTC minute,host metric observation time,join key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+node_metrics,region,categorical,city alias,observation region,join key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+node_metrics,node,categorical,node id,observed network element,root-cause entity,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+node_metrics,node_type,categorical,role family,device role family,candidate context,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+node_metrics,cpu_usage,float,ratio,CPU utilization,resource evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+node_metrics,load1,float,load,one-minute system load,resource evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+node_metrics,load5,float,load,five-minute system load,resource evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+node_metrics,memory_available_ratio,float,ratio,available memory ratio,resource evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+node_metrics,swap_used_ratio,float,ratio,used swap ratio,resource evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+node_metrics,disk_read_rate,float,bytes/s,disk read rate,resource evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+node_metrics,disk_write_rate,float,bytes/s,disk write rate,resource evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+node_metrics,disk_io_util,float,ratio,disk I/O utilization,resource evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+node_metrics,filesystem_used_ratio,float,ratio,filesystem used ratio,resource evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+node_metrics,inode_used_ratio,float,ratio,inode used ratio,resource evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+node_metrics,open_fd_ratio,float,ratio,open file descriptor ratio,resource evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+node_metrics,process_count,float,count,running process count,resource evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+routing_metrics,timestamp,datetime,UTC minute,routing metric observation time,join key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+routing_metrics,region,categorical,city alias,observation region,join key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+routing_metrics,node,categorical,node id,routing metric owner,root-cause entity,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+routing_metrics,node_type,categorical,role family,routing metric owner role family,candidate context,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+routing_metrics,metric_name,categorical,metric name,routing control-plane metric,routing signature,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+routing_metrics,label,structured string,Prometheus-like labels,"peer, command or route context",routing disambiguation,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+routing_metrics,value,float-or-string,metric-specific,metric value,routing evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+scrape_health,timestamp,datetime,UTC minute,scrape attempt time,join key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+scrape_health,region,categorical,city alias,observation region,join key,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+scrape_health,target_id,categorical,exporter target,scrape target address,observability entity,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+scrape_health,node,categorical,node id,scrape target owner,observability entity,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+scrape_health,exporter_type,categorical,exporter name,node or routing exporter,source context,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+scrape_health,scrape_up,integer,0/1,whether scrape succeeded,data quality evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+scrape_health,scrape_duration_seconds,float,seconds,scrape duration,observability evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+scrape_health,scrape_samples,integer,samples,samples returned by scrape,observability evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan
+scrape_health,scrape_error,string,message,scrape error when present,observability evidence,definition_reference_only,empty|NULL|\N|NA|N/A|nan

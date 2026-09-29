@@ -1,0 +1,189 @@
+source,field,type,unit,meaning,analytical_role,raw_missing_tokens
+frr_syslog_events,id,integer,event id,event record id,record key,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,received_at,datetime,UTC,collector receive time,transport timing,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,event_time,datetime,UTC,event occurrence time,join key,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,received_at_raw,datetime,UTC,raw collector timestamp,audit field,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,event_time_raw,datetime,UTC,raw event timestamp,audit field,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,source_ip,string,IP address,syslog sender,entity context,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,hostname,string,hostname,emitting network element,root-cause entity,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,region,categorical,city alias,log region,join key,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,facility,categorical,syslog facility,syslog facility,log context,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,severity,categorical,level,log severity name,event weight,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,severity_code,integer,syslog code,numeric severity code,event weight,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,program,categorical,process,FRR daemon name,routing signature,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,pid,integer,process id,daemon process id,log context,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,message,string,free text,event message,routing evidence,empty|NULL|\N|NA|N/A|nan
+frr_syslog_events,inserted_at,datetime,UTC,database insertion time,audit field,empty|NULL|\N|NA|N/A|nan
+interface_metrics,timestamp,datetime,UTC minute,interface metric observation time,join key,empty|NULL|\N|NA|N/A|nan
+interface_metrics,region,categorical,city alias,observation region,join key,empty|NULL|\N|NA|N/A|nan
+interface_metrics,node,categorical,node id,interface owner,root-cause entity,empty|NULL|\N|NA|N/A|nan
+interface_metrics,node_type,categorical,role family,interface owner role family,candidate context,empty|NULL|\N|NA|N/A|nan
+interface_metrics,interface_id,categorical,interface id,observed interface,link localization,empty|NULL|\N|NA|N/A|nan
+interface_metrics,if_role,categorical,role label,interface function when available,link context,empty|NULL|\N|NA|N/A|nan
+interface_metrics,rx_bytes_rate,float,bytes/s,received byte rate,traffic evidence,empty|NULL|\N|NA|N/A|nan
+interface_metrics,tx_bytes_rate,float,bytes/s,transmitted byte rate,traffic evidence,empty|NULL|\N|NA|N/A|nan
+interface_metrics,rx_packets_rate,float,packets/s,received packet rate,traffic evidence,empty|NULL|\N|NA|N/A|nan
+interface_metrics,tx_packets_rate,float,packets/s,transmitted packet rate,traffic evidence,empty|NULL|\N|NA|N/A|nan
+interface_metrics,rx_drop_rate,float,drops/s,received packet drop rate,loss evidence,empty|NULL|\N|NA|N/A|nan
+interface_metrics,tx_drop_rate,float,drops/s,transmitted packet drop rate,loss evidence,empty|NULL|\N|NA|N/A|nan
+interface_metrics,rx_error_rate,float,errors/s,received packet error rate,loss evidence,empty|NULL|\N|NA|N/A|nan
+interface_metrics,tx_error_rate,float,errors/s,transmitted packet error rate,loss evidence,empty|NULL|\N|NA|N/A|nan
+interface_metrics,carrier_changes,float,count,interface carrier changes,link stability evidence,empty|NULL|\N|NA|N/A|nan
+node_metrics,timestamp,datetime,UTC minute,host metric observation time,join key,empty|NULL|\N|NA|N/A|nan
+node_metrics,region,categorical,city alias,observation region,join key,empty|NULL|\N|NA|N/A|nan
+node_metrics,node,categorical,node id,observed network element,root-cause entity,empty|NULL|\N|NA|N/A|nan
+node_metrics,node_type,categorical,role family,device role family,candidate context,empty|NULL|\N|NA|N/A|nan
+node_metrics,cpu_usage,float,ratio,CPU utilization,resource evidence,empty|NULL|\N|NA|N/A|nan
+node_metrics,load1,float,load,one-minute system load,resource evidence,empty|NULL|\N|NA|N/A|nan
+node_metrics,load5,float,load,five-minute system load,resource evidence,empty|NULL|\N|NA|N/A|nan
+node_metrics,memory_available_ratio,float,ratio,available memory ratio,resource evidence,empty|NULL|\N|NA|N/A|nan
+node_metrics,swap_used_ratio,float,ratio,used swap ratio,resource evidence,empty|NULL|\N|NA|N/A|nan
+node_metrics,disk_read_rate,float,bytes/s,disk read rate,resource evidence,empty|NULL|\N|NA|N/A|nan
+node_metrics,disk_write_rate,float,bytes/s,disk write rate,resource evidence,empty|NULL|\N|NA|N/A|nan
+node_metrics,disk_io_util,float,ratio,disk I/O utilization,resource evidence,empty|NULL|\N|NA|N/A|nan
+node_metrics,filesystem_used_ratio,float,ratio,filesystem used ratio,resource evidence,empty|NULL|\N|NA|N/A|nan
+node_metrics,inode_used_ratio,float,ratio,inode used ratio,resource evidence,empty|NULL|\N|NA|N/A|nan
+node_metrics,open_fd_ratio,float,ratio,open file descriptor ratio,resource evidence,empty|NULL|\N|NA|N/A|nan
+node_metrics,process_count,float,count,running process count,resource evidence,empty|NULL|\N|NA|N/A|nan
+routing_metrics,timestamp,datetime,UTC minute,routing metric observation time,join key,empty|NULL|\N|NA|N/A|nan
+routing_metrics,region,categorical,city alias,observation region,join key,empty|NULL|\N|NA|N/A|nan
+routing_metrics,node,categorical,node id,routing metric owner,root-cause entity,empty|NULL|\N|NA|N/A|nan
+routing_metrics,node_type,categorical,role family,routing metric owner role family,candidate context,empty|NULL|\N|NA|N/A|nan
+routing_metrics,metric_name,categorical,metric name,routing control-plane metric,routing signature,empty|NULL|\N|NA|N/A|nan
+routing_metrics,label,structured string,Prometheus-like labels,"peer, command or route context",routing disambiguation,empty|NULL|\N|NA|N/A|nan
+routing_metrics,value,float-or-string,metric-specific,metric value,routing evidence,empty|NULL|\N|NA|N/A|nan
+scrape_health,timestamp,datetime,UTC minute,scrape attempt time,join key,empty|NULL|\N|NA|N/A|nan
+scrape_health,region,categorical,city alias,observation region,join key,empty|NULL|\N|NA|N/A|nan
+scrape_health,target_id,categorical,exporter target,scrape target address,observability entity,empty|NULL|\N|NA|N/A|nan
+scrape_health,node,categorical,node id,scrape target owner,observability entity,empty|NULL|\N|NA|N/A|nan
+scrape_health,exporter_type,categorical,exporter name,node or routing exporter,source context,empty|NULL|\N|NA|N/A|nan
+scrape_health,scrape_up,integer,0/1,whether scrape succeeded,data quality evidence,empty|NULL|\N|NA|N/A|nan
+scrape_health,scrape_duration_seconds,float,seconds,scrape duration,observability evidence,empty|NULL|\N|NA|N/A|nan
+scrape_health,scrape_samples,integer,samples,samples returned by scrape,observability evidence,empty|NULL|\N|NA|N/A|nan
+scrape_health,scrape_error,string,message,scrape error when present,observability evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,id,integer,metric-specific,record id,record key,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,timestamp_utc,datetime,metric-specific,flow metric observation time,join key,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,prometheus_sample_time_utc,datetime,metric-specific,underlying Prometheus sample time,audit timing,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,series_key,string,metric-specific,stable metric series hash,series key,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,flow_type,categorical,metric-specific,DNS/Web/Auth/Elephant flow family,service context,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,source_region,categorical,metric-specific,probe source region,join key,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,source_ip,string,metric-specific,probe source IP,flow context,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,target_region,categorical,metric-specific,target service region,impact localization,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,target_domain,categorical,metric-specific,target service domain,service localization,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,protocol,categorical,metric-specific,application/transport protocol,flow context,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_active,float,metric-specific,dns_flow currently active operations/flows,current load evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_batch_concurrency,float,metric-specific,dns_flow concurrent probe batches,current load evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_batches_started_total,float,metric-specific,dns_flow cumulative started batches,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_batches_completed_total,float,metric-specific,dns_flow cumulative completed batches,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_batches_failed_total,float,metric-specific,dns_flow cumulative failed batches,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_batches_timeout_total,float,metric-specific,dns_flow cumulative timed-out batches,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_requests_total,float,metric-specific,dns_flow cumulative requests,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_success_total,float,metric-specific,dns_flow cumulative successful requests,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_error_total,float,metric-specific,dns_flow cumulative error requests,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_bytes_sent_total,float,metric-specific,dns_flow cumulative sent bytes,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_bytes_received_total,float,metric-specific,dns_flow cumulative received bytes,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_duration_seconds_sum,float,seconds,dns_flow cumulative request duration,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_active_seconds_total,float,seconds,dns_flow cumulative active seconds,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_duration_seconds_count,float,seconds,dns_flow number of duration observations,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_batch_duration_seconds,float,seconds,dns_flow latest/observed batch duration,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_last_batch_timestamp_seconds,float,seconds,dns_flow Unix timestamp of latest batch,timing context,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_observed_qps,float,metric-specific,dns_flow observed queries per second,service load evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_latency_mean_seconds,float,seconds,dns_flow mean request latency,service latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_latency_p95_seconds,float,seconds,dns_flow 95th percentile request latency,service latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_request_latency_seconds_bucket_le_0_01,float,count,dns_flow request latency histogram bucket 0_01,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_request_latency_seconds_bucket_le_0_025,float,count,dns_flow request latency histogram bucket 0_025,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_request_latency_seconds_bucket_le_0_05,float,count,dns_flow request latency histogram bucket 0_05,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_request_latency_seconds_bucket_le_0_1,float,count,dns_flow request latency histogram bucket 0_1,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_request_latency_seconds_bucket_le_0_25,float,count,dns_flow request latency histogram bucket 0_25,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_request_latency_seconds_bucket_le_0_5,float,count,dns_flow request latency histogram bucket 0_5,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_request_latency_seconds_bucket_le_1,float,count,dns_flow request latency histogram bucket 1,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_request_latency_seconds_bucket_le_2_5,float,count,dns_flow request latency histogram bucket 2_5,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_request_latency_seconds_bucket_le_5,float,count,dns_flow request latency histogram bucket 5,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_request_latency_seconds_bucket_le_plus_inf,float,count,dns_flow request latency histogram bucket plus_inf,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_request_latency_seconds_sum,float,seconds,dns_flow request latency sum,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,dns_flow_request_latency_seconds_count,float,seconds,dns_flow request latency sample count,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_active,float,metric-specific,web_flow currently active operations/flows,current load evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_batch_concurrency,float,metric-specific,web_flow concurrent probe batches,current load evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_batches_started_total,float,metric-specific,web_flow cumulative started batches,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_batches_completed_total,float,metric-specific,web_flow cumulative completed batches,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_batches_failed_total,float,metric-specific,web_flow cumulative failed batches,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_batches_timeout_total,float,metric-specific,web_flow cumulative timed-out batches,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_requests_total,float,metric-specific,web_flow cumulative requests,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_success_total,float,metric-specific,web_flow cumulative successful requests,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_error_total,float,metric-specific,web_flow cumulative error requests,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_bytes_sent_total,float,metric-specific,web_flow cumulative sent bytes,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_bytes_received_total,float,metric-specific,web_flow cumulative received bytes,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_duration_seconds_sum,float,seconds,web_flow cumulative request duration,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_active_seconds_total,float,seconds,web_flow cumulative active seconds,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_duration_seconds_count,float,seconds,web_flow number of duration observations,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_batch_duration_seconds,float,seconds,web_flow latest/observed batch duration,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_last_batch_timestamp_seconds,float,seconds,web_flow Unix timestamp of latest batch,timing context,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_observed_qps,float,metric-specific,web_flow observed queries per second,service load evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_latency_mean_seconds,float,seconds,web_flow mean request latency,service latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_latency_p95_seconds,float,seconds,web_flow 95th percentile request latency,service latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_request_latency_seconds_bucket_le_0_01,float,count,web_flow request latency histogram bucket 0_01,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_request_latency_seconds_bucket_le_0_025,float,count,web_flow request latency histogram bucket 0_025,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_request_latency_seconds_bucket_le_0_05,float,count,web_flow request latency histogram bucket 0_05,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_request_latency_seconds_bucket_le_0_1,float,count,web_flow request latency histogram bucket 0_1,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_request_latency_seconds_bucket_le_0_25,float,count,web_flow request latency histogram bucket 0_25,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_request_latency_seconds_bucket_le_0_5,float,count,web_flow request latency histogram bucket 0_5,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_request_latency_seconds_bucket_le_1,float,count,web_flow request latency histogram bucket 1,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_request_latency_seconds_bucket_le_2_5,float,count,web_flow request latency histogram bucket 2_5,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_request_latency_seconds_bucket_le_5,float,count,web_flow request latency histogram bucket 5,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_request_latency_seconds_bucket_le_plus_inf,float,count,web_flow request latency histogram bucket plus_inf,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_request_latency_seconds_sum,float,seconds,web_flow request latency sum,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,web_flow_request_latency_seconds_count,float,seconds,web_flow request latency sample count,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_active,float,metric-specific,auth_flow currently active operations/flows,current load evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_batch_concurrency,float,metric-specific,auth_flow concurrent probe batches,current load evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_batches_started_total,float,metric-specific,auth_flow cumulative started batches,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_batches_completed_total,float,metric-specific,auth_flow cumulative completed batches,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_batches_failed_total,float,metric-specific,auth_flow cumulative failed batches,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_batches_timeout_total,float,metric-specific,auth_flow cumulative timed-out batches,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_requests_total,float,metric-specific,auth_flow cumulative requests,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_success_total,float,metric-specific,auth_flow cumulative successful requests,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_error_total,float,metric-specific,auth_flow cumulative error requests,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_bytes_sent_total,float,metric-specific,auth_flow cumulative sent bytes,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_bytes_received_total,float,metric-specific,auth_flow cumulative received bytes,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_duration_seconds_sum,float,seconds,auth_flow cumulative request duration,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_active_seconds_total,float,seconds,auth_flow cumulative active seconds,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_duration_seconds_count,float,seconds,auth_flow number of duration observations,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_batch_duration_seconds,float,seconds,auth_flow latest/observed batch duration,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_last_batch_timestamp_seconds,float,seconds,auth_flow Unix timestamp of latest batch,timing context,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_observed_qps,float,metric-specific,auth_flow observed queries per second,service load evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_latency_mean_seconds,float,seconds,auth_flow mean request latency,service latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_latency_p95_seconds,float,seconds,auth_flow 95th percentile request latency,service latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_request_latency_seconds_bucket_le_0_01,float,count,auth_flow request latency histogram bucket 0_01,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_request_latency_seconds_bucket_le_0_025,float,count,auth_flow request latency histogram bucket 0_025,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_request_latency_seconds_bucket_le_0_05,float,count,auth_flow request latency histogram bucket 0_05,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_request_latency_seconds_bucket_le_0_1,float,count,auth_flow request latency histogram bucket 0_1,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_request_latency_seconds_bucket_le_0_25,float,count,auth_flow request latency histogram bucket 0_25,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_request_latency_seconds_bucket_le_0_5,float,count,auth_flow request latency histogram bucket 0_5,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_request_latency_seconds_bucket_le_1,float,count,auth_flow request latency histogram bucket 1,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_request_latency_seconds_bucket_le_2_5,float,count,auth_flow request latency histogram bucket 2_5,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_request_latency_seconds_bucket_le_5,float,count,auth_flow request latency histogram bucket 5,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_request_latency_seconds_bucket_le_plus_inf,float,count,auth_flow request latency histogram bucket plus_inf,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_request_latency_seconds_sum,float,seconds,auth_flow request latency sum,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,auth_flow_request_latency_seconds_count,float,seconds,auth_flow request latency sample count,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_active,float,metric-specific,elephant_flow currently active operations/flows,current load evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_batch_concurrency,float,metric-specific,elephant_flow concurrent probe batches,current load evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_batches_started_total,float,metric-specific,elephant_flow cumulative started batches,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_batches_completed_total,float,metric-specific,elephant_flow cumulative completed batches,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_batches_failed_total,float,metric-specific,elephant_flow cumulative failed batches,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_batches_timeout_total,float,metric-specific,elephant_flow cumulative timed-out batches,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_requests_total,float,metric-specific,elephant_flow cumulative requests,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_success_total,float,metric-specific,elephant_flow cumulative successful requests,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_error_total,float,metric-specific,elephant_flow cumulative error requests,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_bytes_sent_total,float,metric-specific,elephant_flow cumulative sent bytes,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_bytes_received_total,float,metric-specific,elephant_flow cumulative received bytes,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_duration_seconds_sum,float,seconds,elephant_flow cumulative request duration,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_active_seconds_total,float,seconds,elephant_flow cumulative active seconds,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_duration_seconds_count,float,seconds,elephant_flow number of duration observations,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_batch_duration_seconds,float,seconds,elephant_flow latest/observed batch duration,latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_last_batch_timestamp_seconds,float,seconds,elephant_flow Unix timestamp of latest batch,timing context,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_observed_qps,float,metric-specific,elephant_flow observed queries per second,service load evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_latency_mean_seconds,float,seconds,elephant_flow mean request latency,service latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_latency_p95_seconds,float,seconds,elephant_flow 95th percentile request latency,service latency evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_throughput_bps,float,metric-specific,elephant_flow throughput in bits per second,network performance evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_retransmits_total,float,metric-specific,elephant_flow cumulative retransmissions,counter; derive rates,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_loss_rate,float,ratio,elephant_flow packet/flow loss ratio,loss evidence,empty|NULL|\N|NA|N/A|nan
+traffic_flow_metrics,elephant_flow_jitter_seconds,float,seconds,elephant_flow latency variation,delay evidence,empty|NULL|\N|NA|N/A|nan

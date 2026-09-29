@@ -1,0 +1,8 @@
+source,origin,grain,timestamp_field,files,cities,rows,size_bytes,columns,storage_status
+node_metrics,node exporter / host resource telemetry,one-minute node-level time series,timestamp,8,8,1450970,307325019,16,extracted
+interface_metrics,interface/network exporter telemetry,one-minute interface-level time series,timestamp,8,8,9712086,969956842,15,extracted
+routing_metrics,"routing exporter; BGP, OSPF6 and IPv6 route telemetry",one-minute node/metric/label time series,timestamp,8,8,42139971,5155569051,7,extracted
+scrape_health,Prometheus scrape health / observability plane,one-minute exporter-target health time series,timestamp,8,8,2096458,217641636,9,extracted
+traffic_flow_metrics,synthetic service probes / Prometheus flow metrics,"service-flow observation by source, target and flow type",timestamp_utc,8,8,421227,309282305,126,extracted
+frr_syslog_events,FRR syslog; bgpd and ospf6d event stream,irregular routing-software event,event_time,8,8,3481,940510,15,extracted
+netflow_5tuple,flow collector / NetFlow-like five-tuple records,minute-level five-tuple flow record,minute_utc,0,0,0,0,,compressed_only_or_missing

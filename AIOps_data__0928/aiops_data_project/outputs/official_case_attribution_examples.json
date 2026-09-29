@@ -1,0 +1,116 @@
+[
+  {
+    "source": "public_baseline_sample",
+    "official_case_id": "incident-0013",
+    "start_time": "2026-07-28T12:39:34.000Z",
+    "end_time": "2026-07-28T12:52:54.000Z",
+    "official_root_cause": "xian-service-vm-1",
+    "official_fault_category": {
+      "major_category": "resource",
+      "sub_category": "cpu_pressure"
+    },
+    "window_evidence": [
+      {
+        "field": "cpu_usage",
+        "baseline_median": 0.55,
+        "case_range": [14.4999999998, 41.9444444447],
+        "meaning": "主机 CPU 使用状态"
+      },
+      {
+        "field": "load1",
+        "baseline_median": 0.02,
+        "case_range": [0.16, 1.84],
+        "meaning": "一分钟平均负载"
+      },
+      {
+        "field": "load5",
+        "baseline_median": 0.01,
+        "case_range": [0.05, 1.51],
+        "meaning": "五分钟平均负载"
+      },
+      {
+        "field": "memory_available_ratio",
+        "baseline_median": 0.9273,
+        "case_range": [0.9261535921, 0.9268470202],
+        "meaning": "可用内存比例"
+      }
+    ],
+    "why_root_cause": "xian-service-vm-1 在官方窗口内同时出现 CPU 使用状态和 load 指标的突变，且该异常直接发生在 service-vm-1 上；其他资源字段没有呈现同等强度的同步变化，因此该网元比同城其他候选更符合根因位置。",
+    "why_category": "cpu_usage、load1、load5 都属于主机资源压力证据，异常机制是计算资源争用而不是链路、路由或服务协议状态变化，因此归入 resource/cpu_pressure。",
+    "counter_evidence": "memory_available_ratio 在窗口内基本稳定，因此不支持 memory_pressure 作为主分类；disk_io_util 变化幅度相对较小，也不足以优先归为 disk_io_pressure。"
+  },
+  {
+    "source": "public_baseline_sample",
+    "official_case_id": "incident-0017",
+    "start_time": "2026-07-28T15:15:01.000Z",
+    "end_time": "2026-07-28T15:24:21.000Z",
+    "official_root_cause": "guangzhou-service-vm-3",
+    "official_fault_category": {
+      "major_category": "resource",
+      "sub_category": "memory_pressure"
+    },
+    "window_evidence": [
+      {
+        "field": "memory_available_ratio",
+        "baseline_median": 0.9234,
+        "case_range": [0.8505196539, 0.8551913293],
+        "meaning": "可用内存比例"
+      },
+      {
+        "field": "swap_used_ratio",
+        "baseline_median": 0.0001,
+        "case_range": [0.0001249315, 0.0001249315],
+        "meaning": "交换分区使用比例"
+      },
+      {
+        "field": "cpu_usage",
+        "baseline_median": 0.8056,
+        "case_range": [25.3444444442, 29.8722222222],
+        "meaning": "主机 CPU 使用状态"
+      }
+    ],
+    "why_root_cause": "guangzhou-service-vm-3 在官方窗口内出现可用内存比例从约 0.9234 降至 0.8505–0.8552 的明显变化，异常直接落在该 service-vm 上；CPU/load 的同步变化可以作为资源压力伴随现象，但不能取代内存字段对根因的指示。",
+    "why_category": "memory_available_ratio 是内存压力的直接观测字段，核心异常表现是可用内存下降，因此归入 resource/memory_pressure，而不是仅依据 CPU 波动归为 cpu_pressure。",
+    "counter_evidence": "swap_used_ratio 没有显著抬升，说明系统未必已经发生严重 swap；但 swap 不变不能否定可用内存下降这一直接证据，因此只作为辅助反证。"
+  },
+  {
+    "source": "public_baseline_sample",
+    "official_case_id": "incident-0021",
+    "start_time": "2026-07-28T17:32:17.000Z",
+    "end_time": "2026-07-28T17:40:54.000Z",
+    "official_root_cause": "wuhan-service-vm-2",
+    "official_fault_category": {
+      "major_category": "resource",
+      "sub_category": "disk_io_pressure"
+    },
+    "window_evidence": [
+      {
+        "field": "disk_io_util",
+        "baseline_median": 1.7778,
+        "case_range": [85.4488888889, 100.0],
+        "meaning": "磁盘 I/O 利用率"
+      },
+      {
+        "field": "disk_read_rate",
+        "baseline_median": 3640.8889,
+        "case_range": [2690434.8444, 7468646.4],
+        "meaning": "磁盘读取速率"
+      },
+      {
+        "field": "disk_write_rate",
+        "baseline_median": 28034.8444,
+        "case_range": [2709367.4667, 102329912.8889],
+        "meaning": "磁盘写入速率"
+      },
+      {
+        "field": "memory_available_ratio",
+        "baseline_median": 0.927,
+        "case_range": [0.9253274740, 0.9261010076],
+        "meaning": "可用内存比例"
+      }
+    ],
+    "why_root_cause": "wuhan-service-vm-2 在官方窗口内的 disk_io_util 达到 85.45–100%，同时读写速率相对窗口前基线出现数量级变化；这些直接磁盘 I/O 证据集中出现在该网元，因此比同一窗口内的 CPU/load 伴随变化更接近根因。",
+    "why_category": "disk_io_util、disk_read_rate 和 disk_write_rate 共同指向存储子系统饱和，故障属于 resource/disk_io_pressure；它不是内存压力，因为 memory_available_ratio 基本稳定，也不是链路故障，因为直接证据来自主机磁盘资源。",
+    "counter_evidence": "CPU 和 load 在窗口内也升高，但它们可以由 I/O 等待引起，属于伴随症状，不能优先于磁盘 I/O 饱和证据。"
+  }
+]

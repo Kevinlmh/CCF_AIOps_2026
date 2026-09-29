@@ -1,0 +1,8 @@
+source,filename_glob,origin,grain,entity_fields,primary_fault_families,baseline_role
+node_metrics,node_metrics_*.csv,node exporter / host resource telemetry,one-minute node-level time series,region|node|node_type,resource,primary anomaly signal
+interface_metrics,interface_metrics_*.csv,interface/network exporter telemetry,one-minute interface-level time series,region|node|node_type|interface_id|if_role,link|firewall|routing,primary anomaly signal
+routing_metrics,routing_metrics_*.csv,"routing exporter; BGP, OSPF6 and IPv6 route telemetry",one-minute node/metric/label time series,region|node|node_type|metric_name|label,routing,primary anomaly signal
+scrape_health,scrape_health_*.csv,Prometheus scrape health / observability plane,one-minute exporter-target health time series,region|target_id|node|exporter_type,observability,quality control and corroboration
+traffic_flow_metrics,traffic_flow_metrics.csv,synthetic service probes / Prometheus flow metrics,"service-flow observation by source, target and flow type",source_region|target_region|target_domain|flow_type|protocol,service|link|firewall,primary service-impact signal
+frr_syslog_events,frr_syslog_events_*.csv,FRR syslog; bgpd and ospf6d event stream,irregular routing-software event,hostname|region|program|severity,routing,event corroboration
+netflow_5tuple,netflow_5tuple_minute_readable.csv,flow collector / NetFlow-like five-tuple records,minute-level five-tuple flow record,region|node|interface_id|protocol|src_addr|dst_addr|src_port|dst_port,link|firewall|service|routing,high-cardinality auxiliary evidence; stream first

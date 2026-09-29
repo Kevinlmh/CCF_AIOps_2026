@@ -1,0 +1,809 @@
+[
+  {
+    "event_id": "official_baseline_event_0001",
+    "start_time": "2026-08-21T23:03:00Z",
+    "end_time": "2026-09-02T04:00:00Z",
+    "duration_minutes": 16137.0,
+    "anomaly_count": 2091736,
+    "note": "Official-baseline-compatible candidate window; RCA and classification are separate downstream stages.",
+    "unique_nodes": [
+      "beida-br-1",
+      "beida-br-2",
+      "beida-cr-1",
+      "beida-cr-2",
+      "beida-fw",
+      "beida-service-vm-1",
+      "beida-service-vm-2",
+      "beida-service-vm-3",
+      "beida-traffic-vm",
+      "chengdu-br-1",
+      "chengdu-br-2",
+      "chengdu-cr-1",
+      "chengdu-cr-2",
+      "chengdu-fw",
+      "chengdu-service-vm-1",
+      "chengdu-service-vm-2",
+      "chengdu-service-vm-3",
+      "chengdu-traffic-vm",
+      "guangzhou-br-1",
+      "guangzhou-br-2",
+      "guangzhou-cr-1",
+      "guangzhou-cr-2",
+      "guangzhou-fw",
+      "guangzhou-service-vm-1",
+      "guangzhou-service-vm-2",
+      "guangzhou-service-vm-3",
+      "guangzhou-traffic-vm",
+      "nanjing-br-1",
+      "nanjing-br-2",
+      "nanjing-cr-1",
+      "nanjing-cr-2",
+      "nanjing-fw",
+      "nanjing-service-vm-1",
+      "nanjing-service-vm-2",
+      "nanjing-service-vm-3",
+      "nanjing-traffic-vm",
+      "shanghai-br-1",
+      "shanghai-br-2",
+      "shanghai-cr-1",
+      "shanghai-cr-2",
+      "shanghai-fw",
+      "shanghai-service-vm-1",
+      "shanghai-service-vm-2",
+      "shanghai-service-vm-3",
+      "shanghai-traffic-vm",
+      "shenyang-br-1",
+      "shenyang-br-2",
+      "shenyang-cr-1",
+      "shenyang-cr-2",
+      "shenyang-fw",
+      "shenyang-service-vm-1",
+      "shenyang-service-vm-2",
+      "shenyang-service-vm-3",
+      "shenyang-traffic-vm",
+      "wuhan-br-1",
+      "wuhan-br-2",
+      "wuhan-cr-1",
+      "wuhan-cr-2",
+      "wuhan-fw",
+      "wuhan-service-vm-1",
+      "wuhan-service-vm-2",
+      "wuhan-service-vm-3",
+      "wuhan-traffic-vm",
+      "xian-br-1",
+      "xian-br-2",
+      "xian-cr-1",
+      "xian-cr-2",
+      "xian-fw",
+      "xian-service-vm-1",
+      "xian-service-vm-2",
+      "xian-service-vm-3",
+      "xian-traffic-vm"
+    ],
+    "unique_metrics": [
+      "interface.rx_bytes_rate",
+      "interface.rx_packets_rate",
+      "interface.tx_bytes_rate",
+      "interface.tx_packets_rate",
+      "node.cpu_usage",
+      "node.disk_io_util",
+      "node.disk_read_rate",
+      "node.disk_write_rate",
+      "node.filesystem_used_ratio",
+      "node.inode_used_ratio",
+      "node.load1",
+      "node.load5",
+      "node.memory_available_ratio",
+      "node.open_fd_ratio",
+      "node.process_count",
+      "node.swap_used_ratio",
+      "routing.value",
+      "scrape.scrape_duration_seconds",
+      "scrape.scrape_samples",
+      "scrape.scrape_up"
+    ],
+    "top_points": [
+      {
+        "time": "2026-08-23T00:01:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 27482521.599999998,
+        "magnitude": 2.74825216e+19
+      },
+      {
+        "time": "2026-08-30T00:01:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 19877432.888888888,
+        "magnitude": 1.987743288888889e+19
+      },
+      {
+        "time": "2026-08-23T00:02:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 13794417.777777776,
+        "magnitude": 1.3794417777777777e+19
+      },
+      {
+        "time": "2026-08-24T05:37:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 8475443.2,
+        "magnitude": 8.475443199999999e+18
+      },
+      {
+        "time": "2026-08-24T05:38:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 4764467.200000001,
+        "magnitude": 4.764467200000001e+18
+      },
+      {
+        "time": "2026-08-24T05:40:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 4178196.7198542156,
+        "magnitude": 4.1781967198542157e+18
+      },
+      {
+        "time": "2026-08-24T05:41:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 3915055.8641838143,
+        "magnitude": 3.915055864183814e+18
+      },
+      {
+        "time": "2026-08-24T05:47:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 3750297.6,
+        "magnitude": 3.7502976e+18
+      },
+      {
+        "time": "2026-08-24T05:49:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 3675841.4222222217,
+        "magnitude": 3.675841422222222e+18
+      },
+      {
+        "time": "2026-08-24T05:48:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 3652741.4781565266,
+        "magnitude": 3.6527414781565266e+18
+      },
+      {
+        "time": "2026-08-24T05:43:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 3554805.919736901,
+        "magnitude": 3.554805919736901e+18
+      },
+      {
+        "time": "2026-08-24T05:45:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 3537396.6222222224,
+        "magnitude": 3.5373966222222223e+18
+      },
+      {
+        "time": "2026-08-22T06:15:00Z",
+        "node": "wuhan-service-vm-2",
+        "metric": "node.disk_read_rate",
+        "value": 3528078.222222222,
+        "magnitude": 3.5280782222222223e+18
+      },
+      {
+        "time": "2026-08-24T05:46:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 3525836.8,
+        "magnitude": 3.5258368e+18
+      },
+      {
+        "time": "2026-08-24T05:42:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 3501988.9777777777,
+        "magnitude": 3.5019889777777777e+18
+      },
+      {
+        "time": "2026-08-24T05:39:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 3433722.3111111107,
+        "magnitude": 3.4337223111111107e+18
+      },
+      {
+        "time": "2026-08-24T05:44:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 3317031.822222222,
+        "magnitude": 3.3170318222222223e+18
+      },
+      {
+        "time": "2026-08-22T06:11:00Z",
+        "node": "chengdu-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 2948755.9111111113,
+        "magnitude": 2.948755911111111e+18
+      },
+      {
+        "time": "2026-08-30T00:58:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 2884676.2666666666,
+        "magnitude": 2.8846762666666665e+18
+      },
+      {
+        "time": "2026-08-27T00:17:00Z",
+        "node": "chengdu-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 2415456.7111111106,
+        "magnitude": 2.4154567111111107e+18
+      },
+      {
+        "time": "2026-08-22T06:16:00Z",
+        "node": "wuhan-service-vm-2",
+        "metric": "node.disk_read_rate",
+        "value": 1875239.8222222219,
+        "magnitude": 1.8752398222222218e+18
+      },
+      {
+        "time": "2026-08-22T06:10:00Z",
+        "node": "chengdu-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 1741585.0666666664,
+        "magnitude": 1.7415850666666665e+18
+      },
+      {
+        "time": "2026-08-24T05:50:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 884189.8666666666,
+        "magnitude": 8.841898666666666e+17
+      },
+      {
+        "time": "2026-08-30T09:19:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 598198.0444444444,
+        "magnitude": 5.981980444444444e+17
+      },
+      {
+        "time": "2026-08-29T00:42:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 572347.7333333333,
+        "magnitude": 5.723477333333333e+17
+      },
+      {
+        "time": "2026-08-28T08:46:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 561789.1555555555,
+        "magnitude": 5.617891555555555e+17
+      },
+      {
+        "time": "2026-08-24T13:45:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 498073.6,
+        "magnitude": 4.980736e+17
+      },
+      {
+        "time": "2026-08-28T03:43:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 464213.3333333333,
+        "magnitude": 4.642133333333333e+17
+      },
+      {
+        "time": "2026-08-30T00:04:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 310203.73333333334,
+        "magnitude": 3.102037333333333e+17
+      },
+      {
+        "time": "2026-08-23T17:20:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 269243.73333333334,
+        "magnitude": 2.6924373333333334e+17
+      },
+      {
+        "time": "2026-08-29T20:49:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 207348.6222222222,
+        "magnitude": 2.073486222222222e+17
+      },
+      {
+        "time": "2026-08-26T07:44:00Z",
+        "node": "wuhan-service-vm-2",
+        "metric": "node.disk_read_rate",
+        "value": 192238.93333333332,
+        "magnitude": 1.922389333333333e+17
+      },
+      {
+        "time": "2026-08-26T15:19:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 191684.28069863562,
+        "magnitude": 1.9168428069863562e+17
+      },
+      {
+        "time": "2026-08-28T18:01:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 171121.77777777778,
+        "magnitude": 1.711217777777778e+17
+      },
+      {
+        "time": "2026-08-30T00:50:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 163111.8222222222,
+        "magnitude": 1.631118222222222e+17
+      },
+      {
+        "time": "2026-08-29T07:03:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 148548.26666666666,
+        "magnitude": 1.4854826666666666e+17
+      },
+      {
+        "time": "2026-08-29T01:34:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 146363.73333333334,
+        "magnitude": 1.4636373333333334e+17
+      },
+      {
+        "time": "2026-08-29T00:06:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 136715.37777777776,
+        "magnitude": 1.3671537777777776e+17
+      },
+      {
+        "time": "2026-08-28T08:38:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 135623.1111111111,
+        "magnitude": 1.356231111111111e+17
+      },
+      {
+        "time": "2026-08-30T02:05:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 129797.68888888888,
+        "magnitude": 1.2979768888888888e+17
+      },
+      {
+        "time": "2026-08-30T00:00:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 125610.66666666667,
+        "magnitude": 1.2561066666666667e+17
+      },
+      {
+        "time": "2026-08-29T11:29:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 118146.84444444443,
+        "magnitude": 1.1814684444444443e+17
+      },
+      {
+        "time": "2026-08-26T07:03:00Z",
+        "node": "chengdu-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 118146.84444444443,
+        "magnitude": 1.1814684444444443e+17
+      },
+      {
+        "time": "2026-08-29T08:55:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 117418.66666666667,
+        "magnitude": 1.1741866666666667e+17
+      },
+      {
+        "time": "2026-08-28T05:58:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 116872.53333333334,
+        "magnitude": 1.1687253333333334e+17
+      },
+      {
+        "time": "2026-08-28T17:32:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 102308.97777777776,
+        "magnitude": 1.0230897777777776e+17
+      },
+      {
+        "time": "2026-08-27T15:17:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 100488.53333333334,
+        "magnitude": 1.0048853333333334e+17
+      },
+      {
+        "time": "2026-08-29T09:33:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 97939.9111111111,
+        "magnitude": 9.79399111111111e+16
+      },
+      {
+        "time": "2026-08-29T20:19:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 97211.73333333334,
+        "magnitude": 9.721173333333334e+16
+      },
+      {
+        "time": "2026-08-28T23:18:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 96301.5111111111,
+        "magnitude": 9.63015111111111e+16
+      },
+      {
+        "time": "2026-08-22T06:19:00Z",
+        "node": "wuhan-service-vm-2",
+        "metric": "node.disk_read_rate",
+        "value": 95937.42222222222,
+        "magnitude": 9.593742222222222e+16
+      },
+      {
+        "time": "2026-08-28T23:33:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 93206.75555555554,
+        "magnitude": 9.320675555555555e+16
+      },
+      {
+        "time": "2026-08-28T11:59:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 90294.04444444443,
+        "magnitude": 9.029404444444443e+16
+      },
+      {
+        "time": "2026-08-28T12:02:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 87563.37777777777,
+        "magnitude": 8.756337777777778e+16
+      },
+      {
+        "time": "2026-08-29T13:18:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 87563.37777777777,
+        "magnitude": 8.756337777777778e+16
+      },
+      {
+        "time": "2026-08-27T10:38:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 86835.2,
+        "magnitude": 8.68352e+16
+      },
+      {
+        "time": "2026-08-30T00:02:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 75002.3111111111,
+        "magnitude": 7.50023111111111e+16
+      },
+      {
+        "time": "2026-08-29T22:34:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 73545.95555555556,
+        "magnitude": 7.354595555555555e+16
+      },
+      {
+        "time": "2026-08-22T01:18:00Z",
+        "node": "wuhan-service-vm-2",
+        "metric": "node.disk_read_rate",
+        "value": 69540.97777777778,
+        "magnitude": 6.954097777777778e+16
+      },
+      {
+        "time": "2026-08-29T13:04:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 68994.84444444445,
+        "magnitude": 6.899484444444445e+16
+      },
+      {
+        "time": "2026-08-28T21:47:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 63897.6,
+        "magnitude": 6.38976e+16
+      },
+      {
+        "time": "2026-08-28T10:32:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 63169.422222222216,
+        "magnitude": 6.3169422222222216e+16
+      },
+      {
+        "time": "2026-08-29T12:33:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 63169.422222222216,
+        "magnitude": 6.3169422222222216e+16
+      },
+      {
+        "time": "2026-08-29T02:42:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 61713.066666666666,
+        "magnitude": 6.1713066666666664e+16
+      },
+      {
+        "time": "2026-08-29T11:04:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 60984.88888888888,
+        "magnitude": 6.098488888888889e+16
+      },
+      {
+        "time": "2026-08-29T23:15:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 58618.31111111111,
+        "magnitude": 5.86183111111111e+16
+      },
+      {
+        "time": "2026-08-23T08:17:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 57344.0,
+        "magnitude": 5.7344e+16
+      },
+      {
+        "time": "2026-08-28T12:00:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 57344.0,
+        "magnitude": 5.7344e+16
+      },
+      {
+        "time": "2026-08-29T15:03:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 57252.97777777778,
+        "magnitude": 5.725297777777778e+16
+      },
+      {
+        "time": "2026-08-22T01:14:00Z",
+        "node": "wuhan-service-vm-2",
+        "metric": "node.disk_read_rate",
+        "value": 56069.688888888886,
+        "magnitude": 5.606968888888889e+16
+      },
+      {
+        "time": "2026-08-24T10:07:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 55341.51111111111,
+        "magnitude": 5.534151111111111e+16
+      },
+      {
+        "time": "2026-08-27T07:45:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 54795.37777777777,
+        "magnitude": 5.479537777777778e+16
+      },
+      {
+        "time": "2026-08-29T01:20:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 53521.066666666666,
+        "magnitude": 5.3521066666666664e+16
+      },
+      {
+        "time": "2026-08-29T12:34:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 53156.97777777778,
+        "magnitude": 5.315697777777778e+16
+      },
+      {
+        "time": "2026-08-29T20:45:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 51518.57777777778,
+        "magnitude": 5.151857777777778e+16
+      },
+      {
+        "time": "2026-08-26T07:02:00Z",
+        "node": "chengdu-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 50426.311111111114,
+        "magnitude": 5.042631111111111e+16
+      },
+      {
+        "time": "2026-08-28T00:47:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 47513.6,
+        "magnitude": 4.75136e+16
+      },
+      {
+        "time": "2026-08-28T12:01:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 47149.51111111111,
+        "magnitude": 4.714951111111111e+16
+      },
+      {
+        "time": "2026-08-24T07:21:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 46969.554202408995,
+        "magnitude": 4.6969554202409e+16
+      },
+      {
+        "time": "2026-08-25T00:00:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 46969.554202408995,
+        "magnitude": 4.6969554202409e+16
+      },
+      {
+        "time": "2026-08-28T04:16:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 46967.46666666667,
+        "magnitude": 4.696746666666667e+16
+      },
+      {
+        "time": "2026-08-28T16:17:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 46421.333333333336,
+        "magnitude": 4.6421333333333336e+16
+      },
+      {
+        "time": "2026-08-22T12:12:00Z",
+        "node": "wuhan-service-vm-2",
+        "metric": "node.disk_read_rate",
+        "value": 46057.24444444444,
+        "magnitude": 4.605724444444444e+16
+      },
+      {
+        "time": "2026-08-27T09:45:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 45875.2,
+        "magnitude": 4.58752e+16
+      },
+      {
+        "time": "2026-08-27T09:47:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 45875.2,
+        "magnitude": 4.58752e+16
+      },
+      {
+        "time": "2026-08-29T18:49:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 45693.15555555555,
+        "magnitude": 4.569315555555555e+16
+      },
+      {
+        "time": "2026-08-29T11:18:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 44964.97777777778,
+        "magnitude": 4.496497777777778e+16
+      },
+      {
+        "time": "2026-08-27T06:38:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 44782.933333333334,
+        "magnitude": 4.4782933333333336e+16
+      },
+      {
+        "time": "2026-08-29T20:46:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 44782.933333333334,
+        "magnitude": 4.4782933333333336e+16
+      },
+      {
+        "time": "2026-08-29T09:03:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 44054.75555555555,
+        "magnitude": 4.405475555555555e+16
+      },
+      {
+        "time": "2026-08-24T10:29:00Z",
+        "node": "xian-service-vm-3",
+        "metric": "node.disk_read_rate",
+        "value": 44052.79765343762,
+        "magnitude": 4.4052797653437624e+16
+      },
+      {
+        "time": "2026-08-28T02:32:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 43508.62222222222,
+        "magnitude": 4.350862222222222e+16
+      },
+      {
+        "time": "2026-08-28T22:57:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 43326.57777777778,
+        "magnitude": 4.332657777777778e+16
+      },
+      {
+        "time": "2026-08-28T12:17:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 42780.444444444445,
+        "magnitude": 4.278044444444445e+16
+      },
+      {
+        "time": "2026-08-29T16:50:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 41870.22222222222,
+        "magnitude": 4.1870222222222216e+16
+      },
+      {
+        "time": "2026-08-28T16:02:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 41324.08888888888,
+        "magnitude": 4.132408888888888e+16
+      },
+      {
+        "time": "2026-08-29T01:26:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 40960.0,
+        "magnitude": 4.096e+16
+      },
+      {
+        "time": "2026-08-29T05:17:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 39139.55555555555,
+        "magnitude": 3.913955555555555e+16
+      },
+      {
+        "time": "2026-08-29T11:03:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 39139.55555555555,
+        "magnitude": 3.913955555555555e+16
+      },
+      {
+        "time": "2026-08-28T17:47:00Z",
+        "node": "beida-service-vm-1",
+        "metric": "node.disk_read_rate",
+        "value": 38047.288888888885,
+        "magnitude": 3.804728888888889e+16
+      }
+    ],
+    "top_points_note": "Only the top 100 points are retained; anomaly_count is the complete event count."
+  }
+]

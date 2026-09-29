@@ -1,0 +1,1694 @@
+[
+  {
+    "source": "frr_syslog_events",
+    "field": "id",
+    "type": "integer",
+    "unit": "event id",
+    "meaning": "event record id",
+    "analytical_role": "record key",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "frr_syslog_events",
+    "field": "received_at",
+    "type": "datetime",
+    "unit": "UTC",
+    "meaning": "collector receive time",
+    "analytical_role": "transport timing",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "frr_syslog_events",
+    "field": "event_time",
+    "type": "datetime",
+    "unit": "UTC",
+    "meaning": "event occurrence time",
+    "analytical_role": "join key",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "frr_syslog_events",
+    "field": "received_at_raw",
+    "type": "datetime",
+    "unit": "UTC",
+    "meaning": "raw collector timestamp",
+    "analytical_role": "audit field",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "frr_syslog_events",
+    "field": "event_time_raw",
+    "type": "datetime",
+    "unit": "UTC",
+    "meaning": "raw event timestamp",
+    "analytical_role": "audit field",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "frr_syslog_events",
+    "field": "source_ip",
+    "type": "string",
+    "unit": "IP address",
+    "meaning": "syslog sender",
+    "analytical_role": "entity context",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "frr_syslog_events",
+    "field": "hostname",
+    "type": "string",
+    "unit": "hostname",
+    "meaning": "emitting network element",
+    "analytical_role": "root-cause entity",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "frr_syslog_events",
+    "field": "region",
+    "type": "categorical",
+    "unit": "city alias",
+    "meaning": "log region",
+    "analytical_role": "join key",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "frr_syslog_events",
+    "field": "facility",
+    "type": "categorical",
+    "unit": "syslog facility",
+    "meaning": "syslog facility",
+    "analytical_role": "log context",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "frr_syslog_events",
+    "field": "severity",
+    "type": "categorical",
+    "unit": "level",
+    "meaning": "log severity name",
+    "analytical_role": "event weight",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "frr_syslog_events",
+    "field": "severity_code",
+    "type": "integer",
+    "unit": "syslog code",
+    "meaning": "numeric severity code",
+    "analytical_role": "event weight",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "frr_syslog_events",
+    "field": "program",
+    "type": "categorical",
+    "unit": "process",
+    "meaning": "FRR daemon name",
+    "analytical_role": "routing signature",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "frr_syslog_events",
+    "field": "pid",
+    "type": "integer",
+    "unit": "process id",
+    "meaning": "daemon process id",
+    "analytical_role": "log context",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "frr_syslog_events",
+    "field": "message",
+    "type": "string",
+    "unit": "free text",
+    "meaning": "event message",
+    "analytical_role": "routing evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "frr_syslog_events",
+    "field": "inserted_at",
+    "type": "datetime",
+    "unit": "UTC",
+    "meaning": "database insertion time",
+    "analytical_role": "audit field",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "interface_metrics",
+    "field": "timestamp",
+    "type": "datetime",
+    "unit": "UTC minute",
+    "meaning": "interface metric observation time",
+    "analytical_role": "join key",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "interface_metrics",
+    "field": "region",
+    "type": "categorical",
+    "unit": "city alias",
+    "meaning": "observation region",
+    "analytical_role": "join key",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "interface_metrics",
+    "field": "node",
+    "type": "categorical",
+    "unit": "node id",
+    "meaning": "interface owner",
+    "analytical_role": "root-cause entity",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "interface_metrics",
+    "field": "node_type",
+    "type": "categorical",
+    "unit": "role family",
+    "meaning": "interface owner role family",
+    "analytical_role": "candidate context",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "interface_metrics",
+    "field": "interface_id",
+    "type": "categorical",
+    "unit": "interface id",
+    "meaning": "observed interface",
+    "analytical_role": "link localization",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "interface_metrics",
+    "field": "if_role",
+    "type": "categorical",
+    "unit": "role label",
+    "meaning": "interface function when available",
+    "analytical_role": "link context",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "interface_metrics",
+    "field": "rx_bytes_rate",
+    "type": "float",
+    "unit": "bytes/s",
+    "meaning": "received byte rate",
+    "analytical_role": "traffic evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "interface_metrics",
+    "field": "tx_bytes_rate",
+    "type": "float",
+    "unit": "bytes/s",
+    "meaning": "transmitted byte rate",
+    "analytical_role": "traffic evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "interface_metrics",
+    "field": "rx_packets_rate",
+    "type": "float",
+    "unit": "packets/s",
+    "meaning": "received packet rate",
+    "analytical_role": "traffic evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "interface_metrics",
+    "field": "tx_packets_rate",
+    "type": "float",
+    "unit": "packets/s",
+    "meaning": "transmitted packet rate",
+    "analytical_role": "traffic evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "interface_metrics",
+    "field": "rx_drop_rate",
+    "type": "float",
+    "unit": "drops/s",
+    "meaning": "received packet drop rate",
+    "analytical_role": "loss evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "interface_metrics",
+    "field": "tx_drop_rate",
+    "type": "float",
+    "unit": "drops/s",
+    "meaning": "transmitted packet drop rate",
+    "analytical_role": "loss evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "interface_metrics",
+    "field": "rx_error_rate",
+    "type": "float",
+    "unit": "errors/s",
+    "meaning": "received packet error rate",
+    "analytical_role": "loss evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "interface_metrics",
+    "field": "tx_error_rate",
+    "type": "float",
+    "unit": "errors/s",
+    "meaning": "transmitted packet error rate",
+    "analytical_role": "loss evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "interface_metrics",
+    "field": "carrier_changes",
+    "type": "float",
+    "unit": "count",
+    "meaning": "interface carrier changes",
+    "analytical_role": "link stability evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "node_metrics",
+    "field": "timestamp",
+    "type": "datetime",
+    "unit": "UTC minute",
+    "meaning": "host metric observation time",
+    "analytical_role": "join key",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "node_metrics",
+    "field": "region",
+    "type": "categorical",
+    "unit": "city alias",
+    "meaning": "observation region",
+    "analytical_role": "join key",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "node_metrics",
+    "field": "node",
+    "type": "categorical",
+    "unit": "node id",
+    "meaning": "observed network element",
+    "analytical_role": "root-cause entity",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "node_metrics",
+    "field": "node_type",
+    "type": "categorical",
+    "unit": "role family",
+    "meaning": "device role family",
+    "analytical_role": "candidate context",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "node_metrics",
+    "field": "cpu_usage",
+    "type": "float",
+    "unit": "ratio",
+    "meaning": "CPU utilization",
+    "analytical_role": "resource evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "node_metrics",
+    "field": "load1",
+    "type": "float",
+    "unit": "load",
+    "meaning": "one-minute system load",
+    "analytical_role": "resource evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "node_metrics",
+    "field": "load5",
+    "type": "float",
+    "unit": "load",
+    "meaning": "five-minute system load",
+    "analytical_role": "resource evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "node_metrics",
+    "field": "memory_available_ratio",
+    "type": "float",
+    "unit": "ratio",
+    "meaning": "available memory ratio",
+    "analytical_role": "resource evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "node_metrics",
+    "field": "swap_used_ratio",
+    "type": "float",
+    "unit": "ratio",
+    "meaning": "used swap ratio",
+    "analytical_role": "resource evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "node_metrics",
+    "field": "disk_read_rate",
+    "type": "float",
+    "unit": "bytes/s",
+    "meaning": "disk read rate",
+    "analytical_role": "resource evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "node_metrics",
+    "field": "disk_write_rate",
+    "type": "float",
+    "unit": "bytes/s",
+    "meaning": "disk write rate",
+    "analytical_role": "resource evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "node_metrics",
+    "field": "disk_io_util",
+    "type": "float",
+    "unit": "ratio",
+    "meaning": "disk I/O utilization",
+    "analytical_role": "resource evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "node_metrics",
+    "field": "filesystem_used_ratio",
+    "type": "float",
+    "unit": "ratio",
+    "meaning": "filesystem used ratio",
+    "analytical_role": "resource evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "node_metrics",
+    "field": "inode_used_ratio",
+    "type": "float",
+    "unit": "ratio",
+    "meaning": "inode used ratio",
+    "analytical_role": "resource evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "node_metrics",
+    "field": "open_fd_ratio",
+    "type": "float",
+    "unit": "ratio",
+    "meaning": "open file descriptor ratio",
+    "analytical_role": "resource evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "node_metrics",
+    "field": "process_count",
+    "type": "float",
+    "unit": "count",
+    "meaning": "running process count",
+    "analytical_role": "resource evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "routing_metrics",
+    "field": "timestamp",
+    "type": "datetime",
+    "unit": "UTC minute",
+    "meaning": "routing metric observation time",
+    "analytical_role": "join key",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "routing_metrics",
+    "field": "region",
+    "type": "categorical",
+    "unit": "city alias",
+    "meaning": "observation region",
+    "analytical_role": "join key",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "routing_metrics",
+    "field": "node",
+    "type": "categorical",
+    "unit": "node id",
+    "meaning": "routing metric owner",
+    "analytical_role": "root-cause entity",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "routing_metrics",
+    "field": "node_type",
+    "type": "categorical",
+    "unit": "role family",
+    "meaning": "routing metric owner role family",
+    "analytical_role": "candidate context",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "routing_metrics",
+    "field": "metric_name",
+    "type": "categorical",
+    "unit": "metric name",
+    "meaning": "routing control-plane metric",
+    "analytical_role": "routing signature",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "routing_metrics",
+    "field": "label",
+    "type": "structured string",
+    "unit": "Prometheus-like labels",
+    "meaning": "peer, command or route context",
+    "analytical_role": "routing disambiguation",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "routing_metrics",
+    "field": "value",
+    "type": "float-or-string",
+    "unit": "metric-specific",
+    "meaning": "metric value",
+    "analytical_role": "routing evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "scrape_health",
+    "field": "timestamp",
+    "type": "datetime",
+    "unit": "UTC minute",
+    "meaning": "scrape attempt time",
+    "analytical_role": "join key",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "scrape_health",
+    "field": "region",
+    "type": "categorical",
+    "unit": "city alias",
+    "meaning": "observation region",
+    "analytical_role": "join key",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "scrape_health",
+    "field": "target_id",
+    "type": "categorical",
+    "unit": "exporter target",
+    "meaning": "scrape target address",
+    "analytical_role": "observability entity",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "scrape_health",
+    "field": "node",
+    "type": "categorical",
+    "unit": "node id",
+    "meaning": "scrape target owner",
+    "analytical_role": "observability entity",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "scrape_health",
+    "field": "exporter_type",
+    "type": "categorical",
+    "unit": "exporter name",
+    "meaning": "node or routing exporter",
+    "analytical_role": "source context",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "scrape_health",
+    "field": "scrape_up",
+    "type": "integer",
+    "unit": "0/1",
+    "meaning": "whether scrape succeeded",
+    "analytical_role": "data quality evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "scrape_health",
+    "field": "scrape_duration_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "scrape duration",
+    "analytical_role": "observability evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "scrape_health",
+    "field": "scrape_samples",
+    "type": "integer",
+    "unit": "samples",
+    "meaning": "samples returned by scrape",
+    "analytical_role": "observability evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "scrape_health",
+    "field": "scrape_error",
+    "type": "string",
+    "unit": "message",
+    "meaning": "scrape error when present",
+    "analytical_role": "observability evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "id",
+    "type": "integer",
+    "unit": "metric-specific",
+    "meaning": "record id",
+    "analytical_role": "record key",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "timestamp_utc",
+    "type": "datetime",
+    "unit": "metric-specific",
+    "meaning": "flow metric observation time",
+    "analytical_role": "join key",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "prometheus_sample_time_utc",
+    "type": "datetime",
+    "unit": "metric-specific",
+    "meaning": "underlying Prometheus sample time",
+    "analytical_role": "audit timing",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "series_key",
+    "type": "string",
+    "unit": "metric-specific",
+    "meaning": "stable metric series hash",
+    "analytical_role": "series key",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "flow_type",
+    "type": "categorical",
+    "unit": "metric-specific",
+    "meaning": "DNS/Web/Auth/Elephant flow family",
+    "analytical_role": "service context",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "source_region",
+    "type": "categorical",
+    "unit": "metric-specific",
+    "meaning": "probe source region",
+    "analytical_role": "join key",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "source_ip",
+    "type": "string",
+    "unit": "metric-specific",
+    "meaning": "probe source IP",
+    "analytical_role": "flow context",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "target_region",
+    "type": "categorical",
+    "unit": "metric-specific",
+    "meaning": "target service region",
+    "analytical_role": "impact localization",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "target_domain",
+    "type": "categorical",
+    "unit": "metric-specific",
+    "meaning": "target service domain",
+    "analytical_role": "service localization",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "protocol",
+    "type": "categorical",
+    "unit": "metric-specific",
+    "meaning": "application/transport protocol",
+    "analytical_role": "flow context",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_active",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "dns_flow currently active operations/flows",
+    "analytical_role": "current load evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_batch_concurrency",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "dns_flow concurrent probe batches",
+    "analytical_role": "current load evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_batches_started_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "dns_flow cumulative started batches",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_batches_completed_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "dns_flow cumulative completed batches",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_batches_failed_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "dns_flow cumulative failed batches",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_batches_timeout_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "dns_flow cumulative timed-out batches",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_requests_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "dns_flow cumulative requests",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_success_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "dns_flow cumulative successful requests",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_error_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "dns_flow cumulative error requests",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_bytes_sent_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "dns_flow cumulative sent bytes",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_bytes_received_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "dns_flow cumulative received bytes",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_duration_seconds_sum",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "dns_flow cumulative request duration",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_active_seconds_total",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "dns_flow cumulative active seconds",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_duration_seconds_count",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "dns_flow number of duration observations",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_batch_duration_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "dns_flow latest/observed batch duration",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_last_batch_timestamp_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "dns_flow Unix timestamp of latest batch",
+    "analytical_role": "timing context",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_observed_qps",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "dns_flow observed queries per second",
+    "analytical_role": "service load evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_latency_mean_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "dns_flow mean request latency",
+    "analytical_role": "service latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_latency_p95_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "dns_flow 95th percentile request latency",
+    "analytical_role": "service latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_request_latency_seconds_bucket_le_0_01",
+    "type": "float",
+    "unit": "count",
+    "meaning": "dns_flow request latency histogram bucket 0_01",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_request_latency_seconds_bucket_le_0_025",
+    "type": "float",
+    "unit": "count",
+    "meaning": "dns_flow request latency histogram bucket 0_025",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_request_latency_seconds_bucket_le_0_05",
+    "type": "float",
+    "unit": "count",
+    "meaning": "dns_flow request latency histogram bucket 0_05",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_request_latency_seconds_bucket_le_0_1",
+    "type": "float",
+    "unit": "count",
+    "meaning": "dns_flow request latency histogram bucket 0_1",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_request_latency_seconds_bucket_le_0_25",
+    "type": "float",
+    "unit": "count",
+    "meaning": "dns_flow request latency histogram bucket 0_25",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_request_latency_seconds_bucket_le_0_5",
+    "type": "float",
+    "unit": "count",
+    "meaning": "dns_flow request latency histogram bucket 0_5",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_request_latency_seconds_bucket_le_1",
+    "type": "float",
+    "unit": "count",
+    "meaning": "dns_flow request latency histogram bucket 1",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_request_latency_seconds_bucket_le_2_5",
+    "type": "float",
+    "unit": "count",
+    "meaning": "dns_flow request latency histogram bucket 2_5",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_request_latency_seconds_bucket_le_5",
+    "type": "float",
+    "unit": "count",
+    "meaning": "dns_flow request latency histogram bucket 5",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_request_latency_seconds_bucket_le_plus_inf",
+    "type": "float",
+    "unit": "count",
+    "meaning": "dns_flow request latency histogram bucket plus_inf",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_request_latency_seconds_sum",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "dns_flow request latency sum",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "dns_flow_request_latency_seconds_count",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "dns_flow request latency sample count",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_active",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "web_flow currently active operations/flows",
+    "analytical_role": "current load evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_batch_concurrency",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "web_flow concurrent probe batches",
+    "analytical_role": "current load evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_batches_started_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "web_flow cumulative started batches",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_batches_completed_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "web_flow cumulative completed batches",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_batches_failed_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "web_flow cumulative failed batches",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_batches_timeout_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "web_flow cumulative timed-out batches",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_requests_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "web_flow cumulative requests",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_success_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "web_flow cumulative successful requests",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_error_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "web_flow cumulative error requests",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_bytes_sent_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "web_flow cumulative sent bytes",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_bytes_received_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "web_flow cumulative received bytes",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_duration_seconds_sum",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "web_flow cumulative request duration",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_active_seconds_total",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "web_flow cumulative active seconds",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_duration_seconds_count",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "web_flow number of duration observations",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_batch_duration_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "web_flow latest/observed batch duration",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_last_batch_timestamp_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "web_flow Unix timestamp of latest batch",
+    "analytical_role": "timing context",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_observed_qps",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "web_flow observed queries per second",
+    "analytical_role": "service load evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_latency_mean_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "web_flow mean request latency",
+    "analytical_role": "service latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_latency_p95_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "web_flow 95th percentile request latency",
+    "analytical_role": "service latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_request_latency_seconds_bucket_le_0_01",
+    "type": "float",
+    "unit": "count",
+    "meaning": "web_flow request latency histogram bucket 0_01",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_request_latency_seconds_bucket_le_0_025",
+    "type": "float",
+    "unit": "count",
+    "meaning": "web_flow request latency histogram bucket 0_025",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_request_latency_seconds_bucket_le_0_05",
+    "type": "float",
+    "unit": "count",
+    "meaning": "web_flow request latency histogram bucket 0_05",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_request_latency_seconds_bucket_le_0_1",
+    "type": "float",
+    "unit": "count",
+    "meaning": "web_flow request latency histogram bucket 0_1",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_request_latency_seconds_bucket_le_0_25",
+    "type": "float",
+    "unit": "count",
+    "meaning": "web_flow request latency histogram bucket 0_25",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_request_latency_seconds_bucket_le_0_5",
+    "type": "float",
+    "unit": "count",
+    "meaning": "web_flow request latency histogram bucket 0_5",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_request_latency_seconds_bucket_le_1",
+    "type": "float",
+    "unit": "count",
+    "meaning": "web_flow request latency histogram bucket 1",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_request_latency_seconds_bucket_le_2_5",
+    "type": "float",
+    "unit": "count",
+    "meaning": "web_flow request latency histogram bucket 2_5",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_request_latency_seconds_bucket_le_5",
+    "type": "float",
+    "unit": "count",
+    "meaning": "web_flow request latency histogram bucket 5",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_request_latency_seconds_bucket_le_plus_inf",
+    "type": "float",
+    "unit": "count",
+    "meaning": "web_flow request latency histogram bucket plus_inf",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_request_latency_seconds_sum",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "web_flow request latency sum",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "web_flow_request_latency_seconds_count",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "web_flow request latency sample count",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_active",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "auth_flow currently active operations/flows",
+    "analytical_role": "current load evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_batch_concurrency",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "auth_flow concurrent probe batches",
+    "analytical_role": "current load evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_batches_started_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "auth_flow cumulative started batches",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_batches_completed_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "auth_flow cumulative completed batches",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_batches_failed_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "auth_flow cumulative failed batches",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_batches_timeout_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "auth_flow cumulative timed-out batches",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_requests_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "auth_flow cumulative requests",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_success_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "auth_flow cumulative successful requests",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_error_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "auth_flow cumulative error requests",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_bytes_sent_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "auth_flow cumulative sent bytes",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_bytes_received_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "auth_flow cumulative received bytes",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_duration_seconds_sum",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "auth_flow cumulative request duration",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_active_seconds_total",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "auth_flow cumulative active seconds",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_duration_seconds_count",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "auth_flow number of duration observations",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_batch_duration_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "auth_flow latest/observed batch duration",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_last_batch_timestamp_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "auth_flow Unix timestamp of latest batch",
+    "analytical_role": "timing context",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_observed_qps",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "auth_flow observed queries per second",
+    "analytical_role": "service load evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_latency_mean_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "auth_flow mean request latency",
+    "analytical_role": "service latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_latency_p95_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "auth_flow 95th percentile request latency",
+    "analytical_role": "service latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_request_latency_seconds_bucket_le_0_01",
+    "type": "float",
+    "unit": "count",
+    "meaning": "auth_flow request latency histogram bucket 0_01",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_request_latency_seconds_bucket_le_0_025",
+    "type": "float",
+    "unit": "count",
+    "meaning": "auth_flow request latency histogram bucket 0_025",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_request_latency_seconds_bucket_le_0_05",
+    "type": "float",
+    "unit": "count",
+    "meaning": "auth_flow request latency histogram bucket 0_05",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_request_latency_seconds_bucket_le_0_1",
+    "type": "float",
+    "unit": "count",
+    "meaning": "auth_flow request latency histogram bucket 0_1",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_request_latency_seconds_bucket_le_0_25",
+    "type": "float",
+    "unit": "count",
+    "meaning": "auth_flow request latency histogram bucket 0_25",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_request_latency_seconds_bucket_le_0_5",
+    "type": "float",
+    "unit": "count",
+    "meaning": "auth_flow request latency histogram bucket 0_5",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_request_latency_seconds_bucket_le_1",
+    "type": "float",
+    "unit": "count",
+    "meaning": "auth_flow request latency histogram bucket 1",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_request_latency_seconds_bucket_le_2_5",
+    "type": "float",
+    "unit": "count",
+    "meaning": "auth_flow request latency histogram bucket 2_5",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_request_latency_seconds_bucket_le_5",
+    "type": "float",
+    "unit": "count",
+    "meaning": "auth_flow request latency histogram bucket 5",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_request_latency_seconds_bucket_le_plus_inf",
+    "type": "float",
+    "unit": "count",
+    "meaning": "auth_flow request latency histogram bucket plus_inf",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_request_latency_seconds_sum",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "auth_flow request latency sum",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "auth_flow_request_latency_seconds_count",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "auth_flow request latency sample count",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_active",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "elephant_flow currently active operations/flows",
+    "analytical_role": "current load evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_batch_concurrency",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "elephant_flow concurrent probe batches",
+    "analytical_role": "current load evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_batches_started_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "elephant_flow cumulative started batches",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_batches_completed_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "elephant_flow cumulative completed batches",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_batches_failed_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "elephant_flow cumulative failed batches",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_batches_timeout_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "elephant_flow cumulative timed-out batches",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_requests_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "elephant_flow cumulative requests",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_success_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "elephant_flow cumulative successful requests",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_error_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "elephant_flow cumulative error requests",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_bytes_sent_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "elephant_flow cumulative sent bytes",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_bytes_received_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "elephant_flow cumulative received bytes",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_duration_seconds_sum",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "elephant_flow cumulative request duration",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_active_seconds_total",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "elephant_flow cumulative active seconds",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_duration_seconds_count",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "elephant_flow number of duration observations",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_batch_duration_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "elephant_flow latest/observed batch duration",
+    "analytical_role": "latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_last_batch_timestamp_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "elephant_flow Unix timestamp of latest batch",
+    "analytical_role": "timing context",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_observed_qps",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "elephant_flow observed queries per second",
+    "analytical_role": "service load evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_latency_mean_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "elephant_flow mean request latency",
+    "analytical_role": "service latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_latency_p95_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "elephant_flow 95th percentile request latency",
+    "analytical_role": "service latency evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_throughput_bps",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "elephant_flow throughput in bits per second",
+    "analytical_role": "network performance evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_retransmits_total",
+    "type": "float",
+    "unit": "metric-specific",
+    "meaning": "elephant_flow cumulative retransmissions",
+    "analytical_role": "counter; derive rates",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_loss_rate",
+    "type": "float",
+    "unit": "ratio",
+    "meaning": "elephant_flow packet/flow loss ratio",
+    "analytical_role": "loss evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  },
+  {
+    "source": "traffic_flow_metrics",
+    "field": "elephant_flow_jitter_seconds",
+    "type": "float",
+    "unit": "seconds",
+    "meaning": "elephant_flow latency variation",
+    "analytical_role": "delay evidence",
+    "raw_missing_tokens": "empty|NULL|\\N|NA|N/A|nan"
+  }
+]
