@@ -158,9 +158,22 @@ def audit_run(store, predictions_path: Path, inference_path: Path) -> dict[str, 
             if support_indexes else 0.0
         )
         root_scores = item.get("root_scores") or []
-        top_score = root_scores[0] if root_scores else None
-        if top_score is not None and top_score.get("node_id") != root:
-            raise ValueError(f"inference Top1 disagrees with prediction: {identity}")
+        llm_review = item.get("llm_review")
+        llm_status = llm_review.get("status") if isinstance(llm_review, dict) else None
+        if llm_status == "accepted":
+            reviewed_roots = llm_review.get("root_cause_top5")
+            if not isinstance(reviewed_roots, list) or not reviewed_roots:
+                raise ValueError(f"accepted LLM review has no root ranking: {identity}")
+            if reviewed_roots[0] != root:
+                raise ValueError(f"accepted LLM Top1 disagrees with prediction: {identity}")
+            top_score = next(
+                (entry for entry in root_scores if entry.get("node_id") == root),
+                None,
+            )
+        else:
+            top_score = root_scores[0] if root_scores else None
+            if top_score is not None and top_score.get("node_id") != root:
+                raise ValueError(f"local inference Top1 disagrees with prediction: {identity}")
         effective_netflow = (
             top_score.get("components", {}).get("effective_netflow")
             if top_score is not None else None

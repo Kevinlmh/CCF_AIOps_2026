@@ -734,6 +734,12 @@ def _add_llm_options(parser: argparse.ArgumentParser) -> None:
         help="environment variable containing the API key; the key itself is never a CLI arg",
     )
     parser.add_argument("--llm-timeout", type=float, default=45.0)
+    parser.add_argument(
+        "--llm-thinking-mode",
+        choices=("provider-default", "enabled", "disabled"),
+        default="provider-default",
+        help="thinking mode for OpenAI-compatible APIs that support it, such as DeepSeek",
+    )
 
 
 def _reviewer_from_args(args, taxonomy: dict[str, Any]) -> EventReview | None:
@@ -747,11 +753,16 @@ def _reviewer_from_args(args, taxonomy: dict[str, Any]) -> EventReview | None:
                 model=args.llm_model,
                 api_key_env=args.llm_api_key_env,
                 timeout_seconds=args.llm_timeout,
+                thinking_mode=args.llm_thinking_mode,
             )
         )
     else:
         backend = TransformersBackend(args.llm_model)
-    return EventReview(backend, taxonomy)
+    # The v2 evidence graph makes API review prompts larger than the local
+    # model's conservative cap; keep the API bound finite but large enough for
+    # the current event payloads.
+    max_prompt_chars = 50_000 if backend_name == "openai-compatible" else 20_000
+    return EventReview(backend, taxonomy, max_prompt_chars=max_prompt_chars)
 
 
 def _train_from_args(args, store: FeatureStore, taxonomy: dict[str, Any]):
