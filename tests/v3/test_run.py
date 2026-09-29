@@ -40,6 +40,9 @@ def test_rules_run_writes_official_prediction_and_evidence(tmp_path):
     manifest = json.loads((tmp_path / "rules" / "run_manifest.json").read_text())
     assert len(manifest["input_array_sha256"]) == 6
     assert set(manifest["output_sha256"]) == {"predictions.jsonl", "evidence.jsonl", "audit.jsonl"}
+    audit = json.loads((tmp_path / "rules" / "audit.jsonl").read_text())
+    assert audit["evidence_tier"] == "single_metric_direct"
+    assert audit["root_has_direct_evidence"] is True
 
 
 def test_invalid_server_diagnosis_falls_back_per_event(tmp_path):

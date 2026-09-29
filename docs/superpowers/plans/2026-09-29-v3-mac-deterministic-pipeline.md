@@ -106,3 +106,10 @@
 - [x] Include per-source row conservation and interface/protocol NetFlow features in the raw builder.
 - [x] Bind server responses to the full evidence pack hash and record input arrays, code, responses and output hashes.
 - [x] Recheck public examples, first-batch schema, and all tests; document missing raw-row lineage and second-batch validation.
+
+### Task 9: First-batch event count audit
+
+- [x] Compare the 478 v3 proposals with the data-side 403 unlabelled v2 candidates and user-confirmed 292 official first-batch faults without using either count as a truncation target.
+- [x] Add evidence-preserving BGP flap and synchronous same-category consolidation with trajectory and official Dice guards.
+- [x] Preserve independent adjacent, different-category, and dissimilar-trajectory events in tests; make every merge traceable to its final event.
+- [x] Add per-event evidence tiers and root-direct-evidence flags; document 375 resulting proposals and the unresolved 83-count gap.

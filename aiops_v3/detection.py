@@ -16,6 +16,11 @@ class DetectorSettings:
     merge_gap_minutes: int = 1
     max_event_minutes: int = 30
     max_signals_per_event: int = 60
+    bgp_flap_gap_minutes: int = 4
+    coincident_onset_minutes: int = 1
+    coincident_overlap_fraction: float = .5
+    trajectory_correlation_min: float = .75
+    min_component_dice: float = .4
 
 
 @dataclass(frozen=True)
@@ -43,6 +48,7 @@ class Event:
 class DetectionResult:
     events: tuple[Event, ...]
     rejected: tuple[dict, ...]
+    merged: tuple[dict, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -127,6 +133,117 @@ def _target_city(target: str) -> str | None:
     if target.startswith("service-group:"):
         return target.split(":")[1]
     return target.split("-", 1)[0] if "-" in target else None
+
+
+def _direct_nodes(event: Event) -> set[str]:
+    return {signal.node for signal in event.signals if signal.role == "direct"}
+
+
+def _dominant_direct_category(event: Event) -> str | None:
+    direct = [signal for signal in event.signals if signal.role == "direct"]
+    return max(direct, key=lambda signal: signal.score).category if direct else None
+
+
+def _joined(left: Event, right: Event, settings: DetectorSettings) -> Event:
+    signals = {signal.evidence_id: signal for signal in (*left.signals, *right.signals)}
+    ordered = sorted(signals.values(), key=lambda signal: (-signal.score, signal.evidence_id))
+    return Event(left.event_id, min(left.start_minute, right.start_minute),
+                 max(left.end_minute, right.end_minute), tuple(ordered[:settings.max_signals_per_event]))
+
+
+def _trajectory_agrees(store: FeatureStore, left: Event, right: Event, settings: DetectorSettings) -> bool:
+    start = max(0, min(left.start_minute, right.start_minute) - 3)
+    end = min(store.manifest["minute_count"], max(left.end_minute, right.end_minute) + 3)
+    node_index = {node: index for index, node in enumerate(store.nodes)}
+    correlations: list[float] = []
+    for first in left.signals:
+        if first.role != "direct":
+            continue
+        for second in right.signals:
+            if second.role != "direct" or first.feature != second.feature or first.node == second.node:
+                continue
+            column = store.feature_index("node", first.feature)
+            if column is None:
+                continue
+            a, b = node_index[first.node], node_index[second.node]
+            observed = store.node_mask[start:end, a, column] & store.node_mask[start:end, b, column]
+            if observed.sum() < 5:
+                continue
+            x = np.asarray(store.node_values[start:end, a, column][observed], np.float64)
+            y = np.asarray(store.node_values[start:end, b, column][observed], np.float64)
+            if np.std(x) <= 1e-6 or np.std(y) <= 1e-6:
+                continue
+            correlations.append(float(np.corrcoef(x, y)[0, 1]))
+    return bool(correlations and max(correlations) >= settings.trajectory_correlation_min
+                and np.median(correlations) >= settings.trajectory_correlation_min - .1)
+
+
+def _consolidate(store: FeatureStore, events: list[Event], settings: DetectorSettings) -> tuple[list[Event], list[dict]]:
+    merged: list[dict] = []
+    components = {event.event_id: [(event.start_minute, event.end_minute)] for event in events}
+    lineage = {event.event_id: [event.event_id] for event in events}
+
+    def keeps_matchable_windows(left: Event, right: Event) -> bool:
+        start = min(left.start_minute, right.start_minute)
+        end = max(left.end_minute, right.end_minute)
+        return all(
+            2 * (min(component_end, end) - max(component_start, start))
+            / (component_end - component_start + end - start) >= settings.min_component_dice
+            for component_start, component_end in (*components[left.event_id], *components[right.event_id])
+        )
+
+    stitched: list[Event] = []
+    for event in events:
+        target = next((previous for previous in reversed(stitched)
+                       if _dominant_direct_category(previous) == _dominant_direct_category(event) == "bgp_session_down"
+                       and len(_direct_nodes(previous)) == len(_direct_nodes(event)) == 1
+                       and _direct_nodes(previous) == _direct_nodes(event)
+                       and 0 <= event.start_minute - previous.end_minute <= settings.bgp_flap_gap_minutes
+                       and event.end_minute - previous.start_minute <= settings.max_event_minutes
+                       and keeps_matchable_windows(previous, event)), None)
+        if target is None:
+            stitched.append(event)
+        else:
+            stitched[stitched.index(target)] = _joined(target, event, settings)
+            components[target.event_id].extend(components[event.event_id])
+            lineage[target.event_id].extend(lineage[event.event_id])
+            merged.append({"reason": "same_node_bgp_flap", "source_event_ids": [target.event_id, event.event_id]})
+    consolidated: list[Event] = []
+    for event in stitched:
+        category = _dominant_direct_category(event)
+        target = None
+        if category:
+            for previous in reversed(consolidated):
+                if event.start_minute - previous.start_minute > settings.coincident_onset_minutes:
+                    break
+                if _dominant_direct_category(previous) != category or _direct_nodes(previous) & _direct_nodes(event):
+                    continue
+                overlap = min(previous.end_minute, event.end_minute) - max(previous.start_minute, event.start_minute)
+                shorter = min(previous.end_minute - previous.start_minute, event.end_minute - event.start_minute)
+                span = max(previous.end_minute, event.end_minute) - min(previous.start_minute, event.start_minute)
+                if (overlap >= shorter * settings.coincident_overlap_fraction
+                        and span <= settings.max_event_minutes
+                        and keeps_matchable_windows(previous, event)
+                        and _trajectory_agrees(store, previous, event, settings)):
+                    target = previous
+                    break
+        if target is None:
+            consolidated.append(event)
+        else:
+            consolidated[consolidated.index(target)] = _joined(target, event, settings)
+            components[target.event_id].extend(components[event.event_id])
+            lineage[target.event_id].extend(lineage[event.event_id])
+            merged.append({"reason": "synchronous_same_category", "source_event_ids": [target.event_id, event.event_id]})
+    consolidated.sort(key=lambda event: (event.start_minute, event.end_minute, event.event_id))
+    source_to_final = {
+        source: f"v3-e{index:06d}"
+        for index, event in enumerate(consolidated, 1)
+        for source in lineage[event.event_id]
+    }
+    for item in merged:
+        item["final_event_id"] = source_to_final[item["source_event_ids"][0]]
+    return [Event(f"v3-e{index:06d}", event.start_minute, event.end_minute, event.signals)
+            for index, event in enumerate(consolidated, 1)], merged
 
 
 def detect_with_audit(store: FeatureStore, settings: DetectorSettings = DetectorSettings()) -> DetectionResult:
@@ -236,7 +353,8 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
                                  "reason": "correlated_weaker_monitor_signal", "node": monitor.node})
                 continue
         retained.append(Event(f"v3-e{len(retained) + 1:06d}", event.start_minute, event.end_minute, event.signals))
-    return DetectionResult(tuple(retained), tuple(rejected))
+    final, merged = _consolidate(store, retained, settings)
+    return DetectionResult(tuple(final), tuple(rejected), tuple(merged))
 
 
 def detect(store: FeatureStore, settings: DetectorSettings = DetectorSettings()) -> list[Event]:

@@ -38,6 +38,34 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _evidence_summary(event, store, top_root: str) -> dict:
+    direct = [signal for signal in event.signals if signal.role == "direct"]
+    symptoms = [signal for signal in event.signals if signal.role == "symptom"]
+    direct_nodes = {signal.node for signal in direct}
+    direct_features = {signal.feature for signal in direct}
+    probes = {
+        store.edges[int(signal.evidence_id.split(":", 3)[2])]["source"]
+        for signal in symptoms if signal.evidence_id.startswith("edge:")
+    }
+    if len(direct_nodes) > 1:
+        tier = "multi_node_direct"
+    elif len(direct_features) > 1:
+        tier = "multi_metric_direct"
+    elif direct:
+        tier = "single_metric_direct"
+    elif len(probes) > 1:
+        tier = "multi_probe_symptom"
+    else:
+        tier = "single_probe_symptom"
+    return {
+        "evidence_tier": tier,
+        "direct_nodes": sorted(direct_nodes),
+        "symptom_targets": sorted({signal.node for signal in symptoms}),
+        "symptom_probe_count": len(probes),
+        "root_has_direct_evidence": top_root in direct_nodes,
+    }
+
+
 def run(
     input_store: Path,
     output_dir: Path,
@@ -72,6 +100,7 @@ def run(
         evidence.append({**asdict(pack), "evidence_sha256": pack.sha256()})
         audit.append({
             "event_id": event.event_id,
+            **_evidence_summary(event, store, diagnosis.roots[0]),
             "diagnosis_source": diagnosis.source,
             "fallback_reason": reason,
             "evidence_ids": diagnosis.evidence_ids,
@@ -108,6 +137,7 @@ def run(
         "event_count": len(predictions),
         "fallback_count": fallback_count,
         "rejected_events": list(detection.rejected),
+        "merged_events": list(detection.merged),
     }
     (output_dir / "run_manifest.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2))
     return RunSummary(len(predictions), fallback_count, output_dir)

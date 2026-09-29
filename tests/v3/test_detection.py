@@ -2,7 +2,7 @@ import json
 
 import numpy as np
 
-from aiops_v3.detection import DetectorSettings, detect
+from aiops_v3.detection import DetectorSettings, detect, detect_with_audit
 from aiops_v3.store import open_store
 
 
@@ -102,3 +102,76 @@ def test_weaker_monitor_signal_inside_service_fault_is_deduplicated(tmp_path):
     events = detect(open_store(tmp_path))
     assert len(events) == 1
     assert events[0].signals[0].node == "xian-service-vm-1"
+
+
+def multi_node_store(path, nodes, features, values):
+    count = values.shape[0]
+    manifest = {
+        "start_time": "2026-07-28T12:00:00Z", "minute_count": count,
+        "entities": {"nodes": nodes, "edges": []},
+        "features": {"node": features, "edge": [], "log": []},
+        "shapes": {"node": list(values.shape), "edge": [count, 0, 0], "log": [count, len(nodes), 0]},
+    }
+    (path / "manifest.json").write_text(json.dumps(manifest))
+    for kind, array in (("node", values), ("edge", np.zeros((count, 0, 0))),
+                        ("log", np.zeros((count, len(nodes), 0)))):
+        np.save(path / f"{kind}_values.npy", array)
+        np.save(path / f"{kind}_mask.npy", np.ones_like(array, bool))
+    return open_store(path)
+
+
+def test_synchronous_same_cause_nodes_form_one_evidence_rich_event(tmp_path):
+    values = np.full((20, 2, 1), 10, np.float32)
+    values[5:13, :, 0] = [80, 70]
+    store = multi_node_store(tmp_path, ["xian-service-vm-1", "xian-br-1"], ["node.cpu_usage"], values)
+    events = detect(store)
+    assert len(events) == 1
+    assert (events[0].start_minute, events[0].end_minute) == (5, 13)
+    assert {signal.node for signal in events[0].signals if signal.role == "direct"} == set(store.nodes)
+    audit = detect_with_audit(store)
+    assert audit.merged[0]["final_event_id"] == audit.events[0].event_id
+
+
+def test_synchronous_different_fault_types_stay_separate(tmp_path):
+    values = np.zeros((20, 2, 2), np.float32)
+    values[:, :, 0] = 10
+    values[5:13, 0, 0] = 80
+    values[5:13, 1, 1] = 100
+    store = multi_node_store(tmp_path, ["xian-service-vm-1", "xian-service-vm-2"],
+                             ["node.cpu_usage", "node.disk_io_util"], values)
+    events = detect(store)
+    assert len(events) == 2
+    assert {signal.category for event in events for signal in event.signals if signal.role == "direct"} == {
+        "cpu_pressure", "disk_io_pressure",
+    }
+
+
+def test_mirrored_bgp_flaps_stitch_into_one_incident(tmp_path):
+    values = np.ones((22, 2, 1), np.float32)
+    values[5:7, :, 0] = 0
+    values[10:12, :, 0] = 0
+    store = multi_node_store(tmp_path, ["xian-br-1", "beida-br-1"], ["routing.bgp_peer_up"], values)
+    events = detect(store)
+    assert len(events) == 1
+    assert (events[0].start_minute, events[0].end_minute) == (5, 12)
+    assert {signal.node for signal in events[0].signals} == set(store.nodes)
+
+
+def test_same_minute_but_different_cpu_trajectories_stay_separate(tmp_path):
+    values = np.full((24, 2, 1), 10, np.float32)
+    values[5:13, 0, 0] = 80
+    values[5:7, 1, 0] = 70
+    store = multi_node_store(tmp_path, ["xian-service-vm-1", "beida-service-vm-1"],
+                             ["node.cpu_usage"], values)
+    events = detect(store)
+    assert len(events) == 2
+
+
+def test_sparse_bgp_flaps_do_not_form_unmatchably_long_interval(tmp_path):
+    values = np.ones((28, 1, 1), np.float32)
+    values[5:7, 0, 0] = 0
+    values[10:12, 0, 0] = 0
+    values[15:17, 0, 0] = 0
+    store = multi_node_store(tmp_path, ["xian-br-1"], ["routing.bgp_peer_up"], values)
+    events = detect(store)
+    assert [(event.start_minute, event.end_minute) for event in events] == [(5, 12), (15, 17)]
