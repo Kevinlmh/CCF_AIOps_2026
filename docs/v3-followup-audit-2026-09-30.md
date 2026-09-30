@@ -24,7 +24,7 @@
 | 上述配置 + 请求量加权 | 317 | 旧预测有 95 条变化；仍待隐藏集验证 |
 | 上述配置 + 单探针来源候选 | 321 | 旧预测有 58 条 Top-5 变化；仍待隐藏集验证 |
 
-文件分别为 `outputs/v3/stage1_ospfcost_only_verified_20260930/predictions.jsonl`、`outputs/v3/stage1_ospfcost_requestaware_verified_20260930/predictions.jsonl` 和 `outputs/v3/stage1_ospfcost_sourceaware_verified_20260930/predictions.jsonl`。第一份已获 9.15 分，后两份尚未提交。若继续做官方单变量对照，先测试仅改变 Top-5 的来源候选版；请求量加权版会同时改变事件集合和类别，留待后续单独验证。公开三例均为资源类；重新从原始 CSV 构建并合并后的评测为 TP 3、FP 0、FN 0、96.011111/100，不能证明新增路由类的隐藏集准确率。
+文件分别为 `outputs/v3/stage1_ospfcost_only_verified_20260930/predictions.jsonl`、`outputs/v3/stage1_ospfcost_requestaware_verified_20260930/predictions.jsonl` 和 `outputs/v3/stage1_ospfcost_sourceaware_verified_20260930/predictions.jsonl`。第一份已获 9.15 分，后两份尚未提交。来源候选版仅是根因排序消融实验：58 条业务事件的前三名不变，探针来源 `traffic-vm` 进入第四名，原第四名降至第五名，原第五名被挤出。探针来源没有自身异常的直接证据，因此继续以已获 9.15 分的第一份为主版本；不能预判来源候选版会更好。请求量加权版会同时改变事件集合和类别，留待后续单独验证。公开三例均为资源类；重新从原始 CSV 构建并合并后的评测为 TP 3、FP 0、FN 0、96.011111/100，不能证明新增路由类的隐藏集准确率。
 
 ## 尚未找到充分证据的方向
 
