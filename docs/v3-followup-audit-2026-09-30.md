@@ -1,8 +1,10 @@
-# v3 8.827 分后续审计（2026-09-30）
+# v3 第一批 8.827 → 9.15 对照审计（2026-09-30）
 
 ## 判断依据
 
 用户提交第一批保守版 316 条预测，官方反馈 8.827，较此前标准版 8.71 只增加 0.117。平台没有提供 AD、RCA、类别或 TP/FP/FN 分项。第一批完整标签与第二批数据仍缺失；不能把预测数与官方第一批 292 条故障数的差额当作误报数，也不能从总分反推出各模块准确率。
+
+用户随后提交仅补充 OSPF Cost 的第一批 321 条预测，反馈得分 **9.15**，比 316 条版提高 **0.323**，比 375 条标准版提高 **0.44**。这是同一输入和同一保守配置下的单变量对照；旧 316 条的时间、类别、Top-5 均未变化，因此增益与新加入的五条 OSPF Cost 候选有关，但没有分项反馈，仍无法断定五条中有几条匹配真值。
 
 当前 316 条中有 135 条没有根因设备的直接异常证据，主要来自业务探针；这些事件的 Top-5 候选需要谨慎看待。此前缩减 59 条短时 CPU 候选只获得很小总分变化，继续按事件数量硬筛选缺乏证据。
 
@@ -22,7 +24,7 @@
 | 上述配置 + 请求量加权 | 317 | 旧预测有 95 条变化；仍待隐藏集验证 |
 | 上述配置 + 单探针来源候选 | 321 | 旧预测有 58 条 Top-5 变化；仍待隐藏集验证 |
 
-文件分别为 `outputs/v3/stage1_ospfcost_only_verified_20260930/predictions.jsonl`、`outputs/v3/stage1_ospfcost_requestaware_verified_20260930/predictions.jsonl` 和 `outputs/v3/stage1_ospfcost_sourceaware_verified_20260930/predictions.jsonl`。建议下一次仅用 OSPF Cost 文件做单变量官方对照，再决定是否测试另外两个开关。公开三例均为资源类；重新从原始 CSV 构建并合并后的评测为 TP 3、FP 0、FN 0、96.011111/100，不能证明新增路由类的隐藏集准确率。
+文件分别为 `outputs/v3/stage1_ospfcost_only_verified_20260930/predictions.jsonl`、`outputs/v3/stage1_ospfcost_requestaware_verified_20260930/predictions.jsonl` 和 `outputs/v3/stage1_ospfcost_sourceaware_verified_20260930/predictions.jsonl`。第一份已获 9.15 分，后两份尚未提交。若继续做官方单变量对照，先测试仅改变 Top-5 的来源候选版；请求量加权版会同时改变事件集合和类别，留待后续单独验证。公开三例均为资源类；重新从原始 CSV 构建并合并后的评测为 TP 3、FP 0、FN 0、96.011111/100，不能证明新增路由类的隐藏集准确率。
 
 ## 尚未找到充分证据的方向
 
