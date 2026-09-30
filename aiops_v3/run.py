@@ -72,6 +72,8 @@ def run(
     mode: str = "rules",
     llm_responses: Path | None = None,
     detector_profile: str = "standard",
+    request_aware_service: bool = False,
+    source_aware_candidates: bool = False,
 ) -> RunSummary:
     if mode not in {"rules", "llm-jsonl"}:
         raise ValueError(f"unknown diagnosis mode: {mode}")
@@ -84,8 +86,10 @@ def run(
         raise FileExistsError(f"output directory is not empty: {output_dir}")
     store = open_store(Path(input_store))
     contract = load_contract()
-    settings = (DetectorSettings(weak_cpu_max_minutes=3, weak_cpu_max_score=8)
-                if detector_profile == "conservative" else DetectorSettings())
+    settings = (DetectorSettings(weak_cpu_max_minutes=3, weak_cpu_max_score=8,
+                                 request_aware_service=request_aware_service)
+                if detector_profile == "conservative"
+                else DetectorSettings(request_aware_service=request_aware_service))
     detection = detect_with_audit(store, settings)
     responses = load_diagnoses(llm_responses) if mode == "llm-jsonl" else {}
     predictions: list[dict] = []
@@ -93,7 +97,8 @@ def run(
     audit: list[dict] = []
     fallback_count = 0
     for event in detection.events:
-        pack = build_evidence(store, event, contract)
+        pack = build_evidence(store, event, contract,
+                              include_probe_candidates=source_aware_candidates)
         rules = diagnose_rules(pack, contract)
         if mode == "llm-jsonl":
             diagnosis, reason = choose_diagnosis(pack, rules, responses.get(event.event_id), contract)
@@ -122,6 +127,7 @@ def run(
         "format_version": 1,
         "mode": mode,
         "detector_profile": detector_profile,
+        "source_aware_candidates": source_aware_candidates,
         "input_store": str(input_store),
         "input_manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
         "input_array_sha256": {
@@ -157,12 +163,16 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--diagnoser", choices=("rules", "llm-jsonl"), default="rules")
     parser.add_argument("--detector-profile", choices=("standard", "conservative"), default="standard")
+    parser.add_argument("--request-aware-service", action="store_true")
+    parser.add_argument("--source-aware-candidates", action="store_true")
     parser.add_argument("--llm-responses", type=Path)
     args = parser.parse_args()
     if args.raw_root and not args.build_store_to:
         parser.error("--raw-root requires --build-store-to")
     store = build_sample_store(args.raw_root, args.build_store_to) if args.raw_root else args.input_store
-    summary = run(store, args.output_dir, args.diagnoser, args.llm_responses, args.detector_profile)
+    summary = run(store, args.output_dir, args.diagnoser, args.llm_responses,
+                  args.detector_profile, args.request_aware_service,
+                  args.source_aware_candidates)
     print(json.dumps(asdict(summary), default=str))
 
 

@@ -19,7 +19,10 @@ def test_seven_sources_build_masked_store_and_counter_reset(tmp_path):
     t1, t2 = "2026-07-28 04:01:00", "2026-07-28 04:02:00"
     write_csv(root / "node_metrics.csv", [{"timestamp": t1, "node": "br-1", "cpu_usage": "30"}])
     write_csv(root / "interface_metrics.csv", [{"timestamp": t1, "node": "br-1", "rx_error_rate": "1"}])
-    write_csv(root / "routing_metrics.csv", [{"timestamp": t1, "node": "br-1", "metric_name": "bgp_peer_up", "value": "0"}])
+    write_csv(root / "routing_metrics.csv", [
+        {"timestamp": t1, "node": "br-1", "metric_name": "bgp_peer_up", "value": "0"},
+        {"timestamp": t1, "node": "br-1", "metric_name": "ospf6_interface_cost", "value": "100"},
+    ])
     write_csv(root / "scrape_health.csv", [{"timestamp": t1, "node": "br-1", "scrape_up": "1"}])
     write_csv(root / "netflow_5tuple_minute_readable.csv", [{"minute_utc": t1, "node_key": "br1", "interface_id": "ens4", "protocol": "6", "bytes": "100"}])
     write_csv(root / "frr_syslog_events.csv", [{"event_time": t1, "hostname": "br-1", "severity": "error", "message": "BGP peer down"}])
@@ -31,6 +34,7 @@ def test_seven_sources_build_masked_store_and_counter_reset(tmp_path):
     store = open_store(build_sample_store(tmp_path, tmp_path / "out"))
     node = store.nodes.index("xian-br-1")
     assert store.observed_node(1, node, "node.cpu_usage") == 30
+    assert store.observed_node(1, node, "routing.ospf6_interface_cost") == 100
     assert store.observed_node(1, node, "netflow.bytes") == 100
     netflow_edge = store.edges.index({"source": "xian-br-1", "target": "interface:xian-br-1:ens4", "relation": "netflow"})
     assert store.edge_values[1, netflow_edge, store.feature_index("edge", "netflow.bytes.protocol_6")] == 100
@@ -39,6 +43,9 @@ def test_seven_sources_build_masked_store_and_counter_reset(tmp_path):
     feature = store.feature_index("edge", "traffic.dns.error_ratio")
     assert store.edge_mask[2, edge, feature]
     assert abs(store.edge_values[2, edge, feature] - 0.2) < 1e-6
+    requests = store.feature_index("edge", "traffic.dns.requests_rate")
+    assert requests is not None
+    assert abs(float(store.edge_values[2, edge, requests]) - 5 / 60) < 1e-6
     assert set(store.manifest["source_counts"]) == {"node", "interface", "routing", "scrape", "netflow", "frr", "traffic"}
 
 
@@ -81,6 +88,20 @@ def test_service_error_ratio_weights_each_observed_series_by_requests(tmp_path):
     column = store.feature_index("edge", "traffic.dns.error_ratio")
     assert store.edge_mask[2, edge, column]
     assert abs(float(store.edge_values[2, edge, column]) - .05) < 1e-6
+
+
+def test_request_rate_uses_elapsed_time_across_missing_minutes(tmp_path):
+    root = tmp_path / "case_001" / "20260728040000_20260728040500" / "xian_20260728040000_20260728040500" / "processed"
+    write_csv(root / "traffic_flow_metrics.csv", [
+        {"timestamp_utc": "2026-07-28 04:01:00", "series_key": "dns", "flow_type": "dns",
+         "source_region": "xian", "target_region": "beida", "dns_flow_requests_total": "10", "dns_flow_error_total": "0"},
+        {"timestamp_utc": "2026-07-28 04:03:00", "series_key": "dns", "flow_type": "dns",
+         "source_region": "xian", "target_region": "beida", "dns_flow_requests_total": "130", "dns_flow_error_total": "0"},
+    ])
+    store = open_store(build_sample_store(tmp_path, tmp_path / "out"))
+    edge = store.edges.index({"source": "xian-traffic-vm", "target": "service-group:beida:dns", "relation": "traffic"})
+    requests = store.feature_index("edge", "traffic.dns.requests_rate")
+    assert abs(float(store.edge_values[3, edge, requests]) - 1.0) < 1e-6
 
 
 def test_independent_sample_cases_cannot_be_silently_combined(tmp_path):

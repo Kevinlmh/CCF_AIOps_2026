@@ -82,6 +82,32 @@ def test_service_group_target_city_is_used_for_candidate_retrieval():
     assert pack.candidates[0].node.startswith("wuhan-")
 
 
+def test_single_probe_service_symptom_keeps_observer_in_root_candidates():
+    class TrafficStore(TinyStore):
+        edges = [{"source": "xian-traffic-vm", "target": "service-group:beida:dns", "relation": "traffic"}]
+
+    event = Event("v3-e000007", 5, 8, (
+        Signal("edge:5:0:traffic.dns.error_ratio", 5, "service-group:beida:dns",
+               "traffic.dns.error_ratio", "dns", 1, 0, 8, "symptom"),
+    ))
+    ordinary = build_evidence(TrafficStore(), event, load_contract())
+    assert "xian-traffic-vm" not in [item.node for item in ordinary.candidates[:5]]
+    pack = build_evidence(TrafficStore(), event, load_contract(), include_probe_candidates=True)
+    assert pack.candidates[0].node.startswith("beida-")
+    assert "xian-traffic-vm" in [item.node for item in pack.candidates[:5]]
+    assert len({item.node for item in pack.candidates}) == len(pack.candidates)
+
+
+def test_ospf_cost_evidence_maps_to_official_routing_category():
+    event = Event("v3-e000008", 5, 12, (
+        signal("guangzhou-cr-1", "ospf6_cost_anomaly", 10, "routing.ospf6_interface_cost", "cost"),
+    ))
+    pack = build_evidence(TinyStore(), event, load_contract())
+    diagnosis = diagnose_rules(pack, load_contract())
+    assert diagnosis.roots[0] == "guangzhou-cr-1"
+    assert diagnosis.category == ("routing", "ospf6_cost_anomaly")
+
+
 def test_auxiliary_netflow_log_and_scrape_quality_reach_evidence_pack(tmp_path):
     count = 14
     manifest = {

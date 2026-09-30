@@ -23,6 +23,7 @@ class DetectorSettings:
     min_component_dice: float = .4
     weak_cpu_max_minutes: int = 0
     weak_cpu_max_score: float = 0.0
+    request_aware_service: bool = False
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,7 @@ _NODE_RULES = (
     _Rule("routing.bgp_command_success", "bgp_session_down", -1, .2, .5, True),
     _Rule("routing.ipv6_route_exists", "blackhole", -1, .2, .5, True),
     _Rule("routing.ospf6_neighbor_state_code", "ospf6_neighbor_down", -1, .5, 3.0, True),
+    _Rule("routing.ospf6_interface_cost", "ospf6_cost_anomaly", 1, 10.0, 50.0),
 )
 
 
@@ -286,6 +288,15 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
         absolute = .15 if name.endswith("error_ratio") else .05 if name.endswith("loss_rate") else .15
         rule = _Rule(name, name.split(".")[1], 1, .03 if name.endswith("ratio") else .05, absolute)
         score, center = _scores(data, mask, rule)
+        if settings.request_aware_service:
+            requests_column = store.feature_index("edge", f"traffic.{rule.category}.requests_rate")
+            if requests_column is None:
+                score = np.zeros_like(score)
+            else:
+                requests = np.asarray(store.edge_values[:, :, requests_column], np.float32)
+                requests_mask = np.asarray(store.edge_mask[:, :, requests_column], bool)
+                supported_requests = np.where(requests_mask & np.isfinite(requests) & (requests > 0), requests, 0)
+                score *= supported_requests / (supported_requests + 30.0)
         active = _supported(score, settings.score_threshold, False)
         score = np.where(active, score, 0)
         if name.endswith("latency_p95_seconds"):

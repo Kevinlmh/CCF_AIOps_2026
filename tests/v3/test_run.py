@@ -103,3 +103,31 @@ def test_conservative_run_records_screened_cpu_signal_without_submission_row(tmp
     manifest = json.loads((tmp_path / "conservative" / "run_manifest.json").read_text())
     assert manifest["detector_profile"] == "conservative"
     assert manifest["rejected_events"][0]["reason"] == "short_weak_single_cpu_signal"
+
+
+def test_request_aware_run_rejects_service_spike_without_request_support(tmp_path):
+    source = tmp_path / "store"
+    source.mkdir()
+    count = 14
+    manifest = {
+        "start_time": "2026-07-28T12:00:00Z", "minute_count": count,
+        "entities": {"nodes": [], "edges": [{"source": "xian-traffic-vm", "target": "service-group:beida:dns", "relation": "traffic"}]},
+        "features": {"node": [], "edge": ["traffic.dns.error_ratio", "traffic.dns.requests_rate"], "log": []},
+        "shapes": {"node": [count, 0, 0], "edge": [count, 1, 2], "log": [count, 0, 0]},
+    }
+    (source / "manifest.json").write_text(json.dumps(manifest))
+    edge = np.zeros((count, 1, 2), np.float32)
+    edge[:, 0, 1] = 1 / 60
+    edge[5:8, 0, 0] = 1
+    for kind, values in (("node", np.zeros((count, 0, 0))), ("edge", edge),
+                         ("log", np.zeros((count, 0, 0)))):
+        np.save(source / f"{kind}_values.npy", values)
+        np.save(source / f"{kind}_mask.npy", np.ones_like(values, bool))
+    assert run(source, tmp_path / "ordinary").event_count == 1
+    source_aware = run(source, tmp_path / "source_aware", source_aware_candidates=True)
+    assert source_aware.event_count == 1
+    top5 = json.loads((tmp_path / "source_aware" / "predictions.jsonl").read_text())["root_cause_top5"]
+    assert "xian-traffic-vm" in [item["network_element_id"] for item in top5]
+    assert run(source, tmp_path / "aware", request_aware_service=True).event_count == 0
+    recorded = json.loads((tmp_path / "aware" / "run_manifest.json").read_text())
+    assert recorded["detector_settings"]["request_aware_service"] is True

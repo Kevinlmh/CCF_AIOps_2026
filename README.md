@@ -22,6 +22,14 @@ python -m aiops_v3.run \
   --output-dir outputs/v3/stage1_rules_conservative \
   --detector-profile conservative
 
+# 独立对照开关：按请求量降低低样本业务症状权重，或让单探针来源网元进入 Top-5。
+# 两项都尚未经过第一批隐藏标签验证，可分别与保守版比较。
+python -m aiops_v3.run \
+  --input-store data/feature_store/v2/stage1_all_cities_v2_20260926 \
+  --output-dir outputs/v3/stage1_request_aware \
+  --detector-profile conservative \
+  --request-aware-service
+
 # 也可从公开原始 CSV 构建 v3 特征库后运行。
 python -m aiops_v3.run \
   --raw-root sample/case_001 \

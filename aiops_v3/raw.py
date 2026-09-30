@@ -26,12 +26,13 @@ NODE_FEATURES = [
     "interface.rx_drop_rate", "interface.tx_drop_rate", "interface.rx_error_rate",
     "interface.tx_error_rate", "routing.bgp_peer_up", "routing.bgp_command_success",
     "routing.bgp_peer_count", "routing.ipv6_route_exists", "routing.ipv6_route_count",
-    "routing.ospf6_neighbor_state_code", "scrape.scrape_up", "netflow.bytes",
+    "routing.ospf6_neighbor_state_code", "routing.ospf6_interface_cost",
+    "scrape.scrape_up", "netflow.bytes",
 ]
 EDGE_FEATURES = [
     f"traffic.{flow}.{metric}"
     for flow in ("dns", "web", "auth", "elephant")
-    for metric in ("error_ratio", "latency_p95_seconds", "loss_rate")
+    for metric in ("requests_rate", "error_ratio", "latency_p95_seconds", "loss_rate")
 ]
 EDGE_FEATURES += [f"netflow.bytes.protocol_{protocol}" for protocol in (0, 6, 17, 58, 89, 255)]
 LOG_FEATURES = ["frr.bgp.err.count", "frr.ospf.err.count", "frr.other.err.count"]
@@ -164,7 +165,7 @@ def build_sample_store(raw_root: Path, destination: Path) -> Path:
     accepted_rows = dict.fromkeys(SOURCES, 0)
     rejected_rows = dict.fromkeys(SOURCES, 0)
     rejected = defaultdict(int)
-    counters: dict[tuple[str, str, str, str, str], float] = {}
+    counters: dict[tuple[str, str, str, str, str], tuple[int, float]] = {}
     traffic_error_totals: dict[tuple[int, int, str], list[float]] = defaultdict(lambda: [0.0, 0.0])
 
     def set_cell(kind: str, t: int, entity: int, name: str, value: float, *, add: bool = False, minimum: bool = False) -> None:
@@ -207,16 +208,23 @@ def build_sample_store(raw_root: Path, destination: Path) -> Path:
                     accepted_rows[source] += 1
                     identity = row.get("series_key") or f"{source_city}:{target_city}:{flow}"
                     deltas = {}
+                    request_elapsed_minutes = 0
                     for field in ("requests_total", "error_total"):
                         current = _number(row.get(f"{flow}_flow_{field}"))
                         if current is None:
                             continue
                         key = (source_city, target_city, flow, identity, field)
                         previous = counters.get(key)
-                        counters[key] = current
+                        if previous is not None and t <= previous[0]:
+                            continue
+                        counters[key] = (t, current)
                         if previous is not None:
-                            deltas[field] = current - previous if current >= previous else current
+                            deltas[field] = current - previous[1] if current >= previous[1] else current
+                            if field == "requests_total":
+                                request_elapsed_minutes = t - previous[0]
                     requests = deltas.get("requests_total", 0)
+                    if requests > 0 and request_elapsed_minutes > 0:
+                        set_cell("edge", t, edge, f"traffic.{flow}.requests_rate", requests / (60.0 * request_elapsed_minutes), add=True)
                     if requests > 0 and "error_total" in deltas:
                         total = traffic_error_totals[(t, edge, flow)]
                         total[0] += max(0.0, deltas["error_total"])

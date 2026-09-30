@@ -50,10 +50,13 @@ def _city(node: str) -> str | None:
     return node.split("-", 1)[0] if "-" in node else None
 
 
-def build_evidence(store, event: Event, contract: OfficialContract) -> EvidencePack:
+def build_evidence(
+    store, event: Event, contract: OfficialContract, *, include_probe_candidates: bool = False,
+) -> EvidencePack:
     signals = list(event.signals)
     direct: dict[str, list[Signal]] = {}
     symptom_cities: set[str] = set()
+    probe_evidence: dict[str, set[str]] = {}
     for signal in event.signals:
         if signal.role == "direct" and signal.node in contract.nodes:
             direct.setdefault(signal.node, []).append(signal)
@@ -61,6 +64,14 @@ def build_evidence(store, event: Event, contract: OfficialContract) -> EvidenceP
             city = _city(signal.node)
             if city:
                 symptom_cities.add(city)
+            if signal.evidence_id.startswith("edge:") and hasattr(store, "edges"):
+                parts = signal.evidence_id.split(":", 3)
+                if len(parts) == 4 and parts[2].isdigit():
+                    index = int(parts[2])
+                    if 0 <= index < len(store.edges):
+                        edge = store.edges[index]
+                        if edge.get("relation") == "traffic" and edge.get("target") == signal.node:
+                            probe_evidence.setdefault(edge["source"], set()).add(signal.evidence_id)
     if hasattr(store, "node_mask"):
         node_index = {name: i for i, name in enumerate(store.nodes)}
         for node in sorted(direct, key=lambda item: -max(signal.score for signal in direct[item]))[:5]:
@@ -109,12 +120,17 @@ def build_evidence(store, event: Event, contract: OfficialContract) -> EvidenceP
                     break
     leader = max(direct, key=lambda node: max(item.score for item in direct[node])) if direct else None
     primary_city = _city(leader) if leader else (sorted(symptom_cities)[0] if symptom_cities else None)
+    single_probe = (next(iter(probe_evidence)) if include_probe_candidates
+                    and not direct and len(probe_evidence) == 1 else None)
     candidates: list[Candidate] = []
     for node in sorted(contract.nodes):
         if node in direct:
             evidence = direct[node]
             score = max(item.score for item in evidence) + .1 * (len(evidence) - 1)
             candidates.append(Candidate(node, score, tuple(sorted(item.evidence_id for item in evidence)), "direct_device_evidence"))
+        elif node == single_probe:
+            candidates.append(Candidate(node, .29, tuple(sorted(probe_evidence[node])),
+                                        "single_probe_observer_possible_local_path_cause"))
         elif _city(node) == primary_city:
             score = .30 if node.endswith(("service-vm-1", "service-vm-2", "service-vm-3")) and primary_city in symptom_cities else .25
             candidates.append(Candidate(node, score, (), "same_city_context_no_direct_evidence"))
@@ -160,6 +176,7 @@ def _category(signals: list[Signal], root: str, contract: OfficialContract) -> t
             "bgp_session_down": ("routing", "bgp_session_down"),
             "blackhole": ("routing", "blackhole"),
             "ospf6_neighbor_down": ("routing", "ospf6_neighbor_down"),
+            "ospf6_cost_anomaly": ("routing", "ospf6_cost_anomaly"),
         }
         pair = mapping.get(signal.category)
         if pair in contract.categories:

@@ -197,3 +197,40 @@ def test_sparse_sample_baseline_recovers_fault_longer_than_healthy_context(tmp_p
     store = fixture_store(tmp_path, cpu, observed)
     events = detect(store)
     assert [(event.start_minute, event.end_minute) for event in events] == [(5, 18)]
+
+
+def test_request_aware_service_detection_rejects_one_request_spike_but_keeps_supported_failure(tmp_path):
+    def service_store(path, request_rate):
+        path.mkdir()
+        count = 14
+        manifest = {
+            "start_time": "2026-07-28T12:00:00Z", "minute_count": count,
+            "entities": {"nodes": [], "edges": [{"source": "xian-traffic-vm", "target": "service-group:beida:dns", "relation": "traffic"}]},
+            "features": {"node": [], "edge": ["traffic.dns.error_ratio", "traffic.dns.requests_rate"], "log": []},
+            "shapes": {"node": [count, 0, 0], "edge": [count, 1, 2], "log": [count, 0, 0]},
+        }
+        (path / "manifest.json").write_text(json.dumps(manifest))
+        edge = np.zeros((count, 1, 2), np.float32)
+        edge[:, 0, 1] = request_rate
+        edge[5:8, 0, 0] = 1
+        for kind, values in (("node", np.zeros((count, 0, 0))), ("edge", edge),
+                             ("log", np.zeros((count, 0, 0)))):
+            np.save(path / f"{kind}_values.npy", values)
+            np.save(path / f"{kind}_mask.npy", np.ones_like(values, bool))
+        return open_store(path)
+
+    low = service_store(tmp_path / "low", 1 / 60)
+    high = service_store(tmp_path / "high", 60)
+    assert len(detect(low)) == 1
+    settings = DetectorSettings(request_aware_service=True)
+    assert detect(low, settings) == []
+    assert len(detect(high, settings)) == 1
+
+
+def test_sustained_ospf_interface_cost_jump_opens_routing_event(tmp_path):
+    values = np.ones((25, 1, 1), np.float32)
+    values[8:15, 0, 0] = 100
+    store = multi_node_store(tmp_path, ["guangzhou-cr-1"], ["routing.ospf6_interface_cost"], values)
+    events = detect(store)
+    assert [(event.start_minute, event.end_minute) for event in events] == [(8, 15)]
+    assert events[0].signals[0].category == "ospf6_cost_anomaly"
