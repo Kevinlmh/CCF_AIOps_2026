@@ -59,6 +59,18 @@ python -m data_side.threshold_audit \
 
 这两份报告均为 `audit_only`：没有已确认的正常和故障窗口，分布变化只标记为待复核，不自动调整阈值。推理时可传入 `--calibration-profile data_side/results/stage2_threshold_audit_20261002.json`；运行器会核对特征库哈希并记录配置哈希。只有显式标记为 `validated`、登记正常及故障复核窗口数的配置，才允许使用 `rule_overrides` 按指标覆盖 `score_threshold`、`floor` 或 `absolute`；窗口内容仍需人工核实。现有两批审计配置不含覆盖值，因此复跑预测与已评分版本一致。详细结果见 [当前状态](docs/v3-current-state.md)。
 
+## 特征库序列与关系审计
+
+`data_side.store_evidence_audit` 从现有 v3 特征库读取观测掩码、维度侧车和边登记，输出 `series_gaps.csv`、`counter_audit.csv`、`entity_relations.csv` 与 `summary.json`。已生成的两批结果分别在 `data_side/results/store_evidence_stage1_20261002/` 和 `store_evidence_stage2_20261002/`。新特征库可运行：
+
+```bash
+python -m data_side.store_evidence_audit \
+  --input-store data/feature_store/v3/stage2_canonical_20261001 \
+  --output-dir data_side/results/new_store_evidence_audit
+```
+
+缺口只统计单条序列首次和末次观测之间的未观测分钟，不把零值当成缺失，也不把稀疏业务探针自动判为故障。计数器表只比较相邻已观测分钟中的原始累计序列；业务流原始累计值入库前已转换为增量，审计仅能读取解析器保留的 `counter_reset` 信号，汇总将两种序列分别计数。关系表记录接口归属、路由地址引用、业务探针目标和 NetFlow 观测接口的来源字段；接口 ID 与特征库边使用同一规范化形式。它不证明物理链路对端或域名对应的具体服务实例。这些产物只供数据与证据复核，不参与预测生成。
+
 ## 可选服务器 LLM
 
 当前本地检测链路不需要模型权重。已冻结的源码和两批保守版证据位于 `outputs/v3/server_bundle_20261002/`，服务器运行、响应回导及哈希校验见 [服务器交接说明](docs/v3-server-llm-handoff.md)。LLM 不能补漏检事件或更改事件时间。当前尚无服务器 GPU 实测结果。

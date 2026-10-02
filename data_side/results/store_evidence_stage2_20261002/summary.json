@@ -1,0 +1,37 @@
+{
+  "format_version": 1,
+  "input_store": "data/feature_store/v3/stage2_canonical_20261001",
+  "input_manifest_sha256": "0ee7b71e77d4c50e8a34a37dc4c1e74478d9743c43efec1857ae28598d893b13",
+  "input_store_sha256": "f3c3edcb5cc2ad07ce2e67205cd03a52ad60472334e59fec66769884205926d8",
+  "source_profile": "stage2",
+  "minute_count": 10080,
+  "series_count": 9076,
+  "series_by_source": {
+    "interface": 4356,
+    "netflow": 1536,
+    "node": 864,
+    "routing": 2008,
+    "scrape": 312
+  },
+  "series_with_internal_gaps": 2137,
+  "counter_audit_rows": 320,
+  "raw_counter_series_count": 320,
+  "reset_signal_series_count": 0,
+  "counter_decrease_steps": 0,
+  "parser_reset_signal_cells": 0,
+  "relation_count": 781,
+  "relations_by_type": {
+    "observes_netflow_interface": 64,
+    "owns_observed_interface": 484,
+    "references_route_next_hop": 181,
+    "references_route_peer": 52
+  },
+  "gap_semantics": "internal_observation_gaps_only",
+  "verified_physical_links": 0,
+  "limitations": [
+    "Feature-store minute aggregation hides duplicate and order information from raw rows.",
+    "Raw traffic cumulative values are transformed before storage; only parser reset signals are available.",
+    "Counter decreases in stored float32 raw series are candidates for reset or rollover, not confirmed faults.",
+    "Relations describe retained observation fields and do not establish physical peers or service instances."
+  ]
+}
