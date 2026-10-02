@@ -1,0 +1,870 @@
+{
+  "format_version": 1,
+  "input_store": "data/feature_store/v3/stage2_canonical_20261001",
+  "input_manifest_sha256": "0ee7b71e77d4c50e8a34a37dc4c1e74478d9743c43efec1857ae28598d893b13",
+  "input_store_sha256": "f3c3edcb5cc2ad07ce2e67205cd03a52ad60472334e59fec66769884205926d8",
+  "source_profile": "stage2",
+  "reference_store": "data/feature_store/v3/stage1_canonical_20260930",
+  "reference_manifest_sha256": "af000608aca400b3b8e10bd1ead5498edb81edeb77ce12aede08140b0d15438a",
+  "reference_store_sha256": "9b946272f61dc56a7b3457e303b3065761900884306fd4cda033ce4fd6926ccd",
+  "status": "audit_only",
+  "validation": {
+    "normal_window_count": 0,
+    "fault_window_count": 0
+  },
+  "rule_overrides": {},
+  "covered_node_features": [
+    "interface.carrier_changes",
+    "interface.rx_drop_rate",
+    "interface.rx_error_rate",
+    "interface.tx_drop_rate",
+    "interface.tx_error_rate",
+    "node.cpu_usage",
+    "node.disk_io_util",
+    "node.filesystem_used_ratio",
+    "node.memory_available_ratio",
+    "node.process_count",
+    "routing.bgp_command_success",
+    "routing.bgp_peer_up",
+    "routing.ipv6_route_exists",
+    "routing.ospf6_interface_cost",
+    "routing.ospf6_neighbor_state_code"
+  ],
+  "uncovered_node_features": [
+    "interface.rx_bytes_rate",
+    "interface.rx_packets_rate",
+    "interface.tx_bytes_rate",
+    "interface.tx_packets_rate",
+    "node.disk_read_rate",
+    "node.disk_write_rate",
+    "node.inode_used_ratio",
+    "node.load1",
+    "node.load5",
+    "node.open_fd_ratio",
+    "node.swap_used_ratio",
+    "routing.bgp_peer_count",
+    "routing.bgp_peer_prefix_received",
+    "routing.bgp_peer_prefix_sent",
+    "routing.bgp_peer_uptime_seconds",
+    "routing.ipv6_default_route_changed_total",
+    "routing.ipv6_default_route_info",
+    "routing.ipv6_route_change_total",
+    "routing.ipv6_route_count",
+    "routing.ipv6_route_nexthop_info",
+    "routing.ospf6_interface_enabled",
+    "scrape.scrape_duration_seconds",
+    "scrape.scrape_samples",
+    "scrape.scrape_up"
+  ],
+  "untriggered_edge_features": [
+    "netflow.bytes.protocol_17",
+    "netflow.bytes.protocol_58",
+    "netflow.bytes.protocol_6",
+    "netflow.flow_records.protocol_17",
+    "netflow.flow_records.protocol_58",
+    "netflow.flow_records.protocol_6",
+    "netflow.packets.protocol_17",
+    "netflow.packets.protocol_58",
+    "netflow.packets.protocol_6",
+    "netflow.protocol_byte_share.protocol_17",
+    "netflow.protocol_byte_share.protocol_58",
+    "netflow.protocol_byte_share.protocol_6",
+    "netflow.unique_destination_ports.protocol_17",
+    "netflow.unique_destination_ports.protocol_58",
+    "netflow.unique_destination_ports.protocol_6",
+    "netflow.unique_destinations.protocol_17",
+    "netflow.unique_destinations.protocol_58",
+    "netflow.unique_destinations.protocol_6",
+    "netflow.unique_source_ports.protocol_17",
+    "netflow.unique_source_ports.protocol_58",
+    "netflow.unique_source_ports.protocol_6",
+    "netflow.unique_sources.protocol_17",
+    "netflow.unique_sources.protocol_58",
+    "netflow.unique_sources.protocol_6"
+  ],
+  "rules": [
+    {
+      "feature": "node.cpu_usage",
+      "score_threshold": 4.0,
+      "floor": 4.0,
+      "absolute": 18.0,
+      "available": true,
+      "observed_cells": 725671,
+      "observed_fraction": 0.8998896329365079,
+      "value_p50": 0.6333333253860474,
+      "value_p95": 2.6222221851348877,
+      "value_p99": 5.849999904632568,
+      "active_cells": 782,
+      "active_per_100k_observed": 107.76233306829127,
+      "active_entities_top5": [
+        {
+          "node_id": "beida-service-vm-1",
+          "active_cells": 108
+        },
+        {
+          "node_id": "xian-service-vm-3",
+          "active_cells": 101
+        },
+        {
+          "node_id": "shenyang-service-vm-1",
+          "active_cells": 56
+        },
+        {
+          "node_id": "guangzhou-service-vm-3",
+          "active_cells": 53
+        },
+        {
+          "node_id": "wuhan-service-vm-1",
+          "active_cells": 49
+        }
+      ],
+      "active_windows_top10": [
+        {
+          "node_id": "shenyang-service-vm-1",
+          "start_time": "2026-09-21T15:13:00Z",
+          "end_time": "2026-09-21T15:30:00Z",
+          "active_cells": 17,
+          "peak_score": 24.899999618530273
+        },
+        {
+          "node_id": "shenyang-service-vm-1",
+          "start_time": "2026-09-23T06:45:00Z",
+          "end_time": "2026-09-23T06:57:00Z",
+          "active_cells": 12,
+          "peak_score": 24.899999618530273
+        },
+        {
+          "node_id": "nanjing-service-vm-1",
+          "start_time": "2026-09-22T16:54:00Z",
+          "end_time": "2026-09-22T17:04:00Z",
+          "active_cells": 10,
+          "peak_score": 24.899999618530273
+        },
+        {
+          "node_id": "xian-service-vm-3",
+          "start_time": "2026-09-18T12:09:00Z",
+          "end_time": "2026-09-18T12:26:00Z",
+          "active_cells": 17,
+          "peak_score": 24.89583396911621
+        },
+        {
+          "node_id": "chengdu-service-vm-3",
+          "start_time": "2026-09-18T22:44:00Z",
+          "end_time": "2026-09-18T22:53:00Z",
+          "active_cells": 9,
+          "peak_score": 24.89444351196289
+        },
+        {
+          "node_id": "nanjing-service-vm-3",
+          "start_time": "2026-09-23T09:35:00Z",
+          "end_time": "2026-09-23T09:41:00Z",
+          "active_cells": 6,
+          "peak_score": 24.88194465637207
+        },
+        {
+          "node_id": "guangzhou-service-vm-3",
+          "start_time": "2026-09-18T23:30:00Z",
+          "end_time": "2026-09-19T00:00:00Z",
+          "active_cells": 30,
+          "peak_score": 24.879167556762695
+        },
+        {
+          "node_id": "beida-service-vm-3",
+          "start_time": "2026-09-19T06:13:00Z",
+          "end_time": "2026-09-19T06:31:00Z",
+          "active_cells": 18,
+          "peak_score": 24.869443893432617
+        },
+        {
+          "node_id": "nanjing-service-vm-3",
+          "start_time": "2026-09-21T12:05:00Z",
+          "end_time": "2026-09-21T12:35:00Z",
+          "active_cells": 30,
+          "peak_score": 22.844444274902344
+        },
+        {
+          "node_id": "xian-fw",
+          "start_time": "2026-09-18T14:03:00Z",
+          "end_time": "2026-09-18T14:05:00Z",
+          "active_cells": 2,
+          "peak_score": 22.438888549804688
+        }
+      ],
+      "reference_observed_fraction": 0.8996521577380953,
+      "reference_value_p99": 5.983333110809326,
+      "reference_active_cells": 1830,
+      "reference_active_per_100k_observed": 126.12348109078202,
+      "review_reasons": []
+    },
+    {
+      "feature": "node.memory_available_ratio",
+      "score_threshold": 4.0,
+      "floor": 0.015,
+      "absolute": 0.9,
+      "available": true,
+      "observed_cells": 725669,
+      "observed_fraction": 0.8998871527777778,
+      "value_p50": 0.9164618253707886,
+      "value_p95": 0.9272868037223816,
+      "value_p99": 0.9295848608016968,
+      "active_cells": 193,
+      "active_per_100k_observed": 26.596147830484696,
+      "active_entities_top5": [
+        {
+          "node_id": "shenyang-service-vm-1",
+          "active_cells": 29
+        },
+        {
+          "node_id": "xian-service-vm-3",
+          "active_cells": 25
+        },
+        {
+          "node_id": "guangzhou-service-vm-3",
+          "active_cells": 23
+        },
+        {
+          "node_id": "shanghai-service-vm-1",
+          "active_cells": 23
+        },
+        {
+          "node_id": "beida-service-vm-2",
+          "active_cells": 21
+        }
+      ],
+      "active_windows_top10": [
+        {
+          "node_id": "xian-service-vm-3",
+          "start_time": "2026-09-22T10:06:00Z",
+          "end_time": "2026-09-22T10:31:00Z",
+          "active_cells": 25,
+          "peak_score": 14.881531715393066
+        },
+        {
+          "node_id": "shenyang-service-vm-1",
+          "start_time": "2026-09-17T06:11:00Z",
+          "end_time": "2026-09-17T06:22:00Z",
+          "active_cells": 11,
+          "peak_score": 14.363809585571289
+        },
+        {
+          "node_id": "shenyang-service-vm-1",
+          "start_time": "2026-09-19T01:38:00Z",
+          "end_time": "2026-09-19T01:56:00Z",
+          "active_cells": 18,
+          "peak_score": 14.269010543823242
+        },
+        {
+          "node_id": "guangzhou-service-vm-1",
+          "start_time": "2026-09-20T10:25:00Z",
+          "end_time": "2026-09-20T10:42:00Z",
+          "active_cells": 17,
+          "peak_score": 9.391650199890137
+        },
+        {
+          "node_id": "nanjing-service-vm-1",
+          "start_time": "2026-09-20T20:21:00Z",
+          "end_time": "2026-09-20T20:38:00Z",
+          "active_cells": 17,
+          "peak_score": 9.176019668579102
+        },
+        {
+          "node_id": "chengdu-service-vm-2",
+          "start_time": "2026-09-22T15:03:00Z",
+          "end_time": "2026-09-22T15:16:00Z",
+          "active_cells": 13,
+          "peak_score": 8.816389083862305
+        },
+        {
+          "node_id": "shanghai-service-vm-3",
+          "start_time": "2026-09-23T13:05:00Z",
+          "end_time": "2026-09-23T13:23:00Z",
+          "active_cells": 18,
+          "peak_score": 7.915031909942627
+        },
+        {
+          "node_id": "guangzhou-service-vm-3",
+          "start_time": "2026-09-23T13:49:00Z",
+          "end_time": "2026-09-23T14:12:00Z",
+          "active_cells": 23,
+          "peak_score": 5.953001976013184
+        },
+        {
+          "node_id": "shanghai-service-vm-2",
+          "start_time": "2026-09-18T05:50:00Z",
+          "end_time": "2026-09-18T05:57:00Z",
+          "active_cells": 7,
+          "peak_score": 5.321359634399414
+        },
+        {
+          "node_id": "shanghai-service-vm-1",
+          "start_time": "2026-09-23T18:47:00Z",
+          "end_time": "2026-09-23T19:10:00Z",
+          "active_cells": 23,
+          "peak_score": 4.652182579040527
+        }
+      ],
+      "reference_observed_fraction": 0.8996521577380953,
+      "reference_value_p99": 0.9297042489051819,
+      "reference_active_cells": 136,
+      "reference_active_per_100k_observed": 9.373111163030796,
+      "review_reasons": [
+        "active_rate_shift"
+      ]
+    },
+    {
+      "feature": "node.disk_io_util",
+      "score_threshold": 4.0,
+      "floor": 10.0,
+      "absolute": 55.0,
+      "available": true,
+      "observed_cells": 725671,
+      "observed_fraction": 0.8998896329365079,
+      "value_p50": 0.19555555284023285,
+      "value_p95": 7.920000076293945,
+      "value_p99": 13.55555534362793,
+      "active_cells": 61,
+      "active_per_100k_observed": 8.406013193306608,
+      "active_entities_top5": [
+        {
+          "node_id": "nanjing-service-vm-3",
+          "active_cells": 29
+        },
+        {
+          "node_id": "beida-service-vm-1",
+          "active_cells": 13
+        },
+        {
+          "node_id": "shanghai-traffic-vm",
+          "active_cells": 10
+        },
+        {
+          "node_id": "beida-traffic-vm",
+          "active_cells": 7
+        },
+        {
+          "node_id": "beida-service-vm-2",
+          "active_cells": 2
+        }
+      ],
+      "active_windows_top10": [
+        {
+          "node_id": "beida-service-vm-1",
+          "start_time": "2026-09-24T01:30:00Z",
+          "end_time": "2026-09-24T01:32:00Z",
+          "active_cells": 2,
+          "peak_score": 11.415555953979492
+        },
+        {
+          "node_id": "nanjing-service-vm-3",
+          "start_time": "2026-09-21T12:05:00Z",
+          "end_time": "2026-09-21T12:34:00Z",
+          "active_cells": 29,
+          "peak_score": 10.794666290283203
+        },
+        {
+          "node_id": "beida-service-vm-2",
+          "start_time": "2026-09-19T17:34:00Z",
+          "end_time": "2026-09-19T17:36:00Z",
+          "active_cells": 2,
+          "peak_score": 10.584000587463379
+        },
+        {
+          "node_id": "beida-service-vm-1",
+          "start_time": "2026-09-17T06:21:00Z",
+          "end_time": "2026-09-17T06:23:00Z",
+          "active_cells": 2,
+          "peak_score": 9.34000015258789
+        },
+        {
+          "node_id": "beida-traffic-vm",
+          "start_time": "2026-09-19T17:24:00Z",
+          "end_time": "2026-09-19T17:32:00Z",
+          "active_cells": 7,
+          "peak_score": 8.924444198608398
+        },
+        {
+          "node_id": "shanghai-traffic-vm",
+          "start_time": "2026-09-23T15:31:00Z",
+          "end_time": "2026-09-23T15:34:00Z",
+          "active_cells": 3,
+          "peak_score": 8.159111022949219
+        },
+        {
+          "node_id": "beida-service-vm-1",
+          "start_time": "2026-09-19T16:37:00Z",
+          "end_time": "2026-09-19T16:39:00Z",
+          "active_cells": 2,
+          "peak_score": 6.603111267089844
+        },
+        {
+          "node_id": "shanghai-traffic-vm",
+          "start_time": "2026-09-23T07:31:00Z",
+          "end_time": "2026-09-23T07:36:00Z",
+          "active_cells": 4,
+          "peak_score": 6.598221778869629
+        },
+        {
+          "node_id": "beida-service-vm-1",
+          "start_time": "2026-09-22T09:00:00Z",
+          "end_time": "2026-09-22T09:02:00Z",
+          "active_cells": 2,
+          "peak_score": 6.065333366394043
+        },
+        {
+          "node_id": "beida-service-vm-1",
+          "start_time": "2026-09-21T14:56:00Z",
+          "end_time": "2026-09-21T14:59:00Z",
+          "active_cells": 3,
+          "peak_score": 5.973777770996094
+        }
+      ],
+      "reference_observed_fraction": 0.8996521577380953,
+      "reference_value_p99": 14.213333129882812,
+      "reference_active_cells": 158,
+      "reference_active_per_100k_observed": 10.88934973352107,
+      "review_reasons": []
+    },
+    {
+      "feature": "node.filesystem_used_ratio",
+      "score_threshold": 4.0,
+      "floor": 0.025,
+      "absolute": 0.8,
+      "available": true,
+      "observed_cells": 725669,
+      "observed_fraction": 0.8998871527777778,
+      "value_p50": 0.19362305104732513,
+      "value_p95": 0.740653932094574,
+      "value_p99": 0.7536499500274658,
+      "active_cells": 0,
+      "active_per_100k_observed": 0.0,
+      "active_entities_top5": [],
+      "active_windows_top10": [],
+      "reference_observed_fraction": 0.8996521577380953,
+      "reference_value_p99": 0.7537949681282043,
+      "reference_active_cells": 103,
+      "reference_active_per_100k_observed": 7.098753307295382,
+      "review_reasons": [
+        "active_rate_shift"
+      ]
+    },
+    {
+      "feature": "node.process_count",
+      "score_threshold": 4.0,
+      "floor": 10.0,
+      "absolute": 100.0,
+      "available": true,
+      "observed_cells": 725669,
+      "observed_fraction": 0.8998871527777778,
+      "value_p50": 138.0,
+      "value_p95": 202.0,
+      "value_p99": 220.0,
+      "active_cells": 54,
+      "active_per_100k_observed": 7.441409237544941,
+      "active_entities_top5": [
+        {
+          "node_id": "xian-service-vm-3",
+          "active_cells": 16
+        },
+        {
+          "node_id": "beida-service-vm-3",
+          "active_cells": 14
+        },
+        {
+          "node_id": "shenyang-service-vm-1",
+          "active_cells": 12
+        },
+        {
+          "node_id": "nanjing-service-vm-3",
+          "active_cells": 5
+        },
+        {
+          "node_id": "shenyang-traffic-vm",
+          "active_cells": 5
+        }
+      ],
+      "active_windows_top10": [
+        {
+          "node_id": "shenyang-service-vm-1",
+          "start_time": "2026-09-23T06:45:00Z",
+          "end_time": "2026-09-23T06:57:00Z",
+          "active_cells": 12,
+          "peak_score": 12.800000190734863
+        },
+        {
+          "node_id": "shanghai-service-vm-1",
+          "start_time": "2026-09-19T01:07:00Z",
+          "end_time": "2026-09-19T01:09:00Z",
+          "active_cells": 2,
+          "peak_score": 10.100000381469727
+        },
+        {
+          "node_id": "xian-service-vm-3",
+          "start_time": "2026-09-18T12:09:00Z",
+          "end_time": "2026-09-18T12:25:00Z",
+          "active_cells": 16,
+          "peak_score": 6.400000095367432
+        },
+        {
+          "node_id": "beida-service-vm-3",
+          "start_time": "2026-09-19T06:13:00Z",
+          "end_time": "2026-09-19T06:29:00Z",
+          "active_cells": 14,
+          "peak_score": 5.800000190734863
+        },
+        {
+          "node_id": "nanjing-service-vm-3",
+          "start_time": "2026-09-23T09:35:00Z",
+          "end_time": "2026-09-23T09:40:00Z",
+          "active_cells": 5,
+          "peak_score": 4.900000095367432
+        },
+        {
+          "node_id": "shenyang-traffic-vm",
+          "start_time": "2026-09-24T01:54:00Z",
+          "end_time": "2026-09-24T01:59:00Z",
+          "active_cells": 5,
+          "peak_score": 4.199999809265137
+        }
+      ],
+      "reference_observed_fraction": 0.8996521577380953,
+      "reference_value_p99": 195.0,
+      "reference_active_cells": 103,
+      "reference_active_per_100k_observed": 7.098753307295382,
+      "review_reasons": []
+    },
+    {
+      "feature": "interface.rx_error_rate",
+      "score_threshold": 4.0,
+      "floor": 0.1,
+      "absolute": 0.1,
+      "available": true,
+      "observed_cells": 725671,
+      "observed_fraction": 0.8998896329365079,
+      "value_p50": 0.0,
+      "value_p95": 0.0,
+      "value_p99": 0.0,
+      "active_cells": 0,
+      "active_per_100k_observed": 0.0,
+      "active_entities_top5": [],
+      "active_windows_top10": [],
+      "reference_observed_fraction": 0.8996521577380953,
+      "reference_value_p99": 0.0,
+      "reference_active_cells": 0,
+      "reference_active_per_100k_observed": 0.0,
+      "review_reasons": []
+    },
+    {
+      "feature": "interface.tx_error_rate",
+      "score_threshold": 4.0,
+      "floor": 0.1,
+      "absolute": 0.1,
+      "available": true,
+      "observed_cells": 725671,
+      "observed_fraction": 0.8998896329365079,
+      "value_p50": 0.0,
+      "value_p95": 0.0,
+      "value_p99": 0.0,
+      "active_cells": 0,
+      "active_per_100k_observed": 0.0,
+      "active_entities_top5": [],
+      "active_windows_top10": [],
+      "reference_observed_fraction": 0.8996521577380953,
+      "reference_value_p99": 0.0,
+      "reference_active_cells": 0,
+      "reference_active_per_100k_observed": 0.0,
+      "review_reasons": []
+    },
+    {
+      "feature": "interface.rx_drop_rate",
+      "score_threshold": 4.0,
+      "floor": 0.1,
+      "absolute": 0.1,
+      "available": true,
+      "observed_cells": 725671,
+      "observed_fraction": 0.8998896329365079,
+      "value_p50": 0.0,
+      "value_p95": 0.0,
+      "value_p99": 0.04444444552063942,
+      "active_cells": 0,
+      "active_per_100k_observed": 0.0,
+      "active_entities_top5": [],
+      "active_windows_top10": [],
+      "reference_observed_fraction": 0.8996521577380953,
+      "reference_value_p99": 0.02222222276031971,
+      "reference_active_cells": 0,
+      "reference_active_per_100k_observed": 0.0,
+      "review_reasons": [
+        "value_p99_shift"
+      ]
+    },
+    {
+      "feature": "interface.tx_drop_rate",
+      "score_threshold": 4.0,
+      "floor": 0.1,
+      "absolute": 0.1,
+      "available": true,
+      "observed_cells": 725671,
+      "observed_fraction": 0.8998896329365079,
+      "value_p50": 0.0,
+      "value_p95": 0.0,
+      "value_p99": 0.0,
+      "active_cells": 0,
+      "active_per_100k_observed": 0.0,
+      "active_entities_top5": [],
+      "active_windows_top10": [],
+      "reference_observed_fraction": 0.8996521577380953,
+      "reference_value_p99": 0.0,
+      "reference_active_cells": 0,
+      "reference_active_per_100k_observed": 0.0,
+      "review_reasons": []
+    },
+    {
+      "feature": "interface.carrier_changes",
+      "score_threshold": 4.0,
+      "floor": 0.5,
+      "absolute": 1.0,
+      "available": true,
+      "observed_cells": 725671,
+      "observed_fraction": 0.8998896329365079,
+      "value_p50": 0.0,
+      "value_p95": 0.0,
+      "value_p99": 0.0,
+      "active_cells": 0,
+      "active_per_100k_observed": 0.0,
+      "active_entities_top5": [],
+      "active_windows_top10": [],
+      "reference_observed_fraction": 0.8996521577380953,
+      "reference_value_p99": 0.0,
+      "reference_active_cells": 0,
+      "reference_active_per_100k_observed": 0.0,
+      "review_reasons": []
+    },
+    {
+      "feature": "routing.bgp_peer_up",
+      "score_threshold": 4.0,
+      "floor": 0.2,
+      "absolute": 0.5,
+      "available": true,
+      "observed_cells": 161208,
+      "observed_fraction": 0.19991071428571427,
+      "value_p50": 1.0,
+      "value_p95": 1.0,
+      "value_p99": 1.0,
+      "active_cells": 59,
+      "active_per_100k_observed": 36.59867996625478,
+      "active_entities_top5": [
+        {
+          "node_id": "chengdu-br-2",
+          "active_cells": 24
+        },
+        {
+          "node_id": "xian-br-2",
+          "active_cells": 24
+        },
+        {
+          "node_id": "nanjing-br-2",
+          "active_cells": 6
+        },
+        {
+          "node_id": "wuhan-br-2",
+          "active_cells": 5
+        }
+      ],
+      "active_windows_top10": [
+        {
+          "node_id": "chengdu-br-2",
+          "start_time": "2026-09-18T10:41:00Z",
+          "end_time": "2026-09-18T11:05:00Z",
+          "active_cells": 24,
+          "peak_score": 5.0
+        },
+        {
+          "node_id": "xian-br-2",
+          "start_time": "2026-09-18T10:41:00Z",
+          "end_time": "2026-09-18T11:05:00Z",
+          "active_cells": 24,
+          "peak_score": 5.0
+        },
+        {
+          "node_id": "nanjing-br-2",
+          "start_time": "2026-09-17T13:53:00Z",
+          "end_time": "2026-09-17T14:03:00Z",
+          "active_cells": 6,
+          "peak_score": 5.0
+        },
+        {
+          "node_id": "wuhan-br-2",
+          "start_time": "2026-09-17T13:54:00Z",
+          "end_time": "2026-09-17T14:03:00Z",
+          "active_cells": 5,
+          "peak_score": 5.0
+        }
+      ],
+      "reference_observed_fraction": 0.19973152281746032,
+      "reference_value_p99": 1.0,
+      "reference_active_cells": 497,
+      "reference_active_per_100k_observed": 154.28697377121446,
+      "review_reasons": [
+        "active_rate_shift"
+      ]
+    },
+    {
+      "feature": "routing.bgp_command_success",
+      "score_threshold": 4.0,
+      "floor": 0.2,
+      "absolute": 0.5,
+      "available": true,
+      "observed_cells": 161208,
+      "observed_fraction": 0.19991071428571427,
+      "value_p50": 1.0,
+      "value_p95": 1.0,
+      "value_p99": 1.0,
+      "active_cells": 0,
+      "active_per_100k_observed": 0.0,
+      "active_entities_top5": [],
+      "active_windows_top10": [],
+      "reference_observed_fraction": 0.19973152281746032,
+      "reference_value_p99": 1.0,
+      "reference_active_cells": 0,
+      "reference_active_per_100k_observed": 0.0,
+      "review_reasons": []
+    },
+    {
+      "feature": "routing.ipv6_route_exists",
+      "score_threshold": 4.0,
+      "floor": 0.2,
+      "absolute": 0.5,
+      "available": true,
+      "observed_cells": 322488,
+      "observed_fraction": 0.3999107142857143,
+      "value_p50": 1.0,
+      "value_p95": 1.0,
+      "value_p99": 1.0,
+      "active_cells": 0,
+      "active_per_100k_observed": 0.0,
+      "active_entities_top5": [],
+      "active_windows_top10": [],
+      "reference_observed_fraction": 0.39972160218253966,
+      "reference_value_p99": 1.0,
+      "reference_active_cells": 0,
+      "reference_active_per_100k_observed": 0.0,
+      "review_reasons": []
+    },
+    {
+      "feature": "routing.ospf6_neighbor_state_code",
+      "score_threshold": 4.0,
+      "floor": 0.5,
+      "absolute": 3.0,
+      "available": true,
+      "observed_cells": 312408,
+      "observed_fraction": 0.3874107142857143,
+      "value_p50": 6.0,
+      "value_p95": 6.0,
+      "value_p99": 6.0,
+      "active_cells": 0,
+      "active_per_100k_observed": 0.0,
+      "active_entities_top5": [],
+      "active_windows_top10": [],
+      "reference_observed_fraction": 0.39972160218253966,
+      "reference_value_p99": 6.0,
+      "reference_active_cells": 0,
+      "reference_active_per_100k_observed": 0.0,
+      "review_reasons": []
+    },
+    {
+      "feature": "routing.ospf6_interface_cost",
+      "score_threshold": 4.0,
+      "floor": 10.0,
+      "absolute": 50.0,
+      "available": true,
+      "observed_cells": 312408,
+      "observed_fraction": 0.3874107142857143,
+      "value_p50": 1.0,
+      "value_p95": 1.0,
+      "value_p99": 1.0,
+      "active_cells": 126,
+      "active_per_100k_observed": 40.33187370361834,
+      "active_entities_top5": [
+        {
+          "node_id": "guangzhou-cr-1",
+          "active_cells": 49
+        },
+        {
+          "node_id": "beida-cr-2",
+          "active_cells": 26
+        },
+        {
+          "node_id": "guangzhou-cr-2",
+          "active_cells": 16
+        },
+        {
+          "node_id": "shenyang-cr-2",
+          "active_cells": 16
+        },
+        {
+          "node_id": "shanghai-cr-2",
+          "active_cells": 13
+        }
+      ],
+      "active_windows_top10": [
+        {
+          "node_id": "guangzhou-cr-1",
+          "start_time": "2026-09-17T16:12:00Z",
+          "end_time": "2026-09-17T16:32:00Z",
+          "active_cells": 20,
+          "peak_score": 39.900001525878906
+        },
+        {
+          "node_id": "guangzhou-cr-1",
+          "start_time": "2026-09-17T08:29:00Z",
+          "end_time": "2026-09-17T08:58:00Z",
+          "active_cells": 29,
+          "peak_score": 9.899999618530273
+        },
+        {
+          "node_id": "beida-cr-2",
+          "start_time": "2026-09-20T15:05:00Z",
+          "end_time": "2026-09-20T15:31:00Z",
+          "active_cells": 26,
+          "peak_score": 9.899999618530273
+        },
+        {
+          "node_id": "guangzhou-cr-2",
+          "start_time": "2026-09-18T13:25:00Z",
+          "end_time": "2026-09-18T13:41:00Z",
+          "active_cells": 16,
+          "peak_score": 9.899999618530273
+        },
+        {
+          "node_id": "shenyang-cr-2",
+          "start_time": "2026-09-22T13:20:00Z",
+          "end_time": "2026-09-22T13:36:00Z",
+          "active_cells": 16,
+          "peak_score": 9.899999618530273
+        },
+        {
+          "node_id": "shanghai-cr-2",
+          "start_time": "2026-09-21T09:51:00Z",
+          "end_time": "2026-09-21T10:04:00Z",
+          "active_cells": 13,
+          "peak_score": 9.899999618530273
+        },
+        {
+          "node_id": "wuhan-cr-1",
+          "start_time": "2026-09-18T02:50:00Z",
+          "end_time": "2026-09-18T02:56:00Z",
+          "active_cells": 6,
+          "peak_score": 9.899999618530273
+        }
+      ],
+      "reference_observed_fraction": 0.39972160218253966,
+      "reference_value_p99": 1.0,
+      "reference_active_cells": 48,
+      "reference_active_per_100k_observed": 7.445658328046399,
+      "review_reasons": [
+        "active_rate_shift"
+      ]
+    }
+  ],
+  "caveat": "Unlabelled distributions and active counts are coverage diagnostics, not accuracy or threshold optima."
+}

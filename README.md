@@ -1,76 +1,64 @@
-# CCF AIOps v3
+# CCF AIOps 2026 · v3
 
-v3 在 Mac 上默认运行完整的无模型权重流程：七源数据特征、事件检测、根因 Top-5、官方故障类别、预测 JSONL 和逐事件证据。服务器上的 LLM 是可选诊断器，只能对已确定的事件和候选重新排序与分类。
+v3 从两批特征库读取多源观测，完成故障事件检测、根因 Top-5 排序和官方类别输出。规则链路可在 Mac 独立运行；服务器 LLM 只在已检出的事件及候选网元内重排和分类。
 
-赛题约束见 [AIOPS_OnePage.md](docs/requirements/AIOPS_OnePage.md)，设计与已知局限见 [v3 方案](docs/superpowers/specs/2026-09-29-v3-local-llm-diagnosis-design.md)。OnePage 中旧版“数据/模型”人员分工不适用于 v3；v3 由一条完整流程维护。公开三个样例仅用于契约回归；当前未取得第二批数据，不能据第一批结果宣称完整竞赛成绩。
+赛题字段与数据约束见 [需求摘要](docs/requirements/AIOPS_OnePage.md)，当前数据、得分和已知限制见 [v3 当前状态](docs/v3-current-state.md)。
 
-## 安装与运行
+## 当前结果
+
+根目录 `result.jsonl` 是两批路由上下文实验版，397 条；原保守版保存在 `outputs/v3/stage1_stage2_canonical_conservative_20261001.jsonl`，也是 397 条。两版官网反馈均为 **22.78450382836741**。实验版只改变 28 条事件的根因 Top-5 后续名次，事件时间、Top-1 和故障类别不变。
+
+`outputs/v3/` 保留了这两份已评分合并文件、两批各自的预测/证据/审计、公开样例评测，以及可选服务器交接包。中间消融实验和旧版产物已清理。
+
+## 安装与验证
 
 ```bash
 python -m pip install -e '.[test]'
 python -m pytest -q
+```
 
-# 直接读取本机已有的七源特征库，不复制 104 GiB 原始数据。
-python -m aiops_v3.run \
-  --input-store data/feature_store/v2/stage1_all_cities_v2_20260926 \
-  --output-dir outputs/v3/stage1_rules
+公开样例真值在 `sample/ground_truth.jsonl`。完整隐藏标签不可用，公开样例分数不能代表正式得分。
 
-# 可选保守检测对照：筛除短时、低强度、单设备、仅 CPU 的候选；
-# 标准版仍是默认配置，保守版是否提升隐藏集得分需要提交验证。
-python -m aiops_v3.run \
-  --input-store data/feature_store/v2/stage1_all_cities_v2_20260926 \
-  --output-dir outputs/v3/stage1_rules_conservative \
-  --detector-profile conservative
+## 从现有特征库重新推理
 
-# 独立对照开关：按请求量降低低样本业务症状权重，或让单探针来源网元进入 Top-5。
-# 两项都尚未经过第一批隐藏标签验证，可分别与保守版比较。
+两批特征库分别位于 `data/feature_store/v3/stage1_canonical_20260930` 和 `data/feature_store/v3/stage2_canonical_20261001`。下面的命令复现当前路由上下文实验配置，输出到**新目录**；运行器不会覆盖已有目录或根目录 `result.jsonl`。
+
+```bash
 python -m aiops_v3.run \
-  --input-store data/feature_store/v2/stage1_all_cities_v2_20260926 \
-  --output-dir outputs/v3/stage1_request_aware \
+  --input-store data/feature_store/v3/stage1_canonical_20260930 \
+  --output-dir outputs/v3/rebuild_stage1 \
   --detector-profile conservative \
-  --request-aware-service
+  --routing-dimension-detection --routing-context-candidates --temporal-context
 
-# 也可从公开原始 CSV 构建 v3 特征库后运行。
 python -m aiops_v3.run \
-  --raw-root sample/case_001 \
-  --build-store-to outputs/v3/sample_store \
-  --output-dir outputs/v3/sample_rules
-```
+  --input-store data/feature_store/v3/stage2_canonical_20261001 \
+  --output-dir outputs/v3/rebuild_stage2 \
+  --detector-profile conservative \
+  --routing-dimension-detection --routing-context-candidates --temporal-context
 
-`--raw-root` 同样识别第一批 `data/stage1/regions/*_data/` 布局；第一批已存在经核查的七源特征库，Mac 上优先复用该库以节省时间与磁盘。第二批取得后可按相同方式构建或接入特征库，分别预测，再合并：
-
-```bash
 python -m aiops_v3.merge \
-  --input outputs/v3/stage1_rules/predictions.jsonl \
-  --input outputs/v3/stage2_rules/predictions.jsonl \
-  --output outputs/v3/combined_predictions.jsonl
+  --input outputs/v3/rebuild_stage1/predictions.jsonl \
+  --input outputs/v3/rebuild_stage2/predictions.jsonl \
+  --output outputs/v3/rebuild_combined.jsonl
 ```
 
-每次运行输出 `predictions.jsonl`、`evidence.jsonl`、`audit.jsonl` 和 `run_manifest.json`。输出目录须为空；原始数据、运行产物和模型权重不会纳入 Git。
+只复现原保守版时，分别去掉三个路由/时序开关，再合并。每次运行产生 `predictions.jsonl`、`evidence.jsonl`、`audit.jsonl` 和包含输入、代码及输出哈希的 `run_manifest.json`。`merge` 会校验官方格式并重新编号预测 ID。
 
-有公开真值时可单独评测；没有第一批完整真值时不要用公开三例推断第一批分数：
+第二批原始 CSV 尚在本机时，可用 `python -m aiops_v3.build_features --raw-root data/stage2/regions --profile stage2 --preflight-only` 预检。重建特征库的完整参数见 `python -m aiops_v3.build_features --help`；目标目录必须不存在。
+
+## 数据侧阈值审计
+
+`data_side/results/stage1_threshold_audit_20261002.json` 和 `stage2_threshold_audit_20261002.json` 分别绑定两批特征库的实际输入。第二批报告同时对照第一批，记录每条节点规则的覆盖率、数值分位数、触发频率，以及优先复核的设备和时间窗口。新批次可运行：
 
 ```bash
-python -m aiops_v3.evaluation \
-  --ground-truth sample/ground_truth.jsonl \
-  --predictions outputs/v3/sample_rules/predictions.jsonl \
-  --report outputs/v3/sample_rules/evaluation.json
+python -m data_side.threshold_audit \
+  --input-store data/feature_store/v3/stage2_canonical_20261001 \
+  --reference-store data/feature_store/v3/stage1_canonical_20260930 \
+  --output data_side/results/new_stage2_audit.json
 ```
 
-## 可选服务器诊断
+这两份报告均为 `audit_only`：没有已确认的正常和故障窗口，分布变化只标记为待复核，不自动调整阈值。推理时可传入 `--calibration-profile data_side/results/stage2_threshold_audit_20261002.json`；运行器会核对特征库哈希并记录配置哈希。只有显式标记为 `validated`、登记正常及故障复核窗口数的配置，才允许使用 `rule_overrides` 按指标覆盖 `score_threshold`、`floor` 或 `absolute`；窗口内容仍需人工核实。现有两批审计配置不含覆盖值，因此复跑预测与已评分版本一致。详细结果见 [当前状态](docs/v3-current-state.md)。
 
-服务器读取 `evidence.jsonl`，根据其中的 `candidates` 和 `signals` 生成响应 JSONL。Mac 端导入：
+## 可选服务器 LLM
 
-```bash
-python -m aiops_v3.run \
-  --input-store data/feature_store/v2/stage1_all_cities_v2_20260926 \
-  --output-dir outputs/v3/stage1_server_diagnosis \
-  --diagnoser llm-jsonl \
-  --llm-responses outputs/v3/server_responses.jsonl
-```
-
-非法、重复、过期或缺失响应逐事件退回规则诊断，原因写入 `audit.jsonl`。服务器须回传同一行证据包的 `evidence_sha256`。响应格式与验证规则见 [服务器交接说明](docs/v3-server-llm-handoff.md)。Mac 无须安装或下载 LLM。
-
-## 已知边界
-
-当前候选检索只使用直接设备证据、目标城市症状和同城上下文。接口对端与服务域名到具体实例缺少权威映射，服务类事件的 Top-1 因而可能只是低证据候选；审计中的候选原因会明确标注。证据 ID 定位到分钟特征单元，现有 v2 特征库没有原始 CSV 行号；需要逐行来源时须重新构建带行号索引的特征库。第一批没有公开全量真值，标准配置的 375 条和保守配置的 316 条候选都不能视为准确率或最终分数；与用户确认的官方第一批 292 条之差及本轮实验见[检测审计](docs/v3-detection-feature-audit-2026-09-29.md)。第二批尚未下载，原始第二批构建与完整提交还未验证。
+当前本地检测链路不需要模型权重。已冻结的源码和两批保守版证据位于 `outputs/v3/server_bundle_20261002/`，服务器运行、响应回导及哈希校验见 [服务器交接说明](docs/v3-server-llm-handoff.md)。LLM 不能补漏检事件或更改事件时间。当前尚无服务器 GPU 实测结果。

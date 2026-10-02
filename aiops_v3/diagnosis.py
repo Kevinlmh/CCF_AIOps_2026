@@ -27,9 +27,13 @@ class EvidencePack:
     end_time: str
     signals: tuple[Signal, ...]
     candidates: tuple[Candidate, ...]
+    temporal_context: tuple[dict, ...] = ()
 
     def sha256(self) -> str:
-        payload = json.dumps(asdict(self), ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
+        fields = asdict(self)
+        if not self.temporal_context:
+            fields.pop("temporal_context")
+        payload = json.dumps(fields, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -50,8 +54,87 @@ def _city(node: str) -> str | None:
     return node.split("-", 1)[0] if "-" in node else None
 
 
+def _peer_prefix_context(store, event: Event, legal_nodes: frozenset[str]) -> dict[str, list[Signal]]:
+    """Find route loss on still-established peers near a BGP incident."""
+    if not hasattr(store, "iter_dimension_series") or not any(
+        item.category == "bgp_session_down" and item.role == "direct" for item in event.signals
+    ):
+        return {}
+    prefixes = []
+    peer_up = {}
+    for series in store.iter_dimension_series(source="routing"):
+        if series.node_id not in legal_nodes:
+            continue
+        peer = dict(series.dimensions).get("peer")
+        if not peer:
+            continue
+        key = (series.node_id, peer)
+        if series.metric == "routing.bgp_peer_prefix_received":
+            prefixes.append((key, series))
+        elif series.metric == "routing.bgp_peer_up":
+            peer_up[key] = series
+    found: dict[str, list[Signal]] = {}
+    for (node, peer), series in prefixes:
+        status = peer_up.get((node, peer))
+        if status is None:
+            continue
+        before = (series.time_indices >= max(0, event.start_minute - 30)) & (series.time_indices < event.start_minute)
+        during = (series.time_indices >= event.start_minute) & (series.time_indices < event.end_minute)
+        if before.sum() < 3 or during.sum() < 2:
+            continue
+        reference = float(np.median(series.values[before]))
+        values = series.values[during]
+        if reference < 2 or not np.any(values <= reference - 1):
+            continue
+        status_index = np.searchsorted(status.time_indices, series.time_indices[during])
+        valid = status_index < len(status.time_indices)
+        valid[valid] &= status.time_indices[status_index[valid]] == series.time_indices[during][valid]
+        if (valid.sum() < 2 or np.any(status.values[status_index[valid]] < .5)
+                or not np.any(valid & (values <= reference - 1))):
+            continue
+        minimum = int(np.argmin(np.where(valid, values, np.inf)))
+        minute = int(series.time_indices[during][minimum])
+        evidence_id = f"dimension:{minute}:{node}:bgp_peer_prefix_received:{peer}"
+        found.setdefault(node, []).append(Signal(
+            evidence_id, minute, node, "routing.bgp_peer_prefix_received", "context",
+            float(values[minimum]), reference, 0, "auxiliary"))
+    return found
+
+
+def _temporal_context(store, event: Event, signals: list[Signal]) -> tuple[dict, ...]:
+    if not hasattr(store, "node_mask"):
+        return ()
+    rows = []
+    count = store.manifest["minute_count"]
+    windows = {
+        "before": (max(0, event.start_minute - 5), event.start_minute),
+        "during": (event.start_minute, event.end_minute),
+        "after": (event.end_minute, min(count, event.end_minute + 5)),
+    }
+    for signal in signals:
+        parts = signal.evidence_id.split(":", 3)
+        if len(parts) != 4 or parts[0] not in {"node", "edge", "log"} or not parts[2].isdigit():
+            continue
+        kind = parts[0]
+        entity = int(parts[2])
+        feature = store.feature_index(kind, signal.feature)
+        values = getattr(store, f"{kind}_values")
+        mask = getattr(store, f"{kind}_mask")
+        if feature is None or entity >= values.shape[1]:
+            continue
+        row = {"evidence_id": signal.evidence_id}
+        for label, (start, end) in windows.items():
+            valid = mask[start:end, entity, feature]
+            observed = values[start:end, entity, feature][valid]
+            row[f"observed_{label}"] = int(len(observed))
+            row[f"{label}_median"] = float(np.median(observed)) if len(observed) else None
+        rows.append(row)
+    return tuple(rows)
+
+
 def build_evidence(
     store, event: Event, contract: OfficialContract, *, include_probe_candidates: bool = False,
+    include_routing_context: bool = False, include_temporal_context: bool = False,
 ) -> EvidencePack:
     signals = list(event.signals)
     direct: dict[str, list[Signal]] = {}
@@ -72,6 +155,10 @@ def build_evidence(
                         edge = store.edges[index]
                         if edge.get("relation") == "traffic" and edge.get("target") == signal.node:
                             probe_evidence.setdefault(edge["source"], set()).add(signal.evidence_id)
+    prefix_context = (_peer_prefix_context(store, event, contract.nodes)
+                      if include_routing_context else {})
+    for context_signals in prefix_context.values():
+        signals.extend(context_signals)
     if hasattr(store, "node_mask"):
         node_index = {name: i for i, name in enumerate(store.nodes)}
         for node in sorted(direct, key=lambda item: -max(signal.score for signal in direct[item]))[:5]:
@@ -131,6 +218,9 @@ def build_evidence(
         elif node == single_probe:
             candidates.append(Candidate(node, .29, tuple(sorted(probe_evidence[node])),
                                         "single_probe_observer_possible_local_path_cause"))
+        elif node in prefix_context:
+            candidates.append(Candidate(node, .26, tuple(sorted(item.evidence_id for item in prefix_context[node])),
+                                        "correlated_peer_prefix_change"))
         elif _city(node) == primary_city:
             score = .30 if node.endswith(("service-vm-1", "service-vm-2", "service-vm-3")) and primary_city in symptom_cities else .25
             candidates.append(Candidate(node, score, (), "same_city_context_no_direct_evidence"))
@@ -151,6 +241,7 @@ def build_evidence(
         store.time_at(event.end_minute).isoformat().replace("+00:00", "Z"),
         tuple(signals),
         tuple(candidates),
+        _temporal_context(store, event, signals) if include_temporal_context else (),
     )
 
 
@@ -174,8 +265,10 @@ def _category(signals: list[Signal], root: str, contract: OfficialContract) -> t
             "link_loss": ("link", "loss"),
             "link_down": ("link", "loss"),
             "bgp_session_down": ("routing", "bgp_session_down"),
+            "bgp_route_filter": ("routing", "bgp_route_filter"),
             "blackhole": ("routing", "blackhole"),
             "ospf6_neighbor_down": ("routing", "ospf6_neighbor_down"),
+            "ospf6_interface_flap": ("routing", "ospf6_interface_flap"),
             "ospf6_cost_anomaly": ("routing", "ospf6_cost_anomaly"),
         }
         pair = mapping.get(signal.category)

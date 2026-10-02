@@ -24,7 +24,10 @@ def valid_record():
 def test_official_contract_accepts_five_unique_nodes_and_category():
     contract = load_contract()
     assert len(contract.nodes) == 80
-    assert len(contract.categories) == 28
+    assert len(contract.categories) == 32
+    assert {("routing", name) for name in (
+        "bgp_route_filter", "ospf6_interface_flap", "route_loop", "long_path_interruption",
+    )} <= contract.categories
     validate_prediction(valid_record(), contract)
     assert parse_time("2026-07-28T12:39:00Z").tzinfo == timezone.utc
 

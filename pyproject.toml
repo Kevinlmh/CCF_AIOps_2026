@@ -14,7 +14,7 @@ dependencies = ["numpy>=1.26"]
 test = ["pytest>=8"]
 
 [tool.setuptools.packages.find]
-include = ["aiops_v3*"]
+include = ["aiops_v3*", "data_side*"]
 
 [tool.setuptools.package-data]
 "aiops_v3" = ["config/*.json"]

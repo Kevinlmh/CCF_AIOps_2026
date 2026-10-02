@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 import warnings
 
 import numpy as np
@@ -24,6 +24,11 @@ class DetectorSettings:
     weak_cpu_max_minutes: int = 0
     weak_cpu_max_score: float = 0.0
     request_aware_service: bool = False
+    service_overlap_policy: str = "city"
+    baseline_strategy: str = "global_median"
+    routing_dimension_detection: bool = False
+    cross_city_merge_policy: str = "correlated"
+    rule_overrides: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -83,7 +88,8 @@ _NODE_RULES = (
 )
 
 
-def _scores(data: np.ndarray, mask: np.ndarray, rule: _Rule) -> tuple[np.ndarray, np.ndarray]:
+def _scores(data: np.ndarray, mask: np.ndarray, rule: _Rule,
+            baseline_strategy: str = "global_median") -> tuple[np.ndarray, np.ndarray]:
     clean = np.where(mask, data, np.nan)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
@@ -94,13 +100,47 @@ def _scores(data: np.ndarray, mask: np.ndarray, rule: _Rule) -> tuple[np.ndarray
         # occupies most observed samples, the median is the fault level.
         # Use the healthy-side tail only for sparse series; long series retain
         # the more stable median baseline.
-        for column in np.flatnonzero((observed_count >= 8) & (observed_count < 60)):
+        sparse = (observed_count >= 8) & (observed_count < 60)
+        eligible = observed_count >= 8 if baseline_strategy == "healthy_tail" else sparse
+        for column in np.flatnonzero(eligible):
             center[column] = np.nanpercentile(clean[:, column], 20 if rule.direction == 1 else 80)
             mad[column] = np.nanpercentile(np.abs(clean[:, column] - center[column]), 20)
     enough = observed_count >= 8
     scale = np.maximum(np.nan_to_num(1.4826 * mad, nan=0), rule.floor)
-    deviation = rule.direction * (data - center[None, :])
-    score = np.where(mask & enough[None, :] & np.isfinite(data), deviation / scale[None, :], 0)
+    if baseline_strategy == "rolling_healthy_tail":
+        # A block only sees observations strictly before its first minute.
+        # Until eight prior samples exist, the block cannot trigger a signal.
+        rolling_center = np.empty_like(data)
+        rolling_scale = np.empty_like(data)
+        rolling_enough = np.empty_like(mask)
+        for start in range(0, len(data), 30):
+            end = min(len(data), start + 30)
+            history = clean[max(0, start - 1440):start]
+            history_count = np.isfinite(history).sum(axis=0)
+            if len(history):
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    prior_center = np.nanpercentile(
+                        history, 20 if rule.direction == 1 else 80, axis=0)
+                    prior_mad = np.nanpercentile(np.abs(history - prior_center), 20, axis=0)
+                block_center = np.where(history_count >= 8, prior_center, center)
+                block_scale = np.where(
+                    history_count >= 8,
+                    np.maximum(np.nan_to_num(1.4826 * prior_mad, nan=0), rule.floor),
+                    scale,
+                )
+            else:
+                block_center, block_scale = center, scale
+            rolling_center[start:end] = block_center
+            rolling_scale[start:end] = block_scale
+            rolling_enough[start:end] = history_count >= 8
+        deviation = rule.direction * (data - rolling_center)
+        score = np.where(mask & rolling_enough & np.isfinite(data),
+                         deviation / rolling_scale, 0)
+        center = rolling_center
+    else:
+        deviation = rule.direction * (data - center[None, :])
+        score = np.where(mask & enough[None, :] & np.isfinite(data), deviation / scale[None, :], 0)
     if rule.direction == 1:
         score = np.where(data >= rule.absolute, score, 0)
     else:
@@ -145,6 +185,126 @@ def _target_city(target: str) -> str | None:
     if target.startswith("service-group:"):
         return target.split(":")[1]
     return target.split("-", 1)[0] if "-" in target else None
+
+
+def _routing_dimension_events(store: FeatureStore, settings: DetectorSettings) -> list[Event]:
+    """Require peer prefix loss and independent route loss on a stable session."""
+    count = store.manifest["minute_count"]
+    prefixes = {}
+    peer_up = {}
+    route_counts = {}
+    route_changes: dict[str, list] = {}
+    ospf_enabled = {}
+    ospf_neighbors: dict[tuple[str, str], list] = {}
+    for series in store.iter_dimension_series(source="routing"):
+        dimensions = dict(series.dimensions)
+        if series.metric == "routing.bgp_peer_prefix_received" and "peer" in dimensions:
+            prefixes[(series.node_id, dimensions["peer"])] = series
+        elif series.metric == "routing.bgp_peer_up" and "peer" in dimensions:
+            peer_up[(series.node_id, dimensions["peer"])] = series
+        elif (series.metric == "routing.ipv6_route_count"
+              and dimensions.get("protocol") == "all"):
+            route_counts[series.node_id] = series
+        elif series.metric == "routing.ipv6_route_change_total":
+            route_changes.setdefault(series.node_id, []).append(series)
+        elif (series.metric == "routing.ospf6_interface_enabled"
+              and "interface" in dimensions):
+            ospf_enabled[(series.node_id, dimensions["interface"])] = series
+        elif (series.metric == "routing.ospf6_neighbor_state_code"
+              and "interface" in dimensions):
+            ospf_neighbors.setdefault((series.node_id, dimensions["interface"]), []).append(series)
+
+    def dense(series):
+        values = np.full(count, np.nan, np.float32)
+        values[series.time_indices] = series.values
+        return values
+
+    grouped_signals: dict[tuple[str, str, int, int], dict[str, Signal]] = {}
+    for (node, peer), prefix_series in prefixes.items():
+        if (node, peer) not in peer_up or (node not in route_counts and node not in route_changes):
+            continue
+        prefix = dense(prefix_series)
+        routes = dense(route_counts[node]) if node in route_counts else None
+        status = dense(peer_up[(node, peer)])
+        if np.isfinite(prefix).sum() < 8:
+            continue
+        prefix_reference = float(np.nanpercentile(prefix, 80))
+        route_reference = (float(np.nanpercentile(routes, 80))
+                           if routes is not None and np.isfinite(routes).sum() >= 8 else 0)
+        if prefix_reference < 2:
+            continue
+        active = (np.isfinite(prefix) & np.isfinite(status) & (status >= .5)
+                  & (prefix <= prefix_reference - 1)
+                  & (prefix <= prefix_reference * .75))
+        active = _supported(active.astype(np.float32), 1, False)
+        for start, end in _groups(active, settings):
+            route_drop = (routes is not None and route_reference >= 2
+                          and np.any(np.isfinite(routes[start:end])
+                                     & (routes[start:end] <= route_reference - 1)))
+            changed = []
+            for route_change in route_changes.get(node, []):
+                values = dense(route_change)
+                delta = values[1:] - values[:-1]
+                first_change = max(1, start)
+                window = delta[first_change - 1:end - 1]
+                positions = np.flatnonzero(np.isfinite(window) & (window > 0)) + first_change
+                if len(positions):
+                    minute = int(positions[0])
+                    changed.append((route_change, minute, float(values[minute]),
+                                    float(values[minute - 1])))
+            if not route_drop and not changed:
+                continue
+            prefix_minute = start + int(np.nanargmin(prefix[start:end]))
+            score = max(4.0, 8 * (1 - float(prefix[prefix_minute]) / prefix_reference))
+            signals = [
+                Signal(f"dimension:{prefix_minute}:{node}:bgp_peer_prefix_received:{peer}",
+                       prefix_minute, node, "routing.bgp_peer_prefix_received",
+                       "bgp_route_filter", float(prefix[prefix_minute]), prefix_reference,
+                       score, "direct"),
+            ]
+            if route_drop:
+                route_minute = start + int(np.nanargmin(routes[start:end]))
+                signals.append(Signal(f"dimension:{route_minute}:{node}:ipv6_route_count:all",
+                       route_minute, node, "routing.ipv6_route_count",
+                       "bgp_route_filter", float(routes[route_minute]), route_reference,
+                       score, "direct"))
+            for route_change, minute, value, reference in changed[:2]:
+                prefix_label = dict(route_change.dimensions).get("prefix", "unknown")
+                signals.append(Signal(f"dimension:{minute}:{node}:ipv6_route_change_total:{prefix_label}",
+                                      minute, node, "routing.ipv6_route_change_total",
+                                      "bgp_route_filter", value, reference, score, "direct"))
+            group = grouped_signals.setdefault(("bgp_route_filter", node, start, end), {})
+            group.update((signal.evidence_id, signal) for signal in signals)
+    for (node, interface), series in ospf_enabled.items():
+        enabled = dense(series)
+        active = _supported((enabled == 0).astype(np.float32), 1, False)
+        for start, end in _groups(active, settings):
+            if start == 0 or end >= count or not (enabled[start - 1] >= .5 and enabled[end] >= .5):
+                continue
+            neighbor_matches = []
+            for neighbor in ospf_neighbors.get((node, interface), []):
+                state = dense(neighbor)
+                if (np.isfinite(state[start:end]).sum() >= 2
+                        and state[start - 1] >= 4 and state[end] >= 4
+                        and np.nanmin(state[start:end]) <= 3):
+                    neighbor_matches.append((neighbor, state))
+            if not neighbor_matches:
+                continue
+            neighbor, state = neighbor_matches[0]
+            minute = start + int(np.nanargmin(state[start:end]))
+            evidence = (
+                Signal(f"dimension:{start}:{node}:ospf6_interface_enabled:{interface}",
+                       start, node, "routing.ospf6_interface_enabled", "ospf6_interface_flap",
+                       0, 1, 5, "direct"),
+                Signal(f"dimension:{minute}:{node}:ospf6_neighbor_state_code:{interface}",
+                       minute, node, "routing.ospf6_neighbor_state_code", "ospf6_interface_flap",
+                       float(state[minute]), 6, 5, "direct"),
+            )
+            group = grouped_signals.setdefault(("ospf6_interface_flap", node, start, end), {})
+            group.update((signal.evidence_id, signal) for signal in evidence)
+    return [Event(f"v3-dim{index:06d}", start, end,
+                  tuple(group.values())[:settings.max_signals_per_event])
+            for index, ((_, _, start, end), group) in enumerate(sorted(grouped_signals.items()), 1)]
 
 
 def _direct_nodes(event: Event) -> set[str]:
@@ -230,6 +390,10 @@ def _consolidate(store: FeatureStore, events: list[Event], settings: DetectorSet
                     break
                 if _dominant_direct_category(previous) != category or _direct_nodes(previous) & _direct_nodes(event):
                     continue
+                if (settings.cross_city_merge_policy == "same_city"
+                        and len({_target_city(node) for node in
+                                 (_direct_nodes(previous) | _direct_nodes(event))}) != 1):
+                    continue
                 overlap = min(previous.end_minute, event.end_minute) - max(previous.start_minute, event.start_minute)
                 shorter = min(previous.end_minute - previous.start_minute, event.end_minute - event.start_minute)
                 span = max(previous.end_minute, event.end_minute) - min(previous.start_minute, event.start_minute)
@@ -259,6 +423,12 @@ def _consolidate(store: FeatureStore, events: list[Event], settings: DetectorSet
 
 
 def detect_with_audit(store: FeatureStore, settings: DetectorSettings = DetectorSettings()) -> DetectionResult:
+    if settings.service_overlap_policy not in {"city", "related_device"}:
+        raise ValueError("unknown service overlap policy")
+    if settings.baseline_strategy not in {"global_median", "healthy_tail", "rolling_healthy_tail"}:
+        raise ValueError("unknown baseline strategy")
+    if settings.cross_city_merge_policy not in {"correlated", "same_city"}:
+        raise ValueError("unknown cross-city merge policy")
     count = store.manifest["minute_count"]
     direct_active = np.zeros((count, len(store.nodes)), bool)
     symptom_active: dict[str, np.ndarray] = {}
@@ -268,14 +438,18 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
             target_edges.setdefault(edge["target"], []).append(index)
             symptom_active.setdefault(edge["target"], np.zeros(count, bool))
     scored: list[tuple[_Rule, np.ndarray, np.ndarray, str]] = []
-    for rule in _NODE_RULES:
+    for default_rule in _NODE_RULES:
+        override = settings.rule_overrides.get(default_rule.feature, {})
+        rule = replace(default_rule, **{key: value for key, value in override.items()
+                                        if key in {"floor", "absolute"}})
+        score_threshold = override.get("score_threshold", settings.score_threshold)
         column = store.feature_index("node", rule.feature)
         if column is None:
             continue
         data = np.asarray(store.node_values[:, :, column], np.float32)
         mask = np.asarray(store.node_mask[:, :, column], bool)
-        score, center = _scores(data, mask, rule)
-        active = _supported(score, settings.score_threshold, rule.immediate)
+        score, center = _scores(data, mask, rule, settings.baseline_strategy)
+        active = _supported(score, score_threshold, rule.immediate)
         score = np.where(active, score, 0)
         direct_active |= active
         scored.append((rule, score, center, "node"))
@@ -287,7 +461,7 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
         mask = np.asarray(store.edge_mask[:, :, column], bool)
         absolute = .15 if name.endswith("error_ratio") else .05 if name.endswith("loss_rate") else .15
         rule = _Rule(name, name.split(".")[1], 1, .03 if name.endswith("ratio") else .05, absolute)
-        score, center = _scores(data, mask, rule)
+        score, center = _scores(data, mask, rule, settings.baseline_strategy)
         if settings.request_aware_service:
             requests_column = store.feature_index("edge", f"traffic.{rule.category}.requests_rate")
             if requests_column is None:
@@ -317,7 +491,9 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
         city = _target_city(target)
         if city:
             for start, end, kind, entity in anchors:
-                if kind == "node" and store.nodes[int(entity)].startswith(city + "-"):
+                if (kind == "node" and store.nodes[int(entity)].startswith(city + "-")
+                        and (settings.service_overlap_policy == "city"
+                             or "-service-vm-" in store.nodes[int(entity)])):
                     uncovered[start:end] = False
         anchors.extend((start, end, "edge", target) for start, end in _groups(uncovered, settings) if end - start >= 2)
     anchors.sort(key=lambda item: (item[0], item[1], item[2], str(item[3])))
@@ -345,7 +521,8 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
                 node = store.nodes[int(entity)] if kind == "node" else store.edges[int(entity)]["target"]
                 signals.append(Signal(
                     f"{kind}:{minute}:{int(entity)}:{rule.feature}", minute, node,
-                    rule.feature, rule.category, value, float(center[entity]),
+                    rule.feature, rule.category, value,
+                    float(center[minute, entity] if center.ndim == 2 else center[entity]),
                     float(window[offset, entity]), "direct" if kind == "node" else "symptom",
                 ))
         signals.sort(key=lambda item: (-item.score, item.evidence_id))
@@ -353,6 +530,19 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
             rejected.append({"start_minute": start, "end_minute": end, "reason": "no_valid_signal"})
             continue
         events.append(Event(f"v3-e{len(events) + 1:06d}", start, end, tuple(signals[:settings.max_signals_per_event])))
+    if settings.routing_dimension_detection:
+        dimension_events = _routing_dimension_events(store, settings)
+        for dimension_event in dimension_events:
+            if _dominant_direct_category(dimension_event) != "ospf6_interface_flap":
+                continue
+            node = next(iter(_direct_nodes(dimension_event)))
+            events = [event for event in events if not (
+                _dominant_direct_category(event) == "ospf6_neighbor_down"
+                and _direct_nodes(event) == {node}
+                and event.start_minute == dimension_event.start_minute
+                and event.end_minute == dimension_event.end_minute
+            )]
+        events.extend(dimension_events)
     retained: list[Event] = []
     for event in events:
         monitor = next((item for item in event.signals if item.role == "direct" and item.node.endswith("-monitor-vm")), None)

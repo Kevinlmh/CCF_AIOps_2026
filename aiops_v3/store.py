@@ -55,11 +55,24 @@ class FeatureStore:
         value = float(self.node_values[minute, node, column])
         return value if np.isfinite(value) else None
 
+    def iter_dimension_series(self, *, source: str | None = None,
+                              node_id: str | None = None):
+        """Expose the canonical per-peer/per-interface sidecar to inference."""
+        if "dimension_series_count" not in self.manifest:
+            return iter(())
+        if not hasattr(self, "_canonical_store"):
+            from .data.feature_store import FeatureStore as CanonicalFeatureStore
+            self._canonical_store = CanonicalFeatureStore.open(self.path)
+        return self._canonical_store.iter_dimension_series(source=source, node_id=node_id)
+
 
 def open_store(path: Path) -> FeatureStore:
     path = Path(path)
     try:
         manifest = json.loads((path / "manifest.json").read_text())
+        version = manifest.get("format_version")
+        if version is not None and (type(version) is not int or version not in {1, 2, 3, 4}):
+            raise StoreError(f"unsupported feature store format version: {version}")
         arrays = {
             f"{kind}_{item}": np.load(path / f"{kind}_{item}.npy", mmap_mode="r", allow_pickle=False)
             for kind in ("node", "edge", "log")
@@ -70,6 +83,8 @@ def open_store(path: Path) -> FeatureStore:
             shape = tuple(manifest["shapes"][kind])
             if arrays[f"{kind}_values"].shape != shape or arrays[f"{kind}_mask"].shape != shape:
                 raise StoreError(f"{kind} array shape differs from manifest")
+            if version is not None and (arrays[f"{kind}_values"].dtype != np.float32 or arrays[f"{kind}_mask"].dtype != np.bool_):
+                raise StoreError(f"{kind} array dtype differs from feature-store contract")
             if shape[0] != manifest["minute_count"] or shape[2] != len(manifest["features"][kind]):
                 raise StoreError(f"{kind} manifest shape inconsistent")
         if arrays["node_values"].shape[1] != len(manifest["entities"]["nodes"]):

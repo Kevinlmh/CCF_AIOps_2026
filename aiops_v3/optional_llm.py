@@ -33,7 +33,7 @@ def choose_diagnosis(
 ) -> tuple[Diagnosis, str | None]:
     if response is None:
         return rules, "missing_llm_response"
-    allowed = {"event_id", "evidence_sha256", "root_cause_top5", "fault_category", "evidence_ids", "model"}
+    allowed = {"event_id", "evidence_sha256", "root_cause_top5", "fault_category", "evidence_ids", "model", "prompt_sha256"}
     if not isinstance(response, dict) or not {"event_id", "evidence_sha256", "root_cause_top5", "fault_category", "evidence_ids"} <= set(response) or set(response) - allowed:
         return rules, "invalid_llm_response"
     roots = response["root_cause_top5"]

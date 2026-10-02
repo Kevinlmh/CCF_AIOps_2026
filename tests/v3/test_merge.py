@@ -16,16 +16,31 @@ def record(start, end):
     }
 
 
-def test_merge_namespaces_ids_and_orders_batches(tmp_path):
+def test_merge_numbers_ids_and_preserves_batch_order(tmp_path):
     first = tmp_path / "first.jsonl"
     second = tmp_path / "second.jsonl"
     first.write_text(json.dumps(record("2026-08-19T04:00:00Z", "2026-08-19T04:05:00Z")) + "\n")
     second.write_text(json.dumps(record("2026-09-03T04:00:00Z", "2026-09-03T04:05:00Z")) + "\n")
     output = tmp_path / "combined.jsonl"
-    assert merge_predictions([second, first], output) == 2
+    assert merge_predictions([first, second], output) == 2
     rows = [json.loads(line) for line in output.read_text().splitlines()]
     assert rows[0]["start_time"] < rows[1]["start_time"]
-    assert len({row["prediction_id"] for row in rows}) == 2
+    assert [row["prediction_id"] for row in rows] == ["pred_000001", "pred_000002"]
+    assert rows[0]["start_time"] == "2026-08-19T04:00:00.000+00:00"
+    assert rows[0]["end_time"] == "2026-08-19T04:05:00.000+00:00"
+    assert list(rows[0]) == ["prediction_id", "start_time", "end_time", "root_cause_top5", "fault_category"]
+    assert list(rows[0]["root_cause_top5"][0]) == ["rank", "network_element_id"]
+
+
+def test_merge_keeps_input_batch_sequence_even_with_earlier_second_timestamp(tmp_path):
+    first = tmp_path / "first.jsonl"
+    second = tmp_path / "second.jsonl"
+    first.write_text(json.dumps(record("2026-09-03T04:00:00Z", "2026-09-03T04:05:00Z")) + "\n")
+    second.write_text(json.dumps(record("2026-08-19T04:00:00Z", "2026-08-19T04:05:00Z")) + "\n")
+    output = tmp_path / "combined.jsonl"
+    assert merge_predictions([first, second], output) == 2
+    rows = [json.loads(line) for line in output.read_text().splitlines()]
+    assert rows[0]["start_time"] > rows[1]["start_time"]
 
 
 def test_merge_allows_distinct_concurrent_events(tmp_path):

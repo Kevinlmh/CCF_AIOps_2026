@@ -1,2 +1,0 @@
-id,received_at,event_time,received_at_raw,event_time_raw,source_ip,hostname,region,facility,severity,severity_code,program,pid,message,inserted_at
-1,2026-07-28 12:01:01,2026-07-28 12:01:00,,,fd00::1,BR-1-ccf-aiops-西安,ccf-aiops-西安,daemon,err,3,bgpd,123,BGP peer fd00::2 went Down,2026-07-28 12:01:02

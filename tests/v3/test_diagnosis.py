@@ -6,8 +6,9 @@ import numpy as np
 from aiops_v3.contracts import load_contract
 from aiops_v3.detection import Event, Signal
 from aiops_v3.detection import detect
-from aiops_v3.diagnosis import build_evidence, diagnose_rules
+from aiops_v3.diagnosis import Candidate, EvidencePack, build_evidence, diagnose_rules
 from aiops_v3.store import open_store
+from aiops_v3.data.feature_store import DimensionSeries
 
 
 class TinyStore:
@@ -132,6 +133,86 @@ def test_auxiliary_netflow_log_and_scrape_quality_reach_evidence_pack(tmp_path):
         np.save(tmp_path / f"{kind}_values.npy", values)
         np.save(tmp_path / f"{kind}_mask.npy", mask)
     store = open_store(tmp_path)
-    pack = build_evidence(store, detect(store)[0], load_contract())
+    pack = build_evidence(store, detect(store)[0], load_contract(), include_temporal_context=True)
     assert {"netflow.bytes", "scrape.scrape_up", "frr.bgp.err.count"} <= {signal.feature for signal in pack.signals}
     assert any(signal.role == "quality" for signal in pack.signals)
+    netflow = next(row for row in pack.temporal_context
+                   if row["evidence_id"].endswith(":netflow.bytes"))
+    assert netflow["observed_during"] == 1
+    assert netflow["before_median"] is None
+
+
+def test_bgp_event_includes_peer_prefix_change_as_context_candidate():
+    class RoutingStore(TinyStore):
+        def iter_dimension_series(self, *, source=None, node_id=None):
+            assert source == "routing"
+            timeline = np.arange(20, dtype=np.uint32)
+            yield DimensionSeries("routing", "shanghai-br-2", "routing.bgp_peer_prefix_received",
+                                  (("peer", "peer-1"),), "both", "max", timeline,
+                                  np.array([4] * 5 + [1] * 5 + [4] * 10, np.float32))
+            yield DimensionSeries("routing", "shanghai-br-2", "routing.bgp_peer_up",
+                                  (("peer", "peer-1"),), "low", "min", timeline,
+                                  np.ones(20, np.float32))
+
+    event = Event("v3-e000009", 5, 10, (
+        signal("nanjing-br-2", "bgp_session_down", 8, "routing.bgp_peer_up", "bgp"),
+    ))
+    pack = build_evidence(RoutingStore(), event, load_contract(), include_routing_context=True)
+    assert any(item.node == "shanghai-br-2" and item.reason == "correlated_peer_prefix_change"
+               for item in pack.candidates[:5])
+    assert any(item.node == "shanghai-br-2" and item.role == "auxiliary"
+               and item.feature == "routing.bgp_peer_prefix_received" for item in pack.signals)
+    prefix = next(item for item in pack.signals if item.feature == "routing.bgp_peer_prefix_received")
+    assert (prefix.value, prefix.reference) == (1, 4)
+    assert diagnose_rules(pack, load_contract()).roots[0] == "nanjing-br-2"
+
+
+def test_bgp_context_rejects_prefix_drop_without_peer_status_at_drop():
+    class RoutingStore(TinyStore):
+        def iter_dimension_series(self, *, source=None, node_id=None):
+            timeline = np.arange(20, dtype=np.uint32)
+            yield DimensionSeries("routing", "shanghai-br-2", "routing.bgp_peer_prefix_received",
+                                  (("peer", "peer-1"),), "both", "max", timeline,
+                                  np.array([4] * 5 + [1] + [4] * 14, np.float32))
+            observed = np.delete(timeline, 5)
+            yield DimensionSeries("routing", "shanghai-br-2", "routing.bgp_peer_up",
+                                  (("peer", "peer-1"),), "low", "min", observed,
+                                  np.ones(len(observed), np.float32))
+
+    event = Event("v3-e000009", 5, 10, (
+        signal("nanjing-br-2", "bgp_session_down", 8, "routing.bgp_peer_up", "bgp"),
+    ))
+    pack = build_evidence(RoutingStore(), event, load_contract(), include_routing_context=True)
+    assert not any(item.reason == "correlated_peer_prefix_change" for item in pack.candidates)
+
+
+def test_evidence_pack_contains_observed_before_during_after_values(tmp_path):
+    count = 14
+    manifest = {
+        "start_time": "2026-07-28T12:00:00Z", "minute_count": count,
+        "entities": {"nodes": ["xian-service-vm-1"], "edges": []},
+        "features": {"node": ["node.cpu_usage"], "edge": [], "log": []},
+        "shapes": {"node": [count, 1, 1], "edge": [count, 0, 0], "log": [count, 1, 0]},
+    }
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    for kind, values in (("node", np.array([10] * 5 + [78] * 3 + [10] * 6,
+                                           np.float32)[:, None, None]),
+                         ("edge", np.zeros((count, 0, 0))),
+                         ("log", np.zeros((count, 1, 0)))):
+        np.save(tmp_path / f"{kind}_values.npy", values)
+        np.save(tmp_path / f"{kind}_mask.npy", np.ones_like(values, bool))
+    store = open_store(tmp_path)
+    pack = build_evidence(store, detect(store)[0], load_contract(), include_temporal_context=True)
+    assert len(pack.temporal_context) == 1
+    row = pack.temporal_context[0]
+    assert (row["before_median"], row["during_median"], row["after_median"]) == (10, 78, 10)
+    assert (row["observed_before"], row["observed_during"], row["observed_after"]) == (5, 3, 5)
+
+
+def test_empty_temporal_context_preserves_existing_evidence_hash():
+    pack = EvidencePack(
+        "e1", "2026-09-17T04:00:00Z", "2026-09-17T04:02:00Z",
+        (Signal("s1", 0, "xian-br-1", "node.cpu_usage", "cpu_pressure", 80, 10, 7, "direct"),),
+        (Candidate("xian-br-1", 7, ("s1",), "direct_device_evidence"),),
+    )
+    assert pack.sha256() == "376fa894907e1997631de057b21fe82ea2153e91c2da0f5c5c979ade707e5d56"

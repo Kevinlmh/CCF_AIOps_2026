@@ -1,9 +1,13 @@
 import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import numpy as np
 
 from aiops_v3.detection import DetectorSettings, detect, detect_with_audit
 from aiops_v3.store import open_store
+from aiops_v3.data.feature_store import build_feature_store
+from aiops_v3.data.observations import NumericObservation
 
 
 def fixture_store(tmp_path, cpu, mask=None):
@@ -132,6 +136,17 @@ def test_synchronous_same_cause_nodes_form_one_evidence_rich_event(tmp_path):
     assert audit.merged[0]["final_event_id"] == audit.events[0].event_id
 
 
+def test_cross_city_synchronous_nodes_can_be_kept_separate(tmp_path):
+    values = np.full((20, 2, 1), 10, np.float32)
+    values[5:13, :, 0] = [80, 70]
+    store = multi_node_store(tmp_path, ["xian-service-vm-1", "wuhan-br-1"],
+                             ["node.cpu_usage"], values)
+    assert len(detect(store)) == 1
+    events = detect(store, DetectorSettings(cross_city_merge_policy="same_city"))
+    assert len(events) == 2
+    assert {event.signals[0].node for event in events} == set(store.nodes)
+
+
 def test_synchronous_different_fault_types_stay_separate(tmp_path):
     values = np.zeros((20, 2, 2), np.float32)
     values[:, :, 0] = 10
@@ -234,3 +249,210 @@ def test_sustained_ospf_interface_cost_jump_opens_routing_event(tmp_path):
     events = detect(store)
     assert [(event.start_minute, event.end_minute) for event in events] == [(8, 15)]
     assert events[0].signals[0].category == "ospf6_cost_anomaly"
+
+
+def test_unrelated_router_cpu_does_not_hide_same_city_service_fault(tmp_path):
+    count = 30
+    node = np.full((count, 1, 1), 10, np.float32)
+    node[8:14, 0, 0] = 75
+    edge = np.zeros((count, 1, 1), np.float32)
+    edge[9:14, 0, 0] = .9
+    manifest = {
+        "start_time": "2026-07-28T12:00:00Z", "minute_count": count,
+        "entities": {"nodes": ["beida-br-1"], "edges": [
+            {"source": "xian-traffic-vm", "target": "service-group:beida:dns", "relation": "traffic"}]},
+        "features": {"node": ["node.cpu_usage"], "edge": ["traffic.dns.error_ratio"], "log": []},
+        "shapes": {"node": list(node.shape), "edge": list(edge.shape), "log": [count, 1, 0]},
+    }
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    for kind, values in (("node", node), ("edge", edge), ("log", np.zeros((count, 1, 0)))):
+        np.save(tmp_path / f"{kind}_values.npy", values)
+        np.save(tmp_path / f"{kind}_mask.npy", np.ones_like(values, bool))
+    result = detect_with_audit(open_store(tmp_path), DetectorSettings(service_overlap_policy="related_device"))
+    assert len(result.events) == 2
+    assert {signal.category for event in result.events for signal in event.signals} >= {"cpu_pressure", "dns"}
+
+
+def test_healthy_tail_baseline_recovers_long_fault_hidden_by_global_median(tmp_path):
+    store = fixture_store(tmp_path, [10] * 30 + [75] * 40)
+    assert detect(store) == []
+    events = detect(store, DetectorSettings(baseline_strategy="healthy_tail"))
+    assert [(event.start_minute, event.end_minute) for event in events] == [(30, 60), (60, 70)]
+
+
+def test_rolling_healthy_tail_uses_prior_observations_for_long_fault(tmp_path):
+    store = fixture_store(tmp_path, [10] * 30 + [75] * 40)
+    events = detect(store, DetectorSettings(baseline_strategy="rolling_healthy_tail"))
+    assert [(event.start_minute, event.end_minute) for event in events] == [(30, 60), (60, 70)]
+    assert all(signal.reference == 10 for event in events for signal in event.signals)
+
+
+def test_rolling_healthy_tail_needs_prior_observations(tmp_path):
+    store = fixture_store(tmp_path, [75] * 10 + [10] * 60)
+    assert detect(store, DetectorSettings(baseline_strategy="rolling_healthy_tail")) == []
+
+
+def test_stable_bgp_peer_with_correlated_route_loss_opens_filter_candidate(tmp_path):
+    t0 = datetime(2026, 9, 17, 4, tzinfo=timezone.utc)
+    rows = []
+    for minute in range(20):
+        for metric, value, dimensions, direction in (
+            ("routing.bgp_peer_prefix_received", 1 if 6 <= minute < 11 else 4,
+             (("peer", "p1"),), "both"),
+            ("routing.bgp_peer_up", 1, (("peer", "p1"),), "low"),
+            ("routing.ipv6_route_count", 12 if 6 <= minute < 11 else 15,
+             (("protocol", "all"),), "both"),
+        ):
+            rows.append(NumericObservation(t0 + timedelta(minutes=minute), "routing", "xian-br-1",
+                                           (), metric, value, dimensions, direction))
+    network = json.loads((Path(__file__).parents[2] / "aiops_v3/config/network_elements.json").read_text())
+    store = open_store(build_feature_store(rows, network, tmp_path / "canonical").path)
+    assert detect(store) == []
+    events = detect(store, DetectorSettings(routing_dimension_detection=True))
+    assert [(event.start_minute, event.end_minute) for event in events] == [(6, 11)]
+    assert {signal.category for signal in events[0].signals} == {"bgp_route_filter"}
+    assert {signal.feature for signal in events[0].signals} == {
+        "routing.bgp_peer_prefix_received", "routing.ipv6_route_count"}
+
+
+def test_routing_gap_never_emits_nan_dimension_signal(tmp_path):
+    t0 = datetime(2026, 9, 17, 4, tzinfo=timezone.utc)
+    rows = []
+    for minute in range(20):
+        metrics = [
+            ("routing.bgp_peer_up", 1, (("peer", "p1"),), "low"),
+            ("routing.ipv6_route_count", 12 if 6 <= minute < 11 else 15,
+             (("protocol", "all"),), "both"),
+        ]
+        if minute != 8:
+            metrics.append(("routing.bgp_peer_prefix_received", 1 if 6 <= minute < 11 else 4,
+                            (("peer", "p1"),), "both"))
+        for metric, value, dimensions, direction in metrics:
+            rows.append(NumericObservation(t0 + timedelta(minutes=minute), "routing", "xian-br-1",
+                                           (), metric, value, dimensions, direction))
+    network = json.loads((Path(__file__).parents[2] / "aiops_v3/config/network_elements.json").read_text())
+    store = open_store(build_feature_store(rows, network, tmp_path / "canonical").path)
+    events = detect(store, DetectorSettings(routing_dimension_detection=True))
+    assert [(event.start_minute, event.end_minute) for event in events] == [(6, 11)]
+    assert all(np.isfinite(signal.value) and np.isfinite(signal.reference)
+               for event in events for signal in event.signals)
+
+
+def test_two_affected_peers_on_one_router_form_one_filter_event(tmp_path):
+    t0 = datetime(2026, 9, 17, 4, tzinfo=timezone.utc)
+    rows = []
+    for minute in range(20):
+        for peer in ("p1", "p2"):
+            for metric, value, direction in (
+                ("routing.bgp_peer_prefix_received", 1 if 6 <= minute < 11 else 4, "both"),
+                ("routing.bgp_peer_up", 1, "low"),
+            ):
+                rows.append(NumericObservation(t0 + timedelta(minutes=minute), "routing", "xian-br-1",
+                                               (), metric, value, (("peer", peer),), direction))
+        rows.append(NumericObservation(t0 + timedelta(minutes=minute), "routing", "xian-br-1",
+                                       (), "routing.ipv6_route_count", 12 if 6 <= minute < 11 else 15,
+                                       (("protocol", "all"),), "both"))
+    network = json.loads((Path(__file__).parents[2] / "aiops_v3/config/network_elements.json").read_text())
+    store = open_store(build_feature_store(rows, network, tmp_path / "canonical").path)
+    events = detect(store, DetectorSettings(routing_dimension_detection=True))
+    assert len(events) == 1
+    assert sum(s.feature == "routing.bgp_peer_prefix_received" for s in events[0].signals) == 2
+
+
+def test_unrelated_down_peer_does_not_hide_stable_peer_route_loss(tmp_path):
+    t0 = datetime(2026, 9, 17, 4, tzinfo=timezone.utc)
+    rows = []
+    for minute in range(20):
+        for metric, value, dimensions, direction in (
+            ("routing.bgp_peer_prefix_received", 1 if 6 <= minute < 11 else 4,
+             (("peer", "p1"),), "both"),
+            ("routing.bgp_peer_up", 1, (("peer", "p1"),), "low"),
+            ("routing.bgp_peer_up", 0 if 6 <= minute < 11 else 1,
+             (("peer", "p2"),), "low"),
+            ("routing.ipv6_route_count", 12 if 6 <= minute < 11 else 15,
+             (("protocol", "all"),), "both"),
+        ):
+            rows.append(NumericObservation(t0 + timedelta(minutes=minute), "routing", "xian-br-1",
+                                           (), metric, value, dimensions, direction))
+    network = json.loads((Path(__file__).parents[2] / "aiops_v3/config/network_elements.json").read_text())
+    store = open_store(build_feature_store(rows, network, tmp_path / "canonical").path)
+    events = detect(store, DetectorSettings(routing_dimension_detection=True))
+    assert any(signal.category == "bgp_route_filter"
+               for event in events for signal in event.signals)
+
+
+def test_ospf_interface_state_flap_with_neighbor_loss_has_one_specific_event(tmp_path):
+    t0 = datetime(2026, 9, 17, 4, tzinfo=timezone.utc)
+    rows = []
+    for minute in range(20):
+        for metric, value, dimensions, direction in (
+            ("routing.ospf6_interface_enabled", 0 if 6 <= minute < 9 else 1,
+             (("interface", "ens5"),), "low"),
+            ("routing.ospf6_neighbor_state_code", 1 if 6 <= minute < 9 else 6,
+             (("interface", "ens5"), ("neighbor_id", "n1")), "low"),
+        ):
+            rows.append(NumericObservation(t0 + timedelta(minutes=minute), "routing", "xian-cr-1",
+                                           (), metric, value, dimensions, direction))
+    network = json.loads((Path(__file__).parents[2] / "aiops_v3/config/network_elements.json").read_text())
+    store = open_store(build_feature_store(rows, network, tmp_path / "canonical").path)
+    events = detect(store, DetectorSettings(routing_dimension_detection=True))
+    assert len(events) == 1
+    assert (events[0].start_minute, events[0].end_minute) == (6, 9)
+    assert {signal.category for signal in events[0].signals} == {"ospf6_interface_flap"}
+
+
+def test_ospf_interface_flap_requires_neighbor_transition(tmp_path):
+    t0 = datetime(2026, 9, 17, 4, tzinfo=timezone.utc)
+    rows = []
+    for minute in range(20):
+        for metric, value, dimensions in (
+            ("routing.ospf6_interface_enabled", 0 if 6 <= minute < 9 else 1,
+             (("interface", "ens5"),)),
+            ("routing.ospf6_neighbor_state_code", 1,
+             (("interface", "ens5"), ("neighbor_id", "n1"))),
+        ):
+            rows.append(NumericObservation(t0 + timedelta(minutes=minute), "routing", "xian-cr-1",
+                                           (), metric, value, dimensions, "low"))
+    network = json.loads((Path(__file__).parents[2] / "aiops_v3/config/network_elements.json").read_text())
+    store = open_store(build_feature_store(rows, network, tmp_path / "canonical").path)
+    assert detect(store, DetectorSettings(routing_dimension_detection=True)) == []
+
+
+def test_stable_peer_prefix_loss_with_route_change_counter_is_candidate(tmp_path):
+    t0 = datetime(2026, 9, 17, 4, tzinfo=timezone.utc)
+    rows = []
+    for minute in range(20):
+        for metric, value, dimensions, direction in (
+            ("routing.bgp_peer_prefix_received", 1 if 6 <= minute < 11 else 4,
+             (("peer", "p1"),), "both"),
+            ("routing.bgp_peer_up", 1, (("peer", "p1"),), "low"),
+            ("routing.ipv6_route_change_total", 1 if minute >= 6 else 0,
+             (("prefix", "fd00:1::/64"),), "both"),
+        ):
+            rows.append(NumericObservation(t0 + timedelta(minutes=minute), "routing", "xian-br-1",
+                                           (), metric, value, dimensions, direction))
+    network = json.loads((Path(__file__).parents[2] / "aiops_v3/config/network_elements.json").read_text())
+    store = open_store(build_feature_store(rows, network, tmp_path / "canonical").path)
+    events = detect(store, DetectorSettings(routing_dimension_detection=True))
+    assert [(e.start_minute, e.end_minute) for e in events] == [(6, 11)]
+    assert {s.feature for s in events[0].signals} == {
+        "routing.bgp_peer_prefix_received", "routing.ipv6_route_change_total"}
+
+
+def test_route_change_support_at_first_window_is_not_lost(tmp_path):
+    t0 = datetime(2026, 9, 17, 4, tzinfo=timezone.utc)
+    rows = []
+    for minute in range(20):
+        for metric, value, dimensions, direction in (
+            ("routing.bgp_peer_prefix_received", 1 if minute < 5 else 4,
+             (("peer", "p1"),), "both"),
+            ("routing.bgp_peer_up", 1, (("peer", "p1"),), "low"),
+            ("routing.ipv6_route_change_total", 1 if minute >= 1 else 0,
+             (("prefix", "fd00:1::/64"),), "both"),
+        ):
+            rows.append(NumericObservation(t0 + timedelta(minutes=minute), "routing", "xian-br-1",
+                                           (), metric, value, dimensions, direction))
+    network = json.loads((Path(__file__).parents[2] / "aiops_v3/config/network_elements.json").read_text())
+    store = open_store(build_feature_store(rows, network, tmp_path / "canonical").path)
+    events = detect(store, DetectorSettings(routing_dimension_detection=True))
+    assert [(e.start_minute, e.end_minute) for e in events] == [(0, 5)]

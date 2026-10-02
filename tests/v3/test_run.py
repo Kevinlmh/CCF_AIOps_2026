@@ -36,13 +36,29 @@ def test_rules_run_writes_official_prediction_and_evidence(tmp_path):
     validate_prediction(prediction, load_contract())
     assert summary.event_count == 1
     assert prediction["root_cause_top5"][0]["network_element_id"] == "xian-service-vm-1"
-    assert json.loads((tmp_path / "rules" / "evidence.jsonl").read_text())["event_id"] == prediction["prediction_id"]
+    evidence_row = json.loads((tmp_path / "rules" / "evidence.jsonl").read_text())
+    assert evidence_row["event_id"] == prediction["prediction_id"]
+    assert "temporal_context" not in evidence_row
     manifest = json.loads((tmp_path / "rules" / "run_manifest.json").read_text())
     assert len(manifest["input_array_sha256"]) == 6
+    assert "data/build.py" in manifest["code_sha256"]
     assert set(manifest["output_sha256"]) == {"predictions.jsonl", "evidence.jsonl", "audit.jsonl"}
     audit = json.loads((tmp_path / "rules" / "audit.jsonl").read_text())
     assert audit["evidence_tier"] == "single_metric_direct"
     assert audit["root_has_direct_evidence"] is True
+
+
+def test_run_manifest_tracks_dimension_sidecars(tmp_path):
+    source = store_with_fault(tmp_path / "store")
+    (source / "dimension_series.json").write_text("[]")
+    np.save(source / "dimension_cells.npy", np.zeros(1, np.float32))
+    run(source, tmp_path / "first")
+    first = json.loads((tmp_path / "first" / "run_manifest.json").read_text())
+    assert set(first["input_sidecar_sha256"]) == {"dimension_series.json", "dimension_cells.npy"}
+    (source / "dimension_series.json").write_text("[1]")
+    run(source, tmp_path / "second")
+    second = json.loads((tmp_path / "second" / "run_manifest.json").read_text())
+    assert first["input_sidecar_sha256"]["dimension_series.json"] != second["input_sidecar_sha256"]["dimension_series.json"]
 
 
 def test_invalid_server_diagnosis_falls_back_per_event(tmp_path):
@@ -131,3 +147,17 @@ def test_request_aware_run_rejects_service_spike_without_request_support(tmp_pat
     assert run(source, tmp_path / "aware", request_aware_service=True).event_count == 0
     recorded = json.loads((tmp_path / "aware" / "run_manifest.json").read_text())
     assert recorded["detector_settings"]["request_aware_service"] is True
+
+
+def test_run_records_experimental_baseline_and_overlap_policy(tmp_path):
+    source = store_with_fault(tmp_path / "store")
+    run(source, tmp_path / "experiment", baseline_strategy="healthy_tail",
+        service_overlap_policy="related_device", routing_context_candidates=True,
+        temporal_context=True, routing_dimension_detection=True)
+    manifest = json.loads((tmp_path / "experiment" / "run_manifest.json").read_text())
+    assert manifest["detector_settings"]["baseline_strategy"] == "healthy_tail"
+    assert manifest["detector_settings"]["service_overlap_policy"] == "related_device"
+    assert manifest["routing_context_candidates"] is True
+    assert manifest["temporal_context"] is True
+    assert manifest["detector_settings"]["routing_dimension_detection"] is True
+    assert json.loads((tmp_path / "experiment" / "evidence.jsonl").read_text())["temporal_context"]

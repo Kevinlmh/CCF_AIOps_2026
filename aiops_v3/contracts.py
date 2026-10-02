@@ -31,7 +31,7 @@ def load_contract() -> OfficialContract:
         (entry["major_category"], entry["sub_category"])
         for entry in taxonomy["fault_categories"]
     )
-    if len(nodes) != 80 or len(categories) != 28:
+    if len(nodes) != 80 or len(categories) != 32:
         raise ContractError("official configuration has wrong cardinality")
     return OfficialContract(nodes, categories)
 

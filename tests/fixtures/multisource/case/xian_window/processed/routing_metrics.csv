@@ -1,4 +1,0 @@
-timestamp,region,node,node_type,metric_name,label,value
-2026-07-28 12:00:00,ccf-aiops-西安,br-1,br,bgp_peer_up,"peer=""fd00::1"",afi=""ipv6""",1
-2026-07-28 12:01:00,ccf-aiops-西安,br-1,br,bgp_peer_up,"peer=""fd00::1"",afi=""ipv6""",0
-2026-07-28 12:01:00,ccf-aiops-西安,cr-1,cr,bgp_peer_up,,

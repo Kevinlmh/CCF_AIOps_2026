@@ -1,4 +1,0 @@
-minute_utc,region_code,region,node_key,node,node_type,interface_id,if_role,collector_port,protocol,src_addr,src_port,dst_addr,dst_port,packets,bytes,flow_record_count,first_seen,last_seen
-2026-07-28 12:00:00,xian,ccf-aiops-西安,br1,BR-1-ccf-aiops-西安,BR,ens4,uplink,2059,6,fd00::10,50000,fd00::11,80,10,100,1,2026-07-28 12:00:01,2026-07-28 12:00:20
-2026-07-28 12:01:00,xian,ccf-aiops-西安,br1,BR-1-ccf-aiops-西安,BR,ens4,uplink,2059,6,fd00::13,50002,fd00::14,443,5,50,1,2026-07-28 12:01:05,2026-07-28 12:01:30
-2026-07-28 12:00:00,xian,ccf-aiops-西安,br1,BR-1-ccf-aiops-西安,BR,ens4,uplink,2059,6,fd00::12,50001,fd00::11,80,20,200,1,2026-07-28 12:00:05,2026-07-28 12:00:50

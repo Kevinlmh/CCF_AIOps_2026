@@ -1,3 +1,0 @@
-timestamp,region,target_id,node,exporter_type,scrape_up,scrape_duration_seconds,scrape_samples,scrape_error
-2026-07-28 12:00:00,ccf-aiops-西安,[fd00::1]:9100,service-vm-1,node_exporter,1,0.02,1000,NULL
-2026-07-28 12:01:00,ccf-aiops-西安,[fd00::1]:9100,service-vm-1,node_exporter,0,1.00,0,timeout
