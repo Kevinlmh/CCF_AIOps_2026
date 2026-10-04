@@ -28,11 +28,14 @@ class EvidencePack:
     signals: tuple[Signal, ...]
     candidates: tuple[Candidate, ...]
     temporal_context: tuple[dict, ...] = ()
+    traffic_observations: tuple[dict, ...] = ()
 
     def sha256(self) -> str:
         fields = asdict(self)
         if not self.temporal_context:
             fields.pop("temporal_context")
+        if not self.traffic_observations:
+            fields.pop("traffic_observations")
         payload = json.dumps(fields, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -140,6 +143,7 @@ def build_evidence(
     direct: dict[str, list[Signal]] = {}
     symptom_cities: set[str] = set()
     probe_evidence: dict[str, set[str]] = {}
+    traffic_observations: dict[str, dict] = {}
     for signal in event.signals:
         if signal.role == "direct" and signal.node in contract.nodes:
             direct.setdefault(signal.node, []).append(signal)
@@ -155,6 +159,11 @@ def build_evidence(
                         edge = store.edges[index]
                         if edge.get("relation") == "traffic" and edge.get("target") == signal.node:
                             probe_evidence.setdefault(edge["source"], set()).add(signal.evidence_id)
+                            traffic_observations[signal.evidence_id] = {
+                                "evidence_id": signal.evidence_id,
+                                "observer": edge["source"],
+                                "target": edge["target"],
+                            }
     prefix_context = (_peer_prefix_context(store, event, contract.nodes)
                       if include_routing_context else {})
     for context_signals in prefix_context.values():
@@ -242,6 +251,7 @@ def build_evidence(
         tuple(signals),
         tuple(candidates),
         _temporal_context(store, event, signals) if include_temporal_context else (),
+        tuple(traffic_observations[key] for key in sorted(traffic_observations)),
     )
 
 
@@ -282,6 +292,8 @@ def _category(signals: list[Signal], root: str, contract: OfficialContract) -> t
             pair = ("service", "web_slow" if "latency" in feature else "web_5xx")
         elif "traffic.auth." in feature:
             pair = ("service", "auth_timeout" if "latency" in feature else "auth_error")
+        elif feature == "traffic.elephant.loss_rate":
+            pair = ("link", "loss")
         else:
             continue
         if pair in contract.categories:

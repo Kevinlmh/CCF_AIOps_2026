@@ -24,6 +24,7 @@ def _pack(record: dict) -> EvidencePack:
         tuple(Candidate(row["node"], row["score"], tuple(row["evidence_ids"]), row["reason"])
               for row in record["candidates"]),
         tuple(record.get("temporal_context", ())),
+        tuple(record.get("traffic_observations", ())),
     )
 
 
@@ -61,6 +62,7 @@ def _request_payload(pack: EvidencePack, model: str, contract) -> dict:
         "signals": [asdict(item) for item in pack.signals],
         "candidates": [asdict(item) for item in pack.candidates],
         "temporal_context": pack.temporal_context,
+        "traffic_observations": pack.traffic_observations,
         "allowed_categories": category_pairs,
         "rule_baseline": {"root_cause_top5": rules.roots, "fault_category": rules.category},
     }
@@ -70,7 +72,8 @@ def _request_payload(pack: EvidencePack, model: str, contract) -> dict:
             {"role": "system", "content": (
                 "Diagnose one network incident from observed evidence only. Rank five distinct nodes "
                 "from candidates and choose one allowed major/sub category pair. Use temporal order and "
-                "direct evidence before auxiliary context. Unknown mappings are not proof. If evidence "
+                "direct evidence before auxiliary context. A traffic observer is a measurement source, "
+                "not proof of a faulty root. Unknown mappings are not proof. If evidence "
                 "cannot justify a change, keep the rule baseline. Cite existing evidence_ids. Return JSON only."
             )},
             {"role": "user", "content": json.dumps(material, ensure_ascii=False, allow_nan=False)},

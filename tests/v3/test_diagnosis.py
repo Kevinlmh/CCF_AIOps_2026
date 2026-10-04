@@ -99,6 +99,25 @@ def test_single_probe_service_symptom_keeps_observer_in_root_candidates():
     assert len({item.node for item in pack.candidates}) == len(pack.candidates)
 
 
+def test_traffic_symptom_exposes_observer_without_changing_rule_top5():
+    class TrafficStore(TinyStore):
+        edges = [{"source": "xian-traffic-vm", "target": "service-group:beida:dns", "relation": "traffic"}]
+
+    event = Event("v3-e000010", 5, 8, (
+        Signal("edge:5:0:traffic.dns.error_ratio", 5, "service-group:beida:dns",
+               "traffic.dns.error_ratio", "dns", 1, 0, 8, "symptom"),
+    ))
+    pack = build_evidence(TrafficStore(), event, load_contract())
+    assert pack.traffic_observations == ({
+        "evidence_id": "edge:5:0:traffic.dns.error_ratio",
+        "observer": "xian-traffic-vm",
+        "target": "service-group:beida:dns",
+    },)
+    assert diagnose_rules(pack, load_contract()).roots[:3] == (
+        "beida-service-vm-1", "beida-service-vm-2", "beida-service-vm-3")
+    assert "xian-traffic-vm" not in diagnose_rules(pack, load_contract()).roots
+
+
 def test_ospf_cost_evidence_maps_to_official_routing_category():
     event = Event("v3-e000008", 5, 12, (
         signal("guangzhou-cr-1", "ospf6_cost_anomaly", 10, "routing.ospf6_interface_cost", "cost"),
@@ -107,6 +126,16 @@ def test_ospf_cost_evidence_maps_to_official_routing_category():
     diagnosis = diagnose_rules(pack, load_contract())
     assert diagnosis.roots[0] == "guangzhou-cr-1"
     assert diagnosis.category == ("routing", "ospf6_cost_anomaly")
+
+
+def test_elephant_loss_symptom_maps_to_link_loss_instead_of_cpu_fallback():
+    event = Event("v3-e000012", 5, 9, (
+        Signal("edge:6:0:traffic.elephant.loss_rate", 6,
+               "service-group:beida:elephant", "traffic.elephant.loss_rate",
+               "elephant", .3, .01, 9, "symptom"),
+    ))
+    pack = build_evidence(TinyStore(), event, load_contract())
+    assert diagnose_rules(pack, load_contract()).category == ("link", "loss")
 
 
 def test_auxiliary_netflow_log_and_scrape_quality_reach_evidence_pack(tmp_path):

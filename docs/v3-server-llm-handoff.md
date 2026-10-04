@@ -6,6 +6,8 @@ LLM 只处理 Mac 端已经检出的事件。它可以在证据包的合法候�
 
 `outputs/v3/server_bundle_20261002/` 已包含本轮源码、两批**原保守版**的 `evidence.jsonl`、`predictions.jsonl`、运行清单和 `SHA256SUMS`。它是独立快照，约 1.5 MB，不包含原始 CSV、模型权重或 `submit.py` 凭据。第一、第二批事件 ID 均从 1 开始，响应文件必须分开。
 
+2026-10-03 的新推理结果位于 `outputs/v3/stage{1,2}_finalaudit_20261003/`。新证据包显式列出业务探针的观测者和服务组目标，服务器提示词也明确观测者不是已证实根因。上述旧 bundle 仍是旧版自洽快照；若使用新证据，请把当前 `aiops_v3/` 源码、`pyproject.toml` 与新 `evidence.jsonl` 一起交给服务器，重新生成响应。旧响应和新证据或新提示词的哈希不能混用。
+
 在 Mac 项目根目录同步；将 `USER@SERVER` 改为实际 SSH 地址：
 
 ```bash

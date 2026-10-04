@@ -6,9 +6,11 @@ v3 从两批特征库读取多源观测，完成故障事件检测、根因 Top-
 
 ## 当前结果
 
-根目录 `result.jsonl` 是两批路由上下文实验版，397 条；原保守版保存在 `outputs/v3/stage1_stage2_canonical_conservative_20261001.jsonl`，也是 397 条。两版官网反馈均为 **22.78450382836741**。实验版只改变 28 条事件的根因 Top-5 后续名次，事件时间、Top-1 和故障类别不变。
+根目录 `result.jsonl` 当前为两批合并的 **395 条** BGP 双端合并版，官网反馈 **22.789581578083233/60**。此前 397 条路由上下文版保存在 `outputs/v3/stage1_stage2_routing_experimental_20261002.jsonl`，得分 22.78450382836741；原保守版 `outputs/v3/stage1_stage2_canonical_conservative_20261001.jsonl` 同为 397 条及 22.78450382836741。新版本仅合并第一批两组同窗 BGP 事件，第二批保持 76 条。
 
-`outputs/v3/` 保留了这两份已评分合并文件、两批各自的预测/证据/审计、公开样例评测，以及可选服务器交接包。中间消融实验和旧版产物已清理。
+`outputs/v3/` 保留了已评分合并文件、两批各自的预测/证据/审计、公开样例评测，以及可选服务器交接包。
+
+[第二批覆盖审查与 BGP 双端合并实验](docs/v3-stage2-coverage-and-bgp-ablation-2026-10-03.md)记录了 395 条版本的单变量差异、官方反馈及第二批短 CPU 事件的离线消融。
 
 ## 安装与验证
 
@@ -21,14 +23,15 @@ python -m pytest -q
 
 ## 从现有特征库重新推理
 
-两批特征库分别位于 `data/feature_store/v3/stage1_canonical_20260930` 和 `data/feature_store/v3/stage2_canonical_20261001`。下面的命令复现当前路由上下文实验配置，输出到**新目录**；运行器不会覆盖已有目录或根目录 `result.jsonl`。
+两批特征库分别位于 `data/feature_store/v3/stage1_canonical_20260930` 和 `data/feature_store/v3/stage2_canonical_20261001`。下面的命令复现当前已评分 395 条配置，输出到**新目录**；运行器不会覆盖已有目录或根目录 `result.jsonl`。
 
 ```bash
 python -m aiops_v3.run \
   --input-store data/feature_store/v3/stage1_canonical_20260930 \
   --output-dir outputs/v3/rebuild_stage1 \
   --detector-profile conservative \
-  --routing-dimension-detection --routing-context-candidates --temporal-context
+  --routing-dimension-detection --routing-context-candidates --temporal-context \
+  --exact-bgp-session-merge
 
 python -m aiops_v3.run \
   --input-store data/feature_store/v3/stage2_canonical_20261001 \
@@ -40,9 +43,17 @@ python -m aiops_v3.merge \
   --input outputs/v3/rebuild_stage1/predictions.jsonl \
   --input outputs/v3/rebuild_stage2/predictions.jsonl \
   --output outputs/v3/rebuild_combined.jsonl
+
+python -m aiops_v3.prediction_audit \
+  --stage1-run outputs/v3/rebuild_stage1 \
+  --stage2-run outputs/v3/rebuild_stage2 \
+  --merged outputs/v3/rebuild_combined.jsonl \
+  --report outputs/v3/rebuild_audit.json
 ```
 
-只复现原保守版时，分别去掉三个路由/时序开关，再合并。每次运行产生 `predictions.jsonl`、`evidence.jsonl`、`audit.jsonl` 和包含输入、代码及输出哈希的 `run_manifest.json`。`merge` 会校验官方格式并重新编号预测 ID。
+复现此前 397 条路由上下文版时，仅去掉第一批的 `--exact-bgp-session-merge`；复现原保守版时，分别去掉三个路由/时序开关和该 BGP 合并开关，再合并。每次运行产生 `predictions.jsonl`、`evidence.jsonl`、`audit.jsonl` 和包含输入、代码及输出哈希的 `run_manifest.json`。`merge` 会校验官方格式并重新编号预测 ID。
+
+`prediction_audit` 核对两批输入、代码和输出哈希，逐行验证预测与证据、审计的对应关系，并重演合并结果；同类重叠事件只列为复核线索，不自动删除。完整审查结论见 [两批复跑审计](docs/v3-two-batch-audit-2026-10-03.md)。
 
 第二批原始 CSV 尚在本机时，可用 `python -m aiops_v3.build_features --raw-root data/stage2/regions --profile stage2 --preflight-only` 预检。重建特征库的完整参数见 `python -m aiops_v3.build_features --help`；目标目录必须不存在。
 

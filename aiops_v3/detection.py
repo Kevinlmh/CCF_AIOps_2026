@@ -28,6 +28,7 @@ class DetectorSettings:
     baseline_strategy: str = "global_median"
     routing_dimension_detection: bool = False
     cross_city_merge_policy: str = "correlated"
+    exact_bgp_session_merge: bool = False
     rule_overrides: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
@@ -384,6 +385,7 @@ def _consolidate(store: FeatureStore, events: list[Event], settings: DetectorSet
     for event in stitched:
         category = _dominant_direct_category(event)
         target = None
+        target_reason = "synchronous_same_category"
         if category:
             for previous in reversed(consolidated):
                 if event.start_minute - previous.start_minute > settings.coincident_onset_minutes:
@@ -397,19 +399,32 @@ def _consolidate(store: FeatureStore, events: list[Event], settings: DetectorSet
                 overlap = min(previous.end_minute, event.end_minute) - max(previous.start_minute, event.start_minute)
                 shorter = min(previous.end_minute - previous.start_minute, event.end_minute - event.start_minute)
                 span = max(previous.end_minute, event.end_minute) - min(previous.start_minute, event.start_minute)
+                exact_bgp = (
+                    settings.exact_bgp_session_merge
+                    and category == "bgp_session_down"
+                    and (previous.start_minute, previous.end_minute)
+                    == (event.start_minute, event.end_minute)
+                    and len(_direct_nodes(previous)) == len(_direct_nodes(event)) == 1
+                    and all(signal.feature == "routing.bgp_peer_up"
+                            for member in (previous, event)
+                            for signal in member.signals if signal.role == "direct")
+                )
                 if (overlap >= shorter * settings.coincident_overlap_fraction
                         and span <= settings.max_event_minutes
-                        and keeps_matchable_windows(previous, event)
-                        and _trajectory_agrees(store, previous, event, settings)):
-                    target = previous
-                    break
+                        and keeps_matchable_windows(previous, event)):
+                    trajectory_agrees = _trajectory_agrees(store, previous, event, settings)
+                    if trajectory_agrees or exact_bgp:
+                        target = previous
+                        if exact_bgp and not trajectory_agrees:
+                            target_reason = "same_window_bgp_peer"
+                        break
         if target is None:
             consolidated.append(event)
         else:
             consolidated[consolidated.index(target)] = _joined(target, event, settings)
             components[target.event_id].extend(components[event.event_id])
             lineage[target.event_id].extend(lineage[event.event_id])
-            merged.append({"reason": "synchronous_same_category", "source_event_ids": [target.event_id, event.event_id]})
+            merged.append({"reason": target_reason, "source_event_ids": [target.event_id, event.event_id]})
     consolidated.sort(key=lambda event: (event.start_minute, event.end_minute, event.event_id))
     source_to_final = {
         source: f"v3-e{index:06d}"

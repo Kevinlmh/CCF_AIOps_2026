@@ -82,6 +82,7 @@ def run(
     routing_dimension_detection: bool = False,
     cross_city_merge_policy: str = "correlated",
     calibration_profile: Path | None = None,
+    exact_bgp_session_merge: bool = False,
 ) -> RunSummary:
     if mode not in {"rules", "llm-jsonl"}:
         raise ValueError(f"unknown diagnosis mode: {mode}")
@@ -110,6 +111,7 @@ def run(
                                  service_overlap_policy=service_overlap_policy,
                                  routing_dimension_detection=routing_dimension_detection,
                                  cross_city_merge_policy=cross_city_merge_policy,
+                                 exact_bgp_session_merge=exact_bgp_session_merge,
                                  rule_overrides=rule_overrides)
                 if detector_profile == "conservative"
                 else DetectorSettings(request_aware_service=request_aware_service,
@@ -117,6 +119,7 @@ def run(
                                       service_overlap_policy=service_overlap_policy,
                                       routing_dimension_detection=routing_dimension_detection,
                                       cross_city_merge_policy=cross_city_merge_policy,
+                                      exact_bgp_session_merge=exact_bgp_session_merge,
                                       rule_overrides=rule_overrides))
     detection = detect_with_audit(store, settings)
     responses = load_diagnoses(llm_responses) if mode == "llm-jsonl" else {}
@@ -139,6 +142,8 @@ def run(
         evidence_record = asdict(pack)
         if not pack.temporal_context:
             evidence_record.pop("temporal_context")
+        if not pack.traffic_observations:
+            evidence_record.pop("traffic_observations")
         evidence.append({**evidence_record, "evidence_sha256": pack.sha256()})
         audit.append({
             "event_id": event.event_id,
@@ -218,6 +223,7 @@ def main() -> None:
     parser.add_argument("--routing-dimension-detection", action="store_true")
     parser.add_argument("--cross-city-merge-policy", choices=("correlated", "same_city"),
                         default="correlated")
+    parser.add_argument("--exact-bgp-session-merge", action="store_true")
     parser.add_argument("--llm-responses", type=Path)
     parser.add_argument("--calibration-profile", type=Path)
     args = parser.parse_args()
@@ -230,7 +236,8 @@ def main() -> None:
                   args.source_aware_candidates, args.baseline_strategy,
                   args.service_overlap_policy, args.routing_context_candidates,
                   args.temporal_context, args.routing_dimension_detection,
-                  args.cross_city_merge_policy, args.calibration_profile)
+                  args.cross_city_merge_policy, args.calibration_profile,
+                  args.exact_bgp_session_merge)
     print(json.dumps(asdict(summary), default=str))
 
 

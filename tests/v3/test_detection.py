@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from aiops_v3.detection import DetectorSettings, detect, detect_with_audit
+from aiops_v3.detection import DetectorSettings, Event, Signal, _consolidate, detect, detect_with_audit
 from aiops_v3.store import open_store
 from aiops_v3.data.feature_store import build_feature_store
 from aiops_v3.data.observations import NumericObservation
@@ -170,6 +170,31 @@ def test_mirrored_bgp_flaps_stitch_into_one_incident(tmp_path):
     assert len(events) == 1
     assert (events[0].start_minute, events[0].end_minute) == (5, 12)
     assert {signal.node for signal in events[0].signals} == set(store.nodes)
+
+
+def test_exact_bgp_session_merge_is_opt_in_and_keeps_both_endpoints(monkeypatch):
+    monkeypatch.setattr("aiops_v3.detection._trajectory_agrees", lambda *args: False)
+    first = Event("first", 5, 12, (
+        Signal("a", 5, "shenyang-br-2", "routing.bgp_peer_up",
+               "bgp_session_down", 0, 1, 5, "direct"),
+    ))
+    second = Event("second", 5, 12, (
+        Signal("b", 5, "shanghai-br-2", "routing.bgp_peer_up",
+               "bgp_session_down", 0, 1, 5, "direct"),
+    ))
+    assert len(_consolidate(object(), [first, second], DetectorSettings())[0]) == 2
+    events, merged = _consolidate(
+        object(), [first, second], DetectorSettings(exact_bgp_session_merge=True)
+    )
+    assert len(events) == 1
+    assert {signal.node for signal in events[0].signals} == {
+        "shenyang-br-2", "shanghai-br-2",
+    }
+    assert merged[0]["reason"] == "same_window_bgp_peer"
+    shifted = Event("shifted", 6, 12, second.signals)
+    assert len(_consolidate(
+        object(), [first, shifted], DetectorSettings(exact_bgp_session_merge=True)
+    )[0]) == 2
 
 
 def test_same_minute_but_different_cpu_trajectories_stay_separate(tmp_path):

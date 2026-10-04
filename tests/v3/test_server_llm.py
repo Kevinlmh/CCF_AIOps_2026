@@ -66,6 +66,36 @@ def test_server_adapter_emits_importable_response_and_rejects_hallucinated_root(
     assert audit[0]["status"] == "invalid_llm_response"
 
 
+def test_server_prompt_identifies_traffic_observer_without_treating_it_as_root():
+    class TrafficStore(ClockStore):
+        edges = [{"source": "xian-traffic-vm", "target": "service-group:beida:dns", "relation": "traffic"}]
+
+    event = Event("v3-e000011", 5, 8, (
+        Signal("edge:5:0:traffic.dns.error_ratio", 5, "service-group:beida:dns",
+               "traffic.dns.error_ratio", "dns", 1, 0, 8, "symptom"),
+    ))
+    pack = build_evidence(TrafficStore(), event, load_contract())
+    record = {**asdict(pack), "evidence_sha256": pack.sha256()}
+    requests = []
+
+    def completion(payload):
+        requests.append(payload)
+        rule = diagnose_rules(pack, load_contract())
+        return {"choices": [{"message": {"content": json.dumps({
+            "root_cause_top5": list(rule.roots),
+            "fault_category": {"major_category": rule.category[0], "sub_category": rule.category[1]},
+            "evidence_ids": list(rule.evidence_ids),
+        })}}]}
+
+    accepted, audit = diagnose_records([record], completion, "local-test", "r1")
+    assert audit[0]["status"] == "accepted"
+    assert accepted[0]["evidence_sha256"] == record["evidence_sha256"]
+    prompt = json.loads(requests[0]["messages"][1]["content"])
+    assert prompt["traffic_observations"][0]["observer"] == "xian-traffic-vm"
+    assert "observer" in requests[0]["messages"][0]["content"].lower()
+    assert "xian-traffic-vm" not in prompt["rule_baseline"]["root_cause_top5"]
+
+
 def test_server_batch_rejects_invalid_cached_response_before_resume(tmp_path):
     record, pack = _record()
     evidence = tmp_path / "evidence.jsonl"
