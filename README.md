@@ -1,8 +1,8 @@
 # CCF AIOps 2026 · v4
 
-v4 采用“统计特征与轻量聚类发现运行状态，规则补充异常线索，同一个 LLM 通过多个角色完成事件确认、根因定位和故障分类”的混合架构。目前完成第一步：原始数据统计、质量检查、保留原始内容的观测读取与证据查询。
+v4 采用“统计特征与轻量聚类发现运行状态，规则补充异常线索，同一个 LLM 通过多个角色完成事件确认、根因定位和故障分类”的混合架构。已实现原始数据基础层，并新增字段语义、显式时间策略和多视角窗口特征。
 
-总体方案见 [v4 设计](docs/superpowers/specs/2026-10-08-v4-design.md)，编码范围见 [实施计划](docs/superpowers/plans/2026-10-08-v4-data-foundation.md)。窗口特征、聚类、规则事件和 LLM Agent 尚未实现。
+总体方案见 [v4 设计](docs/superpowers/specs/2026-10-08-v4-design.md)，窗口定义见 [窗口特征设计](docs/superpowers/specs/2026-10-08-v4-window-features-design.md)。参考尺度、聚类、规则事件和 LLM Agent 尚未实现。
 
 本步交付、实测数据结论和下一步任务见 [数据基础交付记录](docs/v4-data-foundation-2026-10-08.md)。
 
@@ -87,6 +87,26 @@ for source_file in discover_sources(Path("sample/case_001")):
 
 遇到扫描错误时，`profile` 输出带错误信息的部分报告并返回退出码 2；`ingest` 不发布部分数据库。
 
+## 构建多视角窗口特征
+
+```bash
+python -m aiops_v4.features build \
+  --root sample/case_001 --batch public-case-001 \
+  --naive-timezone UTC --window-seconds 60 \
+  --expected-step-seconds 60 --counter-max-gap-seconds 180 \
+  --output-dir outputs/v4/my-run/windows --verbose
+```
+
+时区须显式指定，aware 时间采用自身偏移；原始无时区时间会按指定时区重新解析。官方读取器及公开业务流的 Unix 时间对齐支持选择 UTC，但官网没有明确确认所有源的无时区时间语义。
+
+输出 `windows.jsonl`、`summary.json`、`semantics.json/csv`、`rejected.jsonl` 和 `report.md`。临时 SQLite 对乱序数据按序列和时间排序，构建成功后才发布新目录。时间无法解析的原始记录完整保存在 rejected 文件。
+
+窗口粒度：resource 按网元；link 按网元/接口；routing 按网元/指标/完整 label；traffic 业务数据按原始业务系列，NetFlow 按网元/接口/协议；另有 collection 和 log_context 观测上下文。NetFlow 汇总不等同实际业务路径，原始五元组保留在引用指向的 CSV 中。
+
+缺失率针对已到达记录中的适用字段；时间覆盖仅在显式指定预期步长时计算。不生成没有观测的空窗口、不填零。counter 保留原始水平统计，并另算 delta/rate；下降、坏值、冲突或超长间隔不产生差分。快照型路由计数与已有 rate 不差分，NetFlow 分钟数量求和。辅助网元标明不能作为官方候选。
+
+语义表明确标明 inferred/unverified，当前未将字段名推断称为官方已验证单位。`--max-rows-per-file` 可用于开发检查，前缀样本不能用于解释全量分布。窗口分位数用 128 点蓄水池，引用上限 8，截断明确标记；counter 引用可包含上一窗口的前驱记录。
+
 ## 旧通用解析接口
 
 ```python
@@ -112,7 +132,7 @@ print(stream.stats.files_by_source)
 
 ## 下一步
 
-依次实现多视角窗口特征和参考状态、轻量聚类与规则候选事件，再实现共享 LLM 后端的事件确认、根因定位和故障分类角色，最后补充复核、官方导出、消融和复现。
+下一步实现角色/视角内的参考尺度、覆盖掩码、轻量聚类与规则候选事件，再实现共享 LLM 后端的事件确认、根因定位和故障分类角色，最后补充复核、官方导出、消融和复现。
 
 ## v3 存档
 
