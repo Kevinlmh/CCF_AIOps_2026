@@ -12,7 +12,7 @@ from .contracts import load_contract
 from .calibration import load_calibration
 from .detection import DetectorSettings, detect_with_audit
 from .diagnosis import build_evidence, diagnose_rules
-from .optional_llm import review_diagnosis, load_diagnoses
+from .optional_llm import choose_diagnosis, load_diagnoses
 from .output import prediction_record
 from .raw import build_sample_store
 from .store import open_store
@@ -83,14 +83,9 @@ def run(
     cross_city_merge_policy: str = "correlated",
     calibration_profile: Path | None = None,
     exact_bgp_session_merge: bool = False,
-    diagnostic_context: bool = False,
-    llm_policy: str = "contract",
-    llm_application: str = "both",
 ) -> RunSummary:
     if mode not in {"rules", "llm-jsonl"}:
         raise ValueError(f"unknown diagnosis mode: {mode}")
-    if llm_policy not in {"contract", "evidence-gated"} or llm_application not in {"both", "roots-only", "category-only"}:
-        raise ValueError("invalid LLM policy or application")
     if mode == "llm-jsonl" and llm_responses is None:
         raise ValueError("llm-jsonl mode requires response file")
     if detector_profile not in {"standard", "conservative"}:
@@ -136,13 +131,10 @@ def run(
         pack = build_evidence(store, event, contract,
                               include_probe_candidates=source_aware_candidates,
                               include_routing_context=routing_context_candidates,
-                              include_temporal_context=temporal_context,
-                              include_diagnostic_context=diagnostic_context)
+                              include_temporal_context=temporal_context)
         rules = diagnose_rules(pack, contract)
         if mode == "llm-jsonl":
-            review = review_diagnosis(pack, rules, responses.get(event.event_id), contract,
-                                      policy=llm_policy, application=llm_application)
-            diagnosis, reason = review.diagnosis, review.reason
+            diagnosis, reason = choose_diagnosis(pack, rules, responses.get(event.event_id), contract)
             fallback_count += reason is not None
         else:
             diagnosis, reason = rules, None
@@ -152,9 +144,6 @@ def run(
             evidence_record.pop("temporal_context")
         if not pack.traffic_observations:
             evidence_record.pop("traffic_observations")
-        for name in ("device_context", "text_evidence", "available_sources"):
-            if not getattr(pack, name):
-                evidence_record.pop(name)
         evidence.append({**evidence_record, "evidence_sha256": pack.sha256()})
         audit.append({
             "event_id": event.event_id,
@@ -165,8 +154,6 @@ def run(
             "candidate_count": len(pack.candidates),
             "signal_count": len(pack.signals),
             "model": responses.get(event.event_id, {}).get("model") if mode == "llm-jsonl" else None,
-            **({"root_review": review.root_status, "category_review": review.category_status,
-                "llm_policy": llm_policy, "llm_application": llm_application} if mode == "llm-jsonl" else {}),
         })
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_jsonl(output_dir / "predictions.jsonl", predictions)
@@ -181,9 +168,6 @@ def run(
         "source_aware_candidates": source_aware_candidates,
         "routing_context_candidates": routing_context_candidates,
         "temporal_context": temporal_context,
-        "diagnostic_context": diagnostic_context,
-        "llm_policy": llm_policy,
-        "llm_application": llm_application,
         "input_store": str(input_store),
         "input_manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
         "input_array_sha256": {
@@ -236,14 +220,11 @@ def main() -> None:
                         default="city")
     parser.add_argument("--routing-context-candidates", action="store_true")
     parser.add_argument("--temporal-context", action="store_true")
-    parser.add_argument("--diagnostic-context", action="store_true")
     parser.add_argument("--routing-dimension-detection", action="store_true")
     parser.add_argument("--cross-city-merge-policy", choices=("correlated", "same_city"),
                         default="correlated")
     parser.add_argument("--exact-bgp-session-merge", action="store_true")
     parser.add_argument("--llm-responses", type=Path)
-    parser.add_argument("--llm-policy", choices=("contract", "evidence-gated"), default="contract")
-    parser.add_argument("--llm-application", choices=("both", "roots-only", "category-only"), default="both")
     parser.add_argument("--calibration-profile", type=Path)
     args = parser.parse_args()
     if args.raw_root and not args.build_store_to:
@@ -256,8 +237,7 @@ def main() -> None:
                   args.service_overlap_policy, args.routing_context_candidates,
                   args.temporal_context, args.routing_dimension_detection,
                   args.cross_city_merge_policy, args.calibration_profile,
-                  args.exact_bgp_session_merge, args.diagnostic_context,
-                  args.llm_policy, args.llm_application)
+                  args.exact_bgp_session_merge)
     print(json.dumps(asdict(summary), default=str))
 
 

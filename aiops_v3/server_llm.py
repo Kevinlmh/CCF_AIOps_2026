@@ -10,12 +10,11 @@ import os
 from pathlib import Path
 import time
 from urllib import request
-from urllib.error import HTTPError
 
 from .contracts import load_contract
 from .detection import Signal
 from .diagnosis import Candidate, EvidencePack, diagnose_rules
-from .optional_llm import choose_diagnosis, _validate_diagnosis
+from .optional_llm import choose_diagnosis
 
 
 def _pack(record: dict) -> EvidencePack:
@@ -26,9 +25,6 @@ def _pack(record: dict) -> EvidencePack:
               for row in record["candidates"]),
         tuple(record.get("temporal_context", ())),
         tuple(record.get("traffic_observations", ())),
-        tuple(record.get("device_context", ())),
-        tuple(record.get("text_evidence", ())),
-        tuple(record.get("available_sources", ())),
     )
 
 
@@ -42,7 +38,7 @@ def _request_payload(pack: EvidencePack, model: str, contract) -> dict:
         "properties": {
             "root_cause_top5": {
                 "type": "array", "items": {"type": "string", "enum": candidates},
-                "minItems": 5, "maxItems": 5,
+                "minItems": 5, "maxItems": 5, "uniqueItems": True,
             },
             "fault_category": {
                 "type": "object",
@@ -55,7 +51,7 @@ def _request_payload(pack: EvidencePack, model: str, contract) -> dict:
             },
             "evidence_ids": {
                 "type": "array", "items": {"type": "string", "enum": evidence_ids},
-                "minItems": 1, "maxItems": 6,
+                "minItems": 1, "uniqueItems": True,
             },
         },
         "required": ["root_cause_top5", "fault_category", "evidence_ids"],
@@ -114,25 +110,15 @@ def diagnose_records(records: list[dict], complete, model: str,
     for record in records:
         event_id = record.get("event_id")
         started = time.monotonic()
-        details = {}
         try:
             pack = _pack(record)
             if pack.sha256() != record["evidence_sha256"]:
                 raise ValueError("evidence hash mismatch")
             payload = _request_payload(pack, model, contract)
             raw = complete(payload)
-            choice = raw["choices"][0]
-            details = {"finish_reason": choice.get("finish_reason"), "usage": raw.get("usage", {})}
-            content = choice["message"]["content"]
-            details["response_excerpt"] = str(content)[:1500]
-            if choice.get("finish_reason") == "length":
-                audit.append({"event_id": event_id, "status": "truncated_response", **details,
-                              "seconds": round(time.monotonic() - started, 3)})
-                continue
-            body = json.loads(content)
+            body = json.loads(raw["choices"][0]["message"]["content"])
             if not isinstance(body, dict):
                 audit.append({"event_id": event_id, "status": "invalid_llm_response",
-                              **details,
                               "seconds": round(time.monotonic() - started, 3)})
                 continue
             response = {
@@ -146,21 +132,14 @@ def diagnose_records(records: list[dict], complete, model: str,
             _, reason = choose_diagnosis(pack, diagnose_rules(pack, contract), response, contract)
             if reason is not None:
                 audit.append({"event_id": event_id, "status": reason,
-                              **details,
                               "seconds": round(time.monotonic() - started, 3)})
                 continue
             accepted.append(response)
             audit.append({"event_id": event_id, "status": "accepted",
-                          "finish_reason": details["finish_reason"], "usage": details["usage"],
-                          "seconds": round(time.monotonic() - started, 3)})
-        except HTTPError as exc:
-            audit.append({"event_id": event_id, "status": "request_failed", "error": "HTTPError",
-                          "http_status": exc.code,
-                          "detail": exc.read(1500).decode("utf-8", "replace"),
                           "seconds": round(time.monotonic() - started, 3)})
         except (KeyError, IndexError, TypeError, ValueError, OSError) as exc:
             audit.append({"event_id": event_id, "status": "request_failed",
-                          "error": type(exc).__name__, "detail": str(exc)[:1000], **details,
+                          "error": type(exc).__name__,
                           "seconds": round(time.monotonic() - started, 3)})
     return accepted, audit
 
@@ -180,21 +159,13 @@ def _post_json(endpoint: str, api_key: str | None, timeout: int):
 
 def run_batch(evidence_path: Path, output: Path, audit_path: Path, *, model: str,
               revision: str, base_url: str, api_key: str | None = None,
-              limit: int | None = None, timeout: int = 120, workflow: str = "single") -> dict:
-    if workflow not in {"single", "staged"}:
-        raise ValueError(f"unknown LLM workflow: {workflow}")
-    if limit is not None and limit < 1:
-        raise ValueError("limit must be positive")
-    from .staged_llm import diagnose_staged, workflow_fingerprint
+              limit: int | None = None, timeout: int = 120) -> dict:
     rows = [json.loads(line) for line in Path(evidence_path).read_text(encoding="utf-8").splitlines()
             if line.strip()]
-    if len({row["event_id"] for row in rows}) != len(rows):
-        raise ValueError("evidence file has duplicate event ids; process each batch separately")
-    source_by_id = {row["event_id"]: row for row in rows}
     if limit is not None:
         rows = rows[:limit]
-    if workflow == "staged" and any(not row.get("device_context") for row in rows):
-        raise ValueError("staged workflow requires evidence generated with --diagnostic-context")
+    if len({row["event_id"] for row in rows}) != len(rows):
+        raise ValueError("evidence file has duplicate event ids; process each batch separately")
     output, audit_path = Path(output), Path(audit_path)
     existing = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()
                 if line.strip()] if output.exists() else []
@@ -202,12 +173,8 @@ def run_batch(evidence_path: Path, output: Path, audit_path: Path, *, model: str
     if len(by_id) != len(existing):
         raise ValueError("existing response file has duplicate event ids")
     contract = load_contract()
-    # Validate the whole cache even for --limit; outside-subset rows must not
-    # silently carry responses from another prompt, workflow, model or input.
-    for response in existing:
-        row = source_by_id.get(response["event_id"])
-        if row is None:
-            raise ValueError("existing response event is absent from evidence file")
+    for row in rows:
+        response = by_id.get(row["event_id"])
         if response and (response.get("evidence_sha256") != row["evidence_sha256"]
                          or response.get("model") != {"repository": model, "revision": revision}):
             raise ValueError("existing response does not match evidence or model revision")
@@ -215,13 +182,9 @@ def run_batch(evidence_path: Path, output: Path, audit_path: Path, *, model: str
             pack = _pack(row)
             if pack.sha256() != row["evidence_sha256"]:
                 raise ValueError("existing evidence hash mismatch")
-            if response.get("workflow", "single") != workflow:
-                raise ValueError("existing response does not match workflow")
-            expected_prompt = (workflow_fingerprint(pack, model) if workflow == "staged" else
-                               _prompt_sha256(_request_payload(pack, model, contract)))
-            if response.get("prompt_sha256") != expected_prompt:
+            if response.get("prompt_sha256") != _prompt_sha256(_request_payload(pack, model, contract)):
                 raise ValueError("existing response does not match prompt or decoding settings")
-            _, reason = _validate_diagnosis(pack, diagnose_rules(pack, contract), response, contract)
+            _, reason = choose_diagnosis(pack, diagnose_rules(pack, contract), response, contract)
             if reason is not None:
                 raise ValueError(f"invalid cached response for {row['event_id']}: {reason}")
     pending = [row for row in rows if row["event_id"] not in by_id]
@@ -231,8 +194,7 @@ def run_batch(evidence_path: Path, output: Path, audit_path: Path, *, model: str
     accepted_count = 0
     with output.open("a", encoding="utf-8") as responses, audit_path.open("a", encoding="utf-8") as audits:
         for row in pending:
-            diagnose = diagnose_staged if workflow == "staged" else diagnose_records
-            accepted, audit = diagnose([row], complete, model, revision)
+            accepted, audit = diagnose_records([row], complete, model, revision)
             for item in accepted:
                 responses.write(json.dumps(item, ensure_ascii=False) + "\n")
                 responses.flush()
@@ -254,12 +216,11 @@ def main() -> None:
     parser.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--timeout", type=int, default=120)
-    parser.add_argument("--workflow", choices=("single", "staged"), default="single")
     args = parser.parse_args()
     summary = run_batch(args.evidence, args.output, args.audit, model=args.model,
                         revision=args.revision, base_url=args.base_url,
                         api_key=os.environ.get("VLLM_API_KEY"), limit=args.limit,
-                        timeout=args.timeout, workflow=args.workflow)
+                        timeout=args.timeout)
     print(json.dumps(summary, ensure_ascii=False))
 
 

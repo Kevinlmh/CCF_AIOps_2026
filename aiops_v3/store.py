@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-import hashlib
 import json
 from pathlib import Path
 
@@ -65,23 +64,6 @@ class FeatureStore:
             from .data.feature_store import FeatureStore as CanonicalFeatureStore
             self._canonical_store = CanonicalFeatureStore.open(self.path)
         return self._canonical_store.iter_dimension_series(source=source, node_id=node_id)
-
-    def iter_text_events(self, *, start=None, end=None, node_ids=None):
-        path = self.path / "text_evidence.jsonl"
-        if not path.exists():
-            return
-        with path.open(encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                item = json.loads(line)
-                timestamp = parse_time(item["timestamp"])
-                if ((start is not None and timestamp < start) or
-                        (end is not None and timestamp >= end) or
-                        (node_ids is not None and item.get("node_id") not in node_ids)):
-                    continue
-                identity = json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-                yield {**item, "evidence_id": "text:" + hashlib.sha256(identity.encode()).hexdigest()[:24]}
 
 
 def open_store(path: Path) -> FeatureStore:
