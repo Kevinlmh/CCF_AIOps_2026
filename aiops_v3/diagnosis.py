@@ -29,6 +29,9 @@ class EvidencePack:
     candidates: tuple[Candidate, ...]
     temporal_context: tuple[dict, ...] = ()
     traffic_observations: tuple[dict, ...] = ()
+    device_context: tuple[dict, ...] = ()
+    text_evidence: tuple[dict, ...] = ()
+    available_sources: tuple[str, ...] = ()
 
     def sha256(self) -> str:
         fields = asdict(self)
@@ -36,6 +39,9 @@ class EvidencePack:
             fields.pop("temporal_context")
         if not self.traffic_observations:
             fields.pop("traffic_observations")
+        for name in ("device_context", "text_evidence", "available_sources"):
+            if not getattr(self, name):
+                fields.pop(name)
         payload = json.dumps(fields, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -138,6 +144,7 @@ def _temporal_context(store, event: Event, signals: list[Signal]) -> tuple[dict,
 def build_evidence(
     store, event: Event, contract: OfficialContract, *, include_probe_candidates: bool = False,
     include_routing_context: bool = False, include_temporal_context: bool = False,
+    include_diagnostic_context: bool = False,
 ) -> EvidencePack:
     signals = list(event.signals)
     direct: dict[str, list[Signal]] = {}
@@ -244,6 +251,10 @@ def build_evidence(
                 candidates.append(Candidate(node, 0, (), "coverage_fallback_no_direct_evidence"))
                 if len(candidates) >= 8:
                     break
+    context = ((), (), ())
+    if include_diagnostic_context:
+        from .evidence_context import diagnostic_context
+        context = diagnostic_context(store, event, candidates)
     return EvidencePack(
         event.event_id,
         store.time_at(event.start_minute).isoformat().replace("+00:00", "Z"),
@@ -252,6 +263,7 @@ def build_evidence(
         tuple(candidates),
         _temporal_context(store, event, signals) if include_temporal_context else (),
         tuple(traffic_observations[key] for key in sorted(traffic_observations)),
+        *context,
     )
 
 

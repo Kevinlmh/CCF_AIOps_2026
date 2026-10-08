@@ -162,3 +162,57 @@ def test_server_batch_resumes_matching_prompt_without_request(tmp_path):
     summary = run_batch(evidence, output, tmp_path / "audit.jsonl", model="Qwen/Qwen3-8B-AWQ",
                         revision="r1", base_url="http://127.0.0.1:1/v1")
     assert (summary["already_accepted"], summary["new_accepted"]) == (1, 0)
+
+
+def test_vllm_request_uses_supported_bounded_schema():
+    from aiops_v3.server_llm import _request_payload
+    _, pack = _record()
+    schema = _request_payload(pack, "test", load_contract())["response_format"]["json_schema"]["schema"]
+    assert "uniqueItems" not in json.dumps(schema)
+    assert schema["properties"]["evidence_ids"]["maxItems"] == 6
+
+
+def test_complete_json_at_token_limit_is_not_accepted():
+    record, pack = _record()
+    body = {"root_cause_top5": [c.node for c in pack.candidates[:5]],
+            "fault_category": {"major_category": "resource", "sub_category": "cpu_pressure"},
+            "evidence_ids": [pack.signals[0].evidence_id]}
+    responses, audit = diagnose_records([record], lambda _: {
+        "choices": [{"message": {"content": json.dumps(body)}, "finish_reason": "length"}],
+        "usage": {"prompt_tokens": 200, "completion_tokens": 512}}, "test", "r1")
+    assert responses == []
+    assert audit[0]["status"] == "truncated_response"
+    assert audit[0]["finish_reason"] == "length"
+    assert audit[0]["usage"]["completion_tokens"] == 512
+
+
+def test_http_failure_includes_status_and_response_body():
+    import io
+    from urllib.error import HTTPError
+    record, _ = _record()
+
+    def complete(_):
+        raise HTTPError("http://127.0.0.1/v1", 400, "Bad Request", {},
+                        io.BytesIO(b'{"error":{"message":"unsupported grammar"}}'))
+
+    responses, audit = diagnose_records([record], complete, "test", "r1")
+    assert responses == []
+    assert audit[0]["http_status"] == 400
+    assert "unsupported grammar" in audit[0]["detail"]
+
+
+@pytest.mark.parametrize("field,value", [
+    ("evidence_ids", ["node:5:0:node.cpu_usage", "node:5:0:node.cpu_usage"]),
+    ("evidence_ids", [{}]),
+    ("fault_category", {"major_category": [], "sub_category": "cpu_pressure"}),
+])
+def test_importer_rejects_invalid_evidence_and_category_without_crashing(field, value):
+    _, pack = _record()
+    body = {"event_id": pack.event_id, "evidence_sha256": pack.sha256(),
+            "root_cause_top5": [c.node for c in pack.candidates[:5]],
+            "fault_category": {"major_category": "resource", "sub_category": "cpu_pressure"},
+            "evidence_ids": [pack.signals[0].evidence_id]}
+    body[field] = value
+    diagnosis, reason = choose_diagnosis(pack, diagnose_rules(pack, load_contract()), body, load_contract())
+    assert reason == "invalid_llm_response"
+    assert diagnosis.source == "rules"
