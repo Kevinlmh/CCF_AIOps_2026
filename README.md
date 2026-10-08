@@ -1,12 +1,12 @@
 # CCF AIOps 2026 · v4
 
-v4 采用“统计特征与轻量聚类发现运行状态，规则补充异常线索，同一个 LLM 通过多个角色完成事件确认、根因定位和故障分类”的混合架构。已实现原始数据基础层、窗口特征、稳健参考尺度、轻量聚类和规则候选事件。
+v4 采用“统计特征与轻量聚类发现运行状态，规则补充异常线索，同一个 LLM 通过多个角色完成事件确认、根因定位和故障分类”的混合架构。已实现原始数据基础层、窗口特征、稳健参考尺度、轻量聚类、规则候选事件、审阅证据包和只读查询。
 
 总体方案见 [v4 设计](docs/superpowers/specs/2026-10-08-v4-design.md)，窗口定义见 [窗口特征设计](docs/superpowers/specs/2026-10-08-v4-window-features-design.md)，状态发现见 [第三阶段设计](docs/superpowers/specs/2026-10-08-v4-state-discovery-design.md)。LLM Agent 与官方诊断导出尚未实现。
 
 原始数据层见 [数据基础交付记录](docs/v4-data-foundation-2026-10-08.md)；本步实现、实测结论和下一步任务见 [窗口特征交付记录](docs/v4-window-features-2026-10-08.md)。
 
-最新进展与实验结论见 [状态发现交付记录](docs/v4-state-discovery-2026-10-08.md)。
+设计回顾见 [架构一致性检查](docs/v4-design-audit-2026-10-08.md)，最新进展见 [证据包交付记录](docs/v4-evidence-bundles-2026-10-08.md)。
 
 ## 保留内容
 
@@ -125,6 +125,37 @@ python -m aiops_v4.states discover \
 
 `--mode statistics|cluster|hybrid` 控制统计/聚类触发，规则默认同时开启；用 `--no-rules` 做独立消融。默认统计阈值6、聚类距离3、稀有簇比例0.1，都是实验参数。采集不可用、协议指标为零、drop/error 非零等是观测线索，质量问题单列。连续触发窗口合并；正常窗口和时间空缺终止事件，候选事件仍需要确认。
 
+## 关联事件、构建证据包与查询
+
+```bash
+python -m aiops_v4.evidence build \
+  --states-dir outputs/v4/my-run/states --batch public-case-001 \
+  --output-dir outputs/v4/my-run/review-evidence
+
+python -m aiops_v4.evidence query \
+  --database outputs/v4/my-run/review-evidence/evidence.sqlite \
+  --batch public-case-001 --kind bundle --entity-id beida-br-1 --limit 5
+
+# 将上一条结果里的 bundle_id / record_id 填入相应参数。
+python -m aiops_v4.evidence query \
+  --database outputs/v4/my-run/review-evidence/evidence.sqlite \
+  --batch public-case-001 --kind members --bundle-id BUNDLE_ID --limit 100 --offset 0
+
+python -m aiops_v4.evidence query-raw \
+  --database outputs/v4/my-run/review-evidence/evidence.sqlite \
+  --batch public-case-001 --record-id RECORD_ID
+```
+
+同网元严格重叠的候选形成审阅包，不同网元保持独立；原事件及其窗口完整保存在 SQLite。传递重叠只是关联，包络不是故障区间。每包 event_id 和原始引用各至多32个，支持、无当前触发的可评分观测、质量上下文各至多8条（`--observations-per-kind` 可调1..32）。默认上下文前后120秒，按时间及来源选取有界例子，并记录各类完整数量及截断；LLM 可进一步分页读取完整线索。
+
+`query` 输出一个 JSON 数组，支持 `bundle/members/states/model/relations`。`states` 按网元、source、group、半开重叠时间范围查询，同时返回完整 matrix；`members/relations` 必须提供 bundle_id，`model` 可按 group_id 查询。limit1..1000，offset非负；所有时间须带时区，批次必须匹配数据库。
+
+构建核验上游摘要哈希、状态与矩阵粒度、原事件连续成员及数量。物化仅限包内引用：原始 CSV 每文件一次扫描至最大所需行，核验内容ID/物理行，并保留完整字段、五元组和日志。`--skip-raw` 可跳过物化；所有已登记状态引用仍可按需读取并核验。`query-raw --reference-json '{...}'` 接受完整已登记引用。原始查询的 `observed_time` 继承窗口层显式时区；数据层暂定 timestamp 与原始时间也保留。物化记录是构建时验证的快照，未物化记录从登记文件重新核验。
+
+可选 `--raw-root` 指定迁移后的原始目录，相对路径及内容必须一致。可选 `--topology` 输入 JSON `{"provenance":"图或文档的来源","edges":[{"a":"xian-br-1","b":"xian-cr-1","relation":"link"}]}`；只关联直接相邻且严格重叠的其他审阅包，不推断方向或传播。端点须为官方80网元，最多512条输入边；缺少可信连线时明确 unavailable，不依据角色猜拓扑。
+
+输出 bundles.jsonl、evidence.sqlite、report.md、summary.json。输出目录必须是新路径且位于状态、窗口、原始输入目录之外；失败不发布完成标记。反证仅表示当前配置下可评分但未触发，不宣称正常。来源缺失、局部未观测/不可评分、前缀限制、时间/单位未核验均明确保留。
+
 ## 旧通用解析接口
 
 ```python
@@ -150,7 +181,7 @@ print(stream.stats.files_by_source)
 
 ## 下一步
 
-下一步补充候选事件关联与证据查询，核验候选有效性，再实现共享 LLM 后端的事件确认、根因定位和故障分类角色，最后补充复核、官方导出、诊断评测和复现。
+下一步实现共享 LLM 后端及事件确认角色，接入现有只读证据工具，再实现独立根因定位、故障分类、复核、官方导出、诊断评测和复现。先用离线后端验证角色契约和失败处理，再做真实模型实验。
 
 ## v3 存档
 
