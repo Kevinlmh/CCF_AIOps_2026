@@ -102,6 +102,13 @@ def fit_reference(rows, min_reference=12, capacity=256) -> dict:
 def normalize(row: dict, reference: dict) -> dict:
     if reference['group_id'] not in {None, row['group_id']}:
         raise ValueError('reference group does not match vector')
+    by_metric = {feature['metric']: feature for feature in reference['features'].values()}
+    for cell in row['features'].values():
+        prior = by_metric.get(cell['metric'])
+        if prior is not None:
+            descriptor = {key: value for key, value in cell.items() if key not in {'value', 'raw_value'}}
+            if any(prior.get(key) != value for key, value in descriptor.items()):
+                raise ValueError('assessment semantics do not match reference')
     values, deviations, unseen, overflow = {}, {}, [], []
     for name, feature in reference['features'].items():
         cell = row['features'].get(name, {})

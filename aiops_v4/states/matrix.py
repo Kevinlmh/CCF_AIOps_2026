@@ -57,7 +57,7 @@ def window_vector(window: dict, batch: str) -> dict:
                                       'kind': 'category' if category else 'numeric', 'metric': name,
                                       'stat': stat, 'transform': transform, 'unit': unit,
                                       'semantic_status': semantic.get('status', 'unverified')}
-        rule_inputs[name] = {key: metric.get(key) for key in ('last', 'mean', 'delta_sum', 'rate_mean',
+        rule_inputs[name] = {key: metric.get(key) for key in ('last', 'min', 'max', 'mean', 'delta_sum', 'rate_mean',
                             'change_count', 'counter_decrease_count', 'counter_gap_count')}
         rule_inputs[name].update(kind=kind, unit=unit, usable=not blocked and not bad,
                                  semantic_status=semantic.get('status', 'unverified'))

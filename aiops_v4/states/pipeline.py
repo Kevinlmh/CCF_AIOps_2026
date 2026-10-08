@@ -21,8 +21,15 @@ def _bad_constant(value):
     raise ValueError(f'nonfinite JSON value: {value}')
 
 
+def _finite_float(value):
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f'nonfinite JSON number: {value}')
+    return parsed
+
+
 def _load(value):
-    return json.loads(value, parse_constant=_bad_constant)
+    return json.loads(value, parse_constant=_bad_constant, parse_float=_finite_float)
 
 
 def _dump(value):

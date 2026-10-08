@@ -17,9 +17,10 @@ def rule_signals(row, previous=None):
         if not metric['usable']:
             continue
         last = metric.get('last')
-        if row['source'] == 'scrape' and name == 'scrape_up' and last == 0:
+        observed_zero = last == 0 or metric.get('min') == 0
+        if row['source'] == 'scrape' and name == 'scrape_up' and observed_zero:
             rules.append('collection_unavailable:' + name)
-        if row['source'] == 'routing' and name in {'bgp_peer_up', 'ipv6_route_exists'} and last == 0:
+        if row['source'] == 'routing' and name in {'bgp_peer_up', 'ipv6_route_exists'} and observed_zero:
             rules.append('protocol_indicator_zero:' + name)
         if row['source'] == 'interface' and ('drop_rate' in name or 'error_rate' in name) and _positive(metric.get('mean')):
             rules.append('interface_drop_or_error_nonzero:' + name)
@@ -29,12 +30,13 @@ def rule_signals(row, previous=None):
                 rules.append('business_failure_activity:' + name)
             if row['source'] == 'routing' and 'route' in name and 'change' in name:
                 rules.append('route_change_activity:' + name)
-        if adjacent and metric['unit'] == 'state_code':
+        changed = _positive(metric.get('change_count'))
+        if adjacent and metric['unit'] in {'state_code', 'binary'}:
             old = previous['rule_inputs'].get(name, {})
             if old.get('usable') and old.get('last') is not None and last is not None and old['last'] != last:
-                rules.append('observed_state_change:' + name)
-        if metric['unit'] == 'state_code' and _positive(metric.get('change_count')):
-            rules.append('observed_state_change:' + name)
+                changed = True
+        if changed and metric['unit'] in {'state_code', 'binary'}:
+            rules.append(('observed_binary_change:' if metric['unit'] == 'binary' else 'observed_state_change:') + name)
     if row['source'] == 'frr' and not row['quality']['blocked'] and _positive(row.get('event_count')):
         severity = str(row['dimensions'].get('severity', '')).lower()
         if severity in {'emerg', 'alert', 'crit', 'err', 'error', 'warning', 'warn'}:
@@ -62,7 +64,8 @@ def assess(row, reference, clusters, mode, thresholds, previous=None) -> dict:
             cluster_signals.append('cluster:rare_reference_state')
     triggers = (statistical if mode in {'statistics', 'hybrid'} else []) + (cluster_signals if mode in {'cluster', 'hybrid'} else [])
     if thresholds['rules_enabled']:
-        triggers += ['rule:' + rule for rule in rules]
+        # Recovery is state evidence; it must not extend an unavailable interval.
+        triggers += ['rule:' + rule for rule in rules if not rule.startswith('observed_binary_change:')]
     transition = bool(old_state is not None and old_row['end_time'] == row['start_time'] and
                       old_state['cluster_id'] is not None and assigned['cluster_id'] is not None and
                       old_state['cluster_id'] != assigned['cluster_id'])

@@ -1,10 +1,12 @@
 # CCF AIOps 2026 · v4
 
-v4 采用“统计特征与轻量聚类发现运行状态，规则补充异常线索，同一个 LLM 通过多个角色完成事件确认、根因定位和故障分类”的混合架构。已实现原始数据基础层，并新增字段语义、显式时间策略和多视角窗口特征。
+v4 采用“统计特征与轻量聚类发现运行状态，规则补充异常线索，同一个 LLM 通过多个角色完成事件确认、根因定位和故障分类”的混合架构。已实现原始数据基础层、窗口特征、稳健参考尺度、轻量聚类和规则候选事件。
 
-总体方案见 [v4 设计](docs/superpowers/specs/2026-10-08-v4-design.md)，窗口定义见 [窗口特征设计](docs/superpowers/specs/2026-10-08-v4-window-features-design.md)。参考尺度、聚类、规则事件和 LLM Agent 尚未实现。
+总体方案见 [v4 设计](docs/superpowers/specs/2026-10-08-v4-design.md)，窗口定义见 [窗口特征设计](docs/superpowers/specs/2026-10-08-v4-window-features-design.md)，状态发现见 [第三阶段设计](docs/superpowers/specs/2026-10-08-v4-state-discovery-design.md)。LLM Agent 与官方诊断导出尚未实现。
 
 原始数据层见 [数据基础交付记录](docs/v4-data-foundation-2026-10-08.md)；本步实现、实测结论和下一步任务见 [窗口特征交付记录](docs/v4-window-features-2026-10-08.md)。
+
+最新进展与实验结论见 [状态发现交付记录](docs/v4-state-discovery-2026-10-08.md)。
 
 ## 保留内容
 
@@ -107,6 +109,22 @@ python -m aiops_v4.features build \
 
 语义表明确标明 inferred/unverified，当前未将字段名推断称为官方已验证单位。`--max-rows-per-file` 可用于开发检查，前缀样本不能用于解释全量分布。窗口分位数用 128 点蓄水池，引用上限 8，截断明确标记；counter 引用可包含上一窗口的前驱记录。
 
+## 运行状态发现与候选事件
+
+```bash
+python -m aiops_v4.states discover \
+  --windows-dir outputs/v4/my-run/windows --batch public-case-001 \
+  --reference-start 2026-07-28T12:35:00Z \
+  --reference-end 2026-07-28T12:48:00Z \
+  --output-dir outputs/v4/my-run/states --verbose
+```
+
+输入是窗口层发布的目录，不读取旧特征库或标签。每个网元/接口/peer/目标序列独立建立参考；未知字段排除，状态码使用类别，counter 使用速率。参考窗口完整包含于显式区间；区间只是实验参考，不代表已知正常。省略区间则使用同批次离线无监督拟合，不用于宣称在线因果效果。
+
+输出 matrix.jsonl、models.jsonl、states.jsonl、events.jsonl、summary.json 和 report.md。每特征最多256个参考样本，k-medoids最多64个参考向量；共同有效特征不足时明确不分配状态。参考簇占比来自有界样本，簇号不对应故障标签。
+
+`--mode statistics|cluster|hybrid` 控制统计/聚类触发，规则默认同时开启；用 `--no-rules` 做独立消融。默认统计阈值6、聚类距离3、稀有簇比例0.1，都是实验参数。采集不可用、协议指标为零、drop/error 非零等是观测线索，质量问题单列。连续触发窗口合并；正常窗口和时间空缺终止事件，候选事件仍需要确认。
+
 ## 旧通用解析接口
 
 ```python
@@ -132,7 +150,7 @@ print(stream.stats.files_by_source)
 
 ## 下一步
 
-下一步实现角色/视角内的参考尺度、覆盖掩码、轻量聚类与规则候选事件，再实现共享 LLM 后端的事件确认、根因定位和故障分类角色，最后补充复核、官方导出、消融和复现。
+下一步补充候选事件关联与证据查询，核验候选有效性，再实现共享 LLM 后端的事件确认、根因定位和故障分类角色，最后补充复核、官方导出、诊断评测和复现。
 
 ## v3 存档
 

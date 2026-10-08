@@ -119,3 +119,55 @@ def test_cli_outside_checkout_preserves_sampling_scope(tmp_path):
     assert proc.returncode==0,proc.stderr
     assert json.loads(proc.stdout)['input_scope']['mode']=='prefix_sample'
     assert json.loads((tmp_path/'output'/'summary.json').read_text())['reference_scope']['known_healthy'] is False
+
+
+@pytest.mark.parametrize('location',['summary','unknown_metric'])
+def test_exponent_overflow_in_unused_fields_is_rejected_before_publication(tmp_path,location):
+    source=artifacts(tmp_path/'input',[window()])
+    if location=='summary':
+        path=source/'summary.json'
+        path.write_text(path.read_text()[:-1]+',"unused":1e400}')
+    else:
+        path=source/'windows.jsonl'
+        w=window();w['metrics']['mystery']={'semantics':{'kind':'unknown','unit':None,'status':'unverified'},'mean':'EXPONENT'}
+        path.write_text(json.dumps(w).replace('"EXPONENT"','1e400')+'\n')
+    before=path.read_bytes()
+    with pytest.raises(ValueError,match='nonfinite'):
+        state_module('pipeline').discover_states(source,'stage2',tmp_path/'output')
+    assert not (tmp_path/'output').exists() and path.read_bytes()==before
+
+
+def test_held_out_semantic_change_cannot_create_false_deviation(tmp_path):
+    rows=[window(i,value=10) for i in range(13)]
+    rows[-1]['metrics']['cpu_usage']['semantics']['unit']='count'
+    source=artifacts(tmp_path/'input',rows)
+    with pytest.raises(ValueError,match='semantics'):
+        state_module('pipeline').discover_states(source,'stage2',tmp_path/'output',
+            reference_start='2026-09-17T04:00:00Z',reference_end='2026-09-17T04:12:00Z')
+    assert not (tmp_path/'output').exists()
+
+
+@pytest.mark.parametrize('source,metric,trigger',[('scrape','scrape_up','collection_unavailable'),
+                                                 ('routing','bgp_peer_up','protocol_indicator_zero')])
+def test_transient_binary_zero_after_recovery_still_has_evidence(tmp_path,source,metric,trigger):
+    rows=[]
+    for i in range(13):
+        w=window(i,source=source,metric=metric,value=1)
+        w['metrics'][metric]['semantics']['unit']='binary'
+        if i==12:w['metrics'][metric].update(mean=2/3,min=0,max=1,last=1,change_count=2,used_sample_count=3)
+        rows.append(w)
+    _,states,events,_=run(tmp_path,rows,reference_start='2026-09-17T04:00:00Z',reference_end='2026-09-17T04:12:00Z')
+    assert states[-1]['stat_score'] is None and states[-1]['cluster_distance']==0
+    assert f'rule:{trigger}:{metric}' in states[-1]['triggers']
+    assert f'observed_binary_change:{metric}' in states[-1]['rule_signals']
+    assert events[0]['window_ids']==['w12']
+
+
+def test_adjacent_binary_recovery_is_recorded_and_ends_zero_event(tmp_path):
+    rows=[]
+    for i,value in enumerate([0,1]):
+        w=window(i,source='scrape',metric='scrape_up',value=value)
+        w['metrics']['scrape_up']['semantics']['unit']='binary';rows.append(w)
+    _,states,events,_=run(tmp_path,rows)
+    assert 'observed_binary_change:scrape_up' in states[1]['rule_signals']
+    assert states[1]['candidate'] is False and events[0]['window_ids']==['w0']
