@@ -39,12 +39,12 @@ def profile_dataset(root: Path, batch: str, max_rows_per_file: int | None = None
     start = end = None
     row_count = 0
 
-    def update(mapping, key, raw, numeric=True, group_limit=max_groups, kind="metric"):
+    def update(mapping, key, raw, numeric=True, group_limit=max_groups, kind="metric", distribution=True):
         if key not in mapping:
             if len(mapping) >= group_limit:
                 dropped[kind] += 1
                 return
-            mapping[key] = ColumnStats(numeric, reservoir_size, cardinality_limit)
+            mapping[key] = ColumnStats(numeric, reservoir_size, cardinality_limit, distribution=distribution)
         mapping[key].add(raw)
 
     for file in files:
@@ -66,8 +66,10 @@ def profile_dataset(root: Path, batch: str, max_rows_per_file: int | None = None
                     for name, raw in record.raw.items():
                         key = f"{file.source}.{name}"
                         kind = "metric" if name in numeric else "text" if name in {"message", "scrape_error"} else "identity"
-                        field_kinds.setdefault(key, kind)
-                        update(fields, key, raw, name in numeric, group_limit=4096, kind="field")
+                        update(fields, key, raw, name in numeric, group_limit=4096, kind="field",
+                               distribution=not (file.source == "routing" and name == "value"))
+                        if key in fields:
+                            field_kinds.setdefault(key, kind)
                     for name, value in record.values.items():
                         update(metrics, f"{file.source}.{name}", str(value))
                         if record.node_id:
@@ -123,7 +125,8 @@ def profile_dataset(root: Path, batch: str, max_rows_per_file: int | None = None
         field = name.split(".", 1)[1]
         hint = "counter" if field.endswith(("_total", "_sum", "_count")) else None
         field_reports[name] = {**statistics.report(), "kind": field_kinds[name], "unit": None,
-                               "numeric_kind_hint": hint, "semantic_verified": False}
+                               "numeric_kind_hint": hint, "semantic_verified": False,
+                               "distribution_scope": "per_metric_only" if name == "routing.value" else "scanned_values"}
     return {
         "schema_version": 1, "batch": batch, "input_root": str(Path(root).resolve()),
         "mode": "full" if max_rows_per_file is None else "prefix_sample",

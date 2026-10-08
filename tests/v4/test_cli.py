@@ -115,3 +115,18 @@ def test_outputs_cannot_be_placed_inside_scanned_input(tmp_path, destination):
                  "--report-dir", report)
     assert result.returncode == 2 and "input" in result.stderr
     assert not report.exists() and not database.exists()
+
+
+def test_routing_dictionary_exports_per_metric_distributions(tmp_path):
+    root, report = tmp_path / "input", tmp_path / "report"
+    write_csv(root, "routing_metrics.csv", [
+        {"timestamp": "2026-09-17T04:00:00Z", "node": "br1", "metric_name": "bgp_peer_up", "value": "0"},
+        {"timestamp": "2026-09-17T04:00:00Z", "node": "br1", "metric_name": "route_count", "value": "1000"},
+    ])
+    result = run("profile", "--root", root, "--batch", "stage2", "--report-dir", report)
+    assert result.returncode == 0, result.stderr
+    with (report / "fields.csv").open(newline="") as stream:
+        fields = {row["field"]: row for row in csv.DictReader(stream)}
+    assert fields["routing.value"]["mean"] == ""
+    assert fields['routing.value["bgp_peer_up"]']["mean"] == "0.0"
+    assert fields['routing.value["route_count"]']["mean"] == "1000.0"

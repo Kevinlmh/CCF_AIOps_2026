@@ -21,8 +21,9 @@ def _quantile(sorted_values: list[float], fraction: float) -> float | None:
 class ColumnStats:
     """Exact counts/moments, bounded distinct tracking and reservoir quantiles."""
 
-    def __init__(self, numeric: bool, reservoir_size: int, cardinality_limit: int):
+    def __init__(self, numeric: bool, reservoir_size: int, cardinality_limit: int, *, distribution: bool = True):
         self.numeric = numeric
+        self.distribution = distribution
         self.capacity = reservoir_size
         self.cardinality_limit = cardinality_limit
         self.count = self.missing = self.non_numeric = self.nonfinite = self.zeros = self.n = 0
@@ -55,6 +56,8 @@ class ColumnStats:
             return
         self.n += 1
         self.zeros += value == 0
+        if not self.distribution:
+            return
         self.minimum = value if self.minimum is None else min(self.minimum, value)
         self.maximum = value if self.maximum is None else max(self.maximum, value)
         delta = value - self.mean
@@ -74,11 +77,13 @@ class ColumnStats:
             "count": self.count, "numeric_count": self.n, "missing_count": self.missing,
             "non_numeric_count": self.non_numeric, "nonfinite_count": self.nonfinite,
             "zero_count": self.zeros, "min": self.minimum, "max": self.maximum,
-            "mean": self.mean if self.n else None,
-            "std": math.sqrt(max(0.0, self.m2 / self.n)) if self.n else None,
+            "mean": self.mean if self.n and self.distribution else None,
+            "std": (math.sqrt(max(0.0, self.m2 / self.n)) if math.isfinite(self.m2)
+                    else float("nan")) if self.n and self.distribution else None,
             "median": center, "mad": median(abs(value - center) for value in values) if values else None,
             "quantile_sample_count": len(values), "quantile_capacity": self.capacity,
-            "quantiles_exact": self.n <= self.capacity, "quantile_method": "reservoir_seed_0_linear",
+            "quantiles_exact": self.n <= self.capacity if self.distribution else None,
+            "quantile_method": "reservoir_seed_0_linear" if self.distribution else None,
             "distinct_exact": not self.distinct_capped,
             "distinct_count_lower_bound": len(self.distinct),
         }

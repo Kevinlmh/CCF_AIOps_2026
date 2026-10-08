@@ -92,7 +92,7 @@ def _publish_report(report, directory):
                   f"时序跟踪淘汰：{report['time_series_evictions']}；字段/指标/角色指标丢弃观测："
                   f"{report['dropped_field_observations']}/{report['dropped_metric_observations']}/{report['dropped_role_metric_observations']}。",
                   "", "## 字段与语义", "",
-                  "fields.csv 提供字段类型、缺失/坏值计数及数值统计；原始值保留在观测中。",
+                  "fields.csv 提供字段类型、缺失/坏值计数及数值统计；原始值保留在观测中。routing.value 只做结构计数，数值分布按 metric_name 分开列出。",
                   "单位和计数器语义尚未验证，numeric_kind_hint 仅为字段名线索；没有差分、聚合或自动单位换算。",
                   "无时区时间暂按 UTC 转换并标记 assumed_utc，校准前不得直接用于事件时间评分。", "",
                   "## 文件结构与扫描错误", ""])
@@ -104,7 +104,7 @@ def _publish_report(report, directory):
     lines.extend(["", "## 统计边界", ""])
     lines.extend(f"- {note}" for note in report["notes"])
     (directory / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    columns = ["field", "kind", "unit", "semantic_verified", "numeric_kind_hint", "count", "missing_count",
+    columns = ["field", "kind", "unit", "semantic_verified", "numeric_kind_hint", "distribution_scope", "count", "missing_count",
                "numeric_count", "non_numeric_count", "nonfinite_count", "zero_count", "min", "max", "mean", "std",
                "median", "mad", "p01", "p05", "q25", "q75", "p95", "p99",
                "distinct_count_lower_bound", "distinct_exact", "quantile_sample_count", "quantiles_exact"]
@@ -113,6 +113,13 @@ def _publish_report(report, directory):
         writer.writeheader()
         for name, statistics in sorted(report["fields"].items()):
             writer.writerow({"field": name, **{key: statistics.get(key) for key in columns[1:]}})
+        for name, statistics in sorted(report["metrics"].items()):
+            if name.startswith("routing."):
+                metric = name[len("routing."):]
+                details = {**statistics, "kind": "metric", "semantic_verified": False,
+                           "distribution_scope": "valid_normalized_values_per_metric"}
+                writer.writerow({"field": f"routing.value[{json.dumps(metric, ensure_ascii=False)}]",
+                                 **{key: details.get(key) for key in columns[1:]}})
 
 
 def main(argv=None):

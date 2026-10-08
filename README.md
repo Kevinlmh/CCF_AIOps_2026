@@ -4,6 +4,8 @@ v4 采用“统计特征与轻量聚类发现运行状态，规则补充异常�
 
 总体方案见 [v4 设计](docs/superpowers/specs/2026-10-08-v4-design.md)，编码范围见 [实施计划](docs/superpowers/plans/2026-10-08-v4-data-foundation.md)。窗口特征、聚类、规则事件和 LLM Agent 尚未实现。
 
+本步交付、实测数据结论和下一步任务见 [数据基础交付记录](docs/v4-data-foundation-2026-10-08.md)。
+
 ## 保留内容
 
 - `aiops_common/data/`：七类 CSV 的读取、时间与网元标准化、计数器差分、解析统计及流式观测接口。
@@ -79,6 +81,7 @@ for source_file in discover_sources(Path("sample/case_001")):
 - 重复和乱序检查使用有限跟踪窗口，不删除任何记录；高基数字段统计超限会标明。
 - 无时区时间暂按 UTC 解析并标记 `assumed_utc`，保留原始时间；校准前不能直接用于事件时间评分。
 - 字段单位及计数器类型尚未验证，本层不做差分、聚合、填零或异常判定。
+- routing 的通用 value 列只统计结构与数值有效性；数值分布按 metric_name 分开计算并导出。
 - 完整读取器按顺序使用；CSV 的字段长度设置在上下文退出时恢复。内存不随总行数增长，但仍需容纳单条原始记录及有上限的统计样本。
 - 清单中的 `parsed_records_sha256` 是已解析内容摘要，不是原文件字节哈希。
 

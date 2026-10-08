@@ -41,6 +41,11 @@ def test_routing_metrics_and_device_roles_are_not_mixed(tmp_path):
     result = profile(tmp_path)
     assert result["metrics"]["routing.bgp_peer_up"]["mean"] == 0
     assert result["metrics"]["routing.route_count"]["mean"] == 1000
+    assert result["fields"]["routing.value"]["count"] == 2
+    assert result["fields"]["routing.value"]["numeric_count"] == 2
+    assert result["fields"]["routing.value"]["mean"] is None
+    assert result["fields"]["routing.value"]["median"] is None
+    assert result["fields"]["routing.value"]["distribution_scope"] == "per_metric_only"
     assert result["role_metrics"]["node/br-1/cpu_usage"]["mean"] == 10
     assert result["role_metrics"]["node/service-vm-1/cpu_usage"]["mean"] == 90
 
@@ -107,3 +112,13 @@ def test_invalid_resource_limits_are_rejected(tmp_path, kwargs):
     write_csv(tmp_path, "node_metrics.csv", [{"timestamp": "2026-09-17T04:00:00Z", "node": "br1"}])
     with pytest.raises(ValueError):
         profile(tmp_path, **kwargs)
+
+
+def test_finite_extreme_values_do_not_report_zero_std_after_overflow(tmp_path):
+    write_csv(tmp_path, "node_metrics.csv", [
+        {"timestamp": "2026-09-17T04:00:00Z", "node": "br1", "cpu_usage": value}
+        for value in ["1e308", "-1e308"]
+    ])
+    statistics = profile(tmp_path)["fields"]["node.cpu_usage"]
+    assert statistics["std"] is None
+    assert "std" in statistics["overflowed_statistics"]

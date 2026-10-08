@@ -90,7 +90,14 @@ class RecordReader:
         self._field_limit = csv.field_size_limit(sys.maxsize)
         try:
             self._csv = csv.reader(self._handle, strict=True)
-            self.columns = next(self._csv, [])
+            header = next(self._csv, None)
+            blank_lines = 0
+            while header == []:
+                blank_lines += 1
+                header = next(self._csv, None)
+            if blank_lines:
+                self.schema_issues.append(f"leading_blank_lines:{blank_lines}")
+            self.columns = header if header is not None else []
             if len(set(self.columns)) != len(self.columns):
                 raise ValueError(f"duplicate CSV columns: {self.file.relative_path}")
             if self.columns:
@@ -166,9 +173,18 @@ class RecordReader:
         if timestamp is None:
             flags.append("invalid_timestamp" if had_time else "missing_timestamp")
         city_fields = ("source_region",) if source == "traffic" else ("region_code", "region")
-        cities = [_city(raw.get(field)) for field in city_fields]
-        cities = [city for city in cities if city is not None]
-        city = cities[0] if cities else self._path_city
+        cities = []
+        explicit_region = False
+        for field in city_fields:
+            if is_missing(raw.get(field)):
+                continue
+            explicit_region = True
+            parsed_city = _city(raw[field])
+            if parsed_city is None:
+                flags.append(f"invalid_region:{field}")
+            else:
+                cities.append(parsed_city)
+        city = cities[0] if cities else None if explicit_region else self._path_city
         if len(set(cities + ([self._path_city] if self._path_city else []))) > 1:
             flags.append("city_conflict")
         names = ("hostname", "node") if source == "frr" else ("node_key", "node")

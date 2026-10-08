@@ -166,6 +166,8 @@ def test_empty_file_is_valid_but_duplicate_columns_are_rejected(tmp_path):
     with pytest.raises(ValueError, match="duplicate"):
         with module("reader").RecordReader(file, "sample") as reader:
             list(reader)
+
+
 def test_large_csv_log_field_is_preserved_without_default_csv_size_cutoff(tmp_path):
     message = "full\n" + "x" * (256 * 1024)
     write_csv(tmp_path, "frr_syslog_events.csv", [{
@@ -177,3 +179,24 @@ def test_large_csv_log_field_is_preserved_without_default_csv_size_cutoff(tmp_pa
         rows = list(reader)
     assert rows[0].raw["message"] == rows[0].text["message"] == message
     assert (rows[0].line_start, rows[0].line_end) == (2, 3)
+
+
+def test_leading_blank_lines_do_not_hide_valid_csv_data(tmp_path):
+    path = tmp_path / "node_metrics.csv"
+    path.write_text("\n\ntimestamp,node,cpu_usage\n2026-09-17T04:00:00Z,xian-br-1,10\n")
+    file = module("discovery").discover_sources(tmp_path)[0]
+    with module("reader").RecordReader(file, "sample") as reader:
+        rows = list(reader)
+    assert len(rows) == 1 and rows[0].raw["cpu_usage"] == "10"
+    assert rows[0].line_start == rows[0].line_end == 4
+    assert reader.complete and "leading_blank_lines:2" in reader.schema_issues
+
+
+def test_unknown_explicit_traffic_region_is_not_mapped_using_directory_city(tmp_path):
+    rows, _ = read(tmp_path, "traffic_flow_metrics.csv", [{
+        "timestamp_utc": "2026-09-17T04:00:00Z", "source_region": "unknown-city",
+        "target_region": "beida", "flow_type": "dns", "dns_flow_requests_total": "1",
+    }])
+    assert rows[0].city is None and rows[0].node_id is None
+    assert {"unmapped_entity", "invalid_region:source_region"} <= set(rows[0].quality_flags)
+    assert rows[0].raw["source_region"] == "unknown-city"
