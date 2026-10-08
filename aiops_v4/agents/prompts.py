@@ -27,3 +27,18 @@ def system_prompt(role):
     if role not in ROLE_TEXT:
         raise ValueError('unknown role')
     return COMMON + '\n' + ROLE_TEXT[role]
+
+from aiops_challenge_2026.schema import VALID_MAJOR_SUB_PAIRS, VALID_NETWORK_ELEMENTS
+
+ROLE_TEXT['localization'] = '''角色：根因定位。输入是确认的事件和证据。你独立定位，不读取故障分类结果。
+区分受影响节点与因果根节点；检查先后、跨视图证据、反证、参考和原文。单节点异常或邻接不足以证明根因。
+可以查询当前 batch 的其他节点做对比，需明确其时段与此事件的关联。每个候选都需要实际见到的该设备 state/raw 支持。
+candidates 按你判断的因果可能性排序，不要求恰好五个；无足够因果证据则 deferred、candidates=[]。
+格式：{"decision":"resolved|deferred","candidates":[{"network_element_id":"官方 ID","confidence":0.0,"reason":"因果依据和反证","citations":[]}],"reason":"整体解释","missing_evidence":[]}。
+官方允许设备 ID：''' + dumps(sorted(VALID_NETWORK_ELEMENTS))
+
+ROLE_TEXT['classification'] = '''角色：故障分类。输入是确认的事件和证据。你独立分类，不读取根因定位结果。
+按实际机制区分链路、防火墙、资源、路由和服务；高 CPU 不自动等于某一种故障，规则触发不是最终类别。
+至少一条 support 引用属于这个确认事件的实际 state/raw。类别仍无法区分时 deferred，category=null；不猜缺失来源对应故障。
+格式：{"decision":"resolved|deferred","category":{"major_category":"官方大类","sub_category":"对应官方子类"},"confidence":0.0,"reason":"机制、支持与反证","citations":[],"missing_evidence":[]}。
+允许的官方配对：''' + dumps([dict(major_category=a, sub_category=b) for a, b in sorted(VALID_MAJOR_SUB_PAIRS)])

@@ -115,3 +115,45 @@ def validate_confirmation(output, manifest, seen):
     if allocated != windows.keys():
         raise ValueError('all candidate windows must be assigned exactly once')
     return result
+
+
+def validate_localization(output, seen):
+    from aiops_challenge_2026.schema import VALID_NETWORK_ELEMENTS
+    fields(output, ('decision', 'candidates', 'reason', 'missing_evidence'))
+    if output['decision'] not in {'resolved', 'deferred'} or not isinstance(output['candidates'], list):
+        raise ValueError('invalid localization decision/candidates')
+    text(output['reason']); missing(output['missing_evidence'], output['decision'] == 'deferred')
+    if bool(output['candidates']) != (output['decision'] == 'resolved'):
+        raise ValueError('resolved requires candidates; deferred must abstain')
+    devices = set()
+    for candidate in output['candidates']:
+        fields(candidate, ('network_element_id', 'confidence', 'reason', 'citations'))
+        node = candidate['network_element_id']
+        if not isinstance(node, str) or node not in VALID_NETWORK_ELEMENTS or node in devices:
+            raise ValueError('root device must be official and unique')
+        confidence(candidate['confidence']); text(candidate['reason'])
+        found = citations(candidate['citations'], seen)
+        if not any(item['stance'] == 'support' and item['kind'] in {'state', 'raw'} and row.get('entity_id') == node for item, row in found):
+            raise ValueError('each root device needs its own observed support')
+        devices.add(node)
+    return output
+
+
+def validate_classification(output, event, seen):
+    from aiops_challenge_2026.schema import VALID_MAJOR_SUB_PAIRS
+    fields(output, ('decision', 'category', 'confidence', 'reason', 'citations', 'missing_evidence'))
+    if output['decision'] not in {'resolved', 'deferred'}:
+        raise ValueError('invalid classification decision')
+    confidence(output['confidence']); text(output['reason'])
+    missing(output['missing_evidence'], output['decision'] == 'deferred')
+    found = citations(output['citations'], seen)
+    if output['decision'] == 'resolved':
+        fields(output['category'], ('major_category', 'sub_category'))
+        pair = (output['category']['major_category'], output['category']['sub_category'])
+        if not all(isinstance(v, str) for v in pair) or pair not in VALID_MAJOR_SUB_PAIRS:
+            raise ValueError('category must be an official major/sub pair')
+        if not supports_event(found, event['window_ids'], seen):
+            raise ValueError('classification needs support from this confirmed event')
+    elif output['category'] is not None:
+        raise ValueError('deferred classification must abstain with category=null')
+    return output
