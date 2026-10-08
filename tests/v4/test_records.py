@@ -166,3 +166,14 @@ def test_empty_file_is_valid_but_duplicate_columns_are_rejected(tmp_path):
     with pytest.raises(ValueError, match="duplicate"):
         with module("reader").RecordReader(file, "sample") as reader:
             list(reader)
+def test_large_csv_log_field_is_preserved_without_default_csv_size_cutoff(tmp_path):
+    message = "full\n" + "x" * (256 * 1024)
+    write_csv(tmp_path, "frr_syslog_events.csv", [{
+        "event_time": "2026-09-17T04:00:00Z", "hostname": "br1", "message": message,
+    }])
+    reader_module = module("reader")
+    file = module("discovery").discover_sources(tmp_path)[0]
+    with reader_module.RecordReader(file, "stage1") as reader:
+        rows = list(reader)
+    assert rows[0].raw["message"] == rows[0].text["message"] == message
+    assert (rows[0].line_start, rows[0].line_end) == (2, 3)

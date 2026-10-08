@@ -13,3 +13,7 @@ Task 1: complete — 17 new reader tests + 9 shared tests pass (26 total), inclu
 Task 2: complete — bounded profiles, role/metric separation, explicit prefix sampling, errors and quality counts; full suite 37 passed.
 
 Task 3: complete — atomic non-overwriting SQLite snapshots, persisted scan scope and batch-scoped read-only evidence queries; full suite 47 passed.
+
+Task 4: CLI and packaging implemented — 57 tests pass, editable install and CLI invocation outside checkout pass. Real-data scans and whole-branch review in progress.
+
+Task 4 regression checks: large valid CSV log field (256 KiB) and exported field count columns reproduced failures, then passed after removing the default CSV cutoff and aligning CSV dictionary columns with statistics names.

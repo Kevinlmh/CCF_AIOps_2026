@@ -1,10 +1,13 @@
 # CCF AIOps 2026 · v4
 
-v4 当前是供新方案使用的基础分支，尚未实现新的检测、根因分析或 LLM 流程。
+v4 采用“统计特征与轻量聚类发现运行状态，规则补充异常线索，同一个 LLM 通过多个角色完成事件确认、根因定位和故障分类”的混合架构。目前完成第一步：原始数据统计、质量检查、保留原始内容的观测读取与证据查询。
+
+总体方案见 [v4 设计](docs/superpowers/specs/2026-10-08-v4-design.md)，编码范围见 [实施计划](docs/superpowers/plans/2026-10-08-v4-data-foundation.md)。窗口特征、聚类、规则事件和 LLM Agent 尚未实现。
 
 ## 保留内容
 
 - `aiops_common/data/`：七类 CSV 的读取、时间与网元标准化、计数器差分、解析统计及流式观测接口。
+- `aiops_v4/data/`：新方案的原始观测层；不默认采用旧解析器的差分、聚合和文本摘要。
 - `aiops_challenge_2026/`：从 `official-baseline` 恢复的官方数据辅助工具、提交格式校验和评测器；类别配置及数量校验更新为当前的 32 类，官方网元配置包含 80 个网元。
 - `sample/`、`examples/`：公开样例数据、标签和预测格式示例。
 - `tests/shared/`：通用解析和评测行为的回归检查。
@@ -17,7 +20,7 @@ v4 当前是供新方案使用的基础分支，尚未实现新的检测、根�
 
 ```bash
 python -m pip install -e '.[test]'
-python -m pytest -q tests/shared
+python -m pytest -q
 python -m aiops_challenge_2026.evaluator \
   --ground-truth sample/ground_truth.jsonl \
   --predictions examples/predictions.jsonl \
@@ -26,7 +29,62 @@ python -m aiops_challenge_2026.evaluator \
 
 评测器沿用官方评分实现。只校验提交格式与公开类别，不加入 v3 的“必须五个候选”或“最多 30 分钟”限制。
 
-## 使用通用解析器
+## 使用 v4 数据层
+
+Python 3.10+，运行只依赖标准库。使用单一批次的原始目录；目录中的所有已识别 CSV 都会读取，不能同时放入同一份数据的多个副本后视为独立观测。
+
+```bash
+# 全量扫描一个公开样例，生成 profile.json、report.md 和 fields.csv。
+python -m aiops_v4.data profile \
+  --root sample/case_001 --batch public-case-001 \
+  --report-dir outputs/v4/my-run/public-profile --verbose
+
+# 第二批快速检查：仅取每个文件前 1000 条记录。
+python -m aiops_v4.data profile \
+  --root data/stage2/regions --batch stage2 \
+  --max-rows-per-file 1000 \
+  --report-dir outputs/v4/my-run/stage2-prefix --verbose
+
+# 可选：建立新 SQLite 证据快照。先用较小范围验证，按需要全量建立。
+python -m aiops_v4.data ingest \
+  --root sample/case_001 --batch public-case-001 \
+  --max-rows-per-file 100 \
+  --database outputs/v4/my-run/evidence.sqlite \
+  --report-dir outputs/v4/my-run/evidence-profile
+
+# 只读查询；必须指定批次。时间范围为 [start, end)，查询参数须带时区。
+python -m aiops_v4.data query \
+  --database outputs/v4/my-run/evidence.sqlite --batch public-case-001 \
+  --source node --node-id beida-br-1 --limit 5
+```
+
+报告目录和数据库必须是新路径，重复执行会拒绝覆盖。输入目录内不能写入报告或数据库。`query` 输出 JSONL，包含原始字段、完整日志、文件相对路径、记录序号及 CSV 物理行号，可供后续 Agent 查询。
+
+```python
+from pathlib import Path
+from aiops_v4.data.discovery import discover_sources
+from aiops_v4.data.reader import RecordReader
+
+for source_file in discover_sources(Path("sample/case_001")):
+    with RecordReader(source_file, batch="public-case-001") as records:
+        for record in records:
+            # 原始字段在 record.raw；无效值和未知网元保留并打质量标记。
+            pass
+```
+
+统计边界：
+
+- `full` 的计数和数值矩覆盖扫描值；分位数及 MAD 使用有上限、固定种子的蓄水池样本，并标明是否精确。
+- `prefix_sample` 是每个文件前 N 行，不能据此判断整个批次分布；逐文件记录是否读完。
+- 重复和乱序检查使用有限跟踪窗口，不删除任何记录；高基数字段统计超限会标明。
+- 无时区时间暂按 UTC 解析并标记 `assumed_utc`，保留原始时间；校准前不能直接用于事件时间评分。
+- 字段单位及计数器类型尚未验证，本层不做差分、聚合、填零或异常判定。
+- 完整读取器按顺序使用；CSV 的字段长度设置在上下文退出时恢复。内存不随总行数增长，但仍需容纳单条原始记录及有上限的统计样本。
+- 清单中的 `parsed_records_sha256` 是已解析内容摘要，不是原文件字节哈希。
+
+遇到扫描错误时，`profile` 输出带错误信息的部分报告并返回退出码 2；`ingest` 不发布部分数据库。
+
+## 旧通用解析接口
 
 ```python
 from pathlib import Path
@@ -47,7 +105,11 @@ for observation in stream:
 print(stream.stats.files_by_source)
 ```
 
-该流只能遍历一次；解析器提供数据读取能力，v4 是否采用这些观测形式由新方案决定。
+该流只能遍历一次，包含计数器差分、NetFlow 聚合等处理选择。v4 原始层使用上面的新接口；旧特征库可在后续核验字段语义和生成过程后选择性适配。
+
+## 下一步
+
+依次实现多视角窗口特征和参考状态、轻量聚类与规则候选事件，再实现共享 LLM 后端的事件确认、根因定位和故障分类角色，最后补充复核、官方导出、消融和复现。
 
 ## v3 存档
 
@@ -59,4 +121,3 @@ v3 分支及标签 `v3-archive-2026-10-08` 保留原版本，归档提交为 `5e
 ```
 
 归档中的 `manifest.json` 记录移动项；`protected-before.json` 记录保留目录及提交脚本的文件元数据。
-新方案未定之前不预先创建算法骨架。

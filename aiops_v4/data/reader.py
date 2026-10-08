@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import re
+import sys
 
 from aiops_challenge_2026.config import load_public_config
 from aiops_common.data.observations import city_from_path
@@ -84,6 +85,9 @@ class RecordReader:
 
     def __enter__(self):
         self._handle = self.file.path.open(newline="", encoding="utf-8-sig")
+        # csv's default 128 KiB cutoff rejects otherwise valid full log fields.
+        # This sequential reader restores the process-wide setting when closed.
+        self._field_limit = csv.field_size_limit(sys.maxsize)
         try:
             self._csv = csv.reader(self._handle, strict=True)
             self.columns = next(self._csv, [])
@@ -102,10 +106,12 @@ class RecordReader:
             return self
         except BaseException:
             self._handle.close()
+            csv.field_size_limit(self._field_limit)
             raise
 
     def __exit__(self, *_):
         self._handle.close()
+        csv.field_size_limit(self._field_limit)
 
     def __iter__(self):
         if self._handle is None or self._handle.closed or self._used:

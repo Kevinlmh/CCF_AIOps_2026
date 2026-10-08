@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ccf-aiops-2026"
 version = "0.1.0"
-description = "Shared CSV parsing and official evaluation tools for CCF AIOps 2026"
+description = "v4 raw-data foundation and official evaluation tools for CCF AIOps 2026"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 dependencies = []
@@ -14,7 +14,7 @@ dependencies = []
 test = ["pytest>=8"]
 
 [tool.setuptools.packages.find]
-include = ["aiops_common*", "aiops_challenge_2026*"]
+include = ["aiops_common*", "aiops_challenge_2026*", "aiops_v4*"]
 
 [tool.setuptools.package-data]
 "aiops_challenge_2026.config" = ["*.json"]
