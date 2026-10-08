@@ -1,12 +1,11 @@
-# v3 local data, results and model weights
+# Local data, results, environments and model weights
 /data/
 /AIOps_data_dyx/
+/output/
 /outputs/
 /models/
 /checkpoints/
 /feature_store/
-/data_side/.cache/
-/data_side/runs/
 /.venv/
 /.pytest_cache/
 *.egg-info/

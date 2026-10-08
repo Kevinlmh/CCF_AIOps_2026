@@ -3,18 +3,18 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ccf-aiops-v3"
+name = "ccf-aiops-2026"
 version = "0.1.0"
-description = "Mac-first deterministic CCF AIOps pipeline with optional server LLM diagnosis"
+description = "Shared CSV parsing and official evaluation tools for CCF AIOps 2026"
 license = "Apache-2.0"
 requires-python = ">=3.10"
-dependencies = ["numpy>=1.26"]
+dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
 
 [tool.setuptools.packages.find]
-include = ["aiops_v3*", "data_side*"]
+include = ["aiops_common*", "aiops_challenge_2026*"]
 
 [tool.setuptools.package-data]
-"aiops_v3" = ["config/*.json"]
+"aiops_challenge_2026.config" = ["*.json"]
