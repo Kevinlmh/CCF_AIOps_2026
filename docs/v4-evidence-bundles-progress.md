@@ -9,3 +9,5 @@ Ruling: association bundles are review contexts, not merged fault intervals — 
 Pre-flight: Task1 packet/grain IDs consumed by Task3 indexed events/states; Task2 verified RawRecord matches producer ID/schema and feature time strategy; Task3 disk tables supply bounded support/counter/quality rows to Task1. Interfaces consistent.
 
 Task 1: RED 8 missing-module failures; GREEN full suite 137/137. Streaming strict-overlap bundles, native-grain bounded packets and provenance-bearing topology validation implemented. Full members will be assigned from indexed original events in Task 3.
+
+Task 2: Initial test collection import corrected before RED; RED 9 missing-module failures; GREEN full suite 146/146. Disk-sorted references, single pass to maximum selected row, content/physical-line verification, complete log preservation and explicit observed_time implemented.

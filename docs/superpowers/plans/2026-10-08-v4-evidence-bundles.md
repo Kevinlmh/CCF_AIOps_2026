@@ -35,9 +35,9 @@ Interfaces iter_bundles(ordered_events,batch)->iterator[dict]; load_topology(pat
 
 Files aiops_v4/evidence/raw.py, tests/v4/test_evidence_raw.py.
 Interface resolve_references(root,batch,references,manifest,naive_timezone)->iterator[dict] using original RecordReader.
-- [ ] Tests actual CSV IDs, physical multiline long log, +08 reinterpretation, path traversal/symlink, changedrecord/hash and prefix limit.
-- [ ] Run tests RED; implement one-pass per file up to max needed row, preserve complete records/time flags.
-- [ ] Full suite green; commit.
+- [x] Tests actual CSV IDs, physical multiline long log, +08 reinterpretation, path traversal/symlink, changedrecord/hash and prefix limit.
+- [x] Run tests RED; implement one-pass per file up to max needed row, preserve complete records/time flags.
+- [x] Full suite green; commit.
 
 ## Task 3: Persistent index, packets and read-only CLI
 
