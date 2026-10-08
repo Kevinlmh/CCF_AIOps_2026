@@ -150,11 +150,15 @@ python -m aiops_v4.evidence query-raw \
 
 `query` 输出一个 JSON 数组，支持 `bundle/members/states/model/relations`。`states` 按网元、source、group、半开重叠时间范围查询，同时返回完整 matrix；`members/relations` 必须提供 bundle_id，`model` 可按 group_id 查询。limit1..1000，offset非负；所有时间须带时区，批次必须匹配数据库。
 
-构建核验上游摘要哈希、状态与矩阵粒度、原事件连续成员及数量。物化仅限包内引用：原始 CSV 每文件一次扫描至最大所需行，核验内容ID/物理行，并保留完整字段、五元组和日志。`--skip-raw` 可跳过物化；所有已登记状态引用仍可按需读取并核验。`query-raw --reference-json '{...}'` 接受完整已登记引用。原始查询的 `observed_time` 继承窗口层显式时区；数据层暂定 timestamp 与原始时间也保留。物化记录是构建时验证的快照，未物化记录从登记文件重新核验。
+构建核验上游摘要哈希，并从所链接窗口重新生成向量，逐条对比完整矩阵与参考范围；原事件引用必须来自自身成员窗口。包及 `states/model` 等查询返回 `scoring_provenance`，包含参考模式/区间、统计和聚类阈值、规则开关及输入范围；该信息供角色解释候选及未触发观测。
+
+32条引用预算覆盖整个包，包括嵌套观测；截断引用仍可从完整状态查询补取。物化仅限包内引用：原始 CSV 每文件一次扫描至最大所需行，核验内容ID/物理行，并保留完整字段、五元组和日志。`--skip-raw` 可跳过物化；所有已登记状态引用仍可按需读取并核验。`query-raw --reference-json '{...}'` 接受完整已登记引用。原始查询的 `observed_time` 继承窗口层显式时区；数据层暂定 timestamp 与原始时间也保留。物化记录是构建时验证的快照，未物化记录从登记文件重新核验。
 
 可选 `--raw-root` 指定迁移后的原始目录，相对路径及内容必须一致。可选 `--topology` 输入 JSON `{"provenance":"图或文档的来源","edges":[{"a":"xian-br-1","b":"xian-cr-1","relation":"link"}]}`；只关联直接相邻且严格重叠的其他审阅包，不推断方向或传播。端点须为官方80网元，最多512条输入边；缺少可信连线时明确 unavailable，不依据角色猜拓扑。
 
 输出 bundles.jsonl、evidence.sqlite、report.md、summary.json。输出目录必须是新路径且位于状态、窗口、原始输入目录之外；失败不发布完成标记。反证仅表示当前配置下可评分但未触发，不宣称正常。来源缺失、局部未观测/不可评分、前缀限制、时间/单位未核验均明确保留。
+
+证据包、summary与SQLite契约版本现为2；窗口/状态输入仍为版本1。审查前的证据版本1实验产物原样保留，查询拒绝旧契约；需要在新目录重新构建。验证后的实测产物使用 `outputs/v4/evidence-bundles/20261008/public-reviewed/` 与 `stage2-prefix-reviewed/`。
 
 ## 旧通用解析接口
 

@@ -49,6 +49,6 @@ Interfaces build_evidence(states_dir,batch,output_dir,*,raw_root=None,skip_raw=F
 ## Task 4: Real verification and design delivery
 
 Files README.md, docs/v4-evidence-bundles-2026-10-08.md, docs/v4-evidence-bundles-progress.md.
-- [ ] Public full sample and stage2prefix builds; check original-event membership conservation, bounds, raw materialization, pagination and protected files.
-- [ ] One fresh final reviewer, important issues regression RED→GREEN; no re-review.
-- [ ] Record design audit, limitations, measured output and next LLM milestone; fresh suite/diff pass; commit/keepv4.
+- [x] Public full sample and stage2prefix builds; check original-event membership conservation, bounds, raw materialization, pagination and protected files.
+- [x] One fresh final reviewer, important issues regression RED→GREEN; no re-review.
+- [x] Record design audit, limitations, measured output and next LLM milestone; fresh suite/diff pass; commit/keepv4.
