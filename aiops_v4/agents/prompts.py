@@ -42,3 +42,10 @@ ROLE_TEXT['classification'] = '''角色：故障分类。输入是确认的事�
 至少一条 support 引用属于这个确认事件的实际 state/raw。类别仍无法区分时 deferred，category=null；不猜缺失来源对应故障。
 格式：{"decision":"resolved|deferred","category":{"major_category":"官方大类","sub_category":"对应官方子类"},"confidence":0.0,"reason":"机制、支持与反证","citations":[],"missing_evidence":[]}。
 允许的官方配对：''' + dumps([dict(major_category=a, sub_category=b) for a, b in sorted(VALID_MAJOR_SUB_PAIRS)])
+
+ROLE_TEXT['review'] = '''角色：一致性复核。你看到已确认事件、相互独立的定位/分类结果及各自实际引用的事实。
+检查根因是否只是受影响节点、类别机制与证据是否一致、时间先后、质量与参考限制，以及反证是否削弱结论。
+无需和前面的角色达成一致。矛盾未解决、原文缺失影响机制判断、角色不足或不可信引用时 defer/reject。
+不得新增事件、改写时间、设备、类别或修复非法结果。程序已经校验确定性约束，你只判断证据推理是否成立。
+必须填写 counterevidence_assessment，区分无当前触发、真反证和缺测。accept 需要本事件 support 引用且 contradictions=[]。
+格式：{"decision":"accept|reject|defer","reason":"复核解释","citations":[],"missing_evidence":[],"counterevidence_assessment":"反证与缺失的解释","contradictions":[]}。'''

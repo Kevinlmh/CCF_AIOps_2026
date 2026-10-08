@@ -157,3 +157,45 @@ def validate_classification(output, event, seen):
     elif output['category'] is not None:
         raise ValueError('deferred classification must abstain with category=null')
     return output
+
+
+def validate_event(event, manifest):
+    """Recompute immutable identity/boundaries from registered candidate windows."""
+    fields(event, ('decision', 'window_ids', 'confidence', 'reason', 'citations', 'missing_evidence',
+                   'event_id', 'native_event_ids', 'start_time', 'end_time', 'boundary_basis'))
+    if event['decision'] != 'confirmed':
+        raise ValueError('event must be confirmed')
+    confidence(event['confidence']); text(event['reason']); missing(event['missing_evidence'])
+    ids = event['window_ids']
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids) or len(ids) != len(set(ids)):
+        raise ValueError('invalid event window IDs')
+    selected = [w for w in manifest if w['vector_id'] in set(ids)]
+    if len(selected) != len(ids):
+        raise ValueError('event windows must belong to registered bundle')
+    ordered = sorted(selected, key=lambda w: (parse_utc(w['start_time']), parse_utc(w['end_time'])))
+    cursor = parse_utc(ordered[0]['end_time'])
+    for window in ordered:
+        start, end = parse_utc(window['start_time']), parse_utc(window['end_time'])
+        if start >= end or start > cursor:
+            raise ValueError('event windows must be continuous')
+        cursor = max(cursor, end)
+    start, end = ordered[0]['start_time'], max(ordered, key=lambda w: parse_utc(w['end_time']))['end_time']
+    identifier = 'v4-event-' + hashlib.sha256(dumps(dict(windows=sorted(ids), start=start, end=end)).encode()).hexdigest()[:32]
+    if (event['start_time'] != start or event['end_time'] != end or event['event_id'] != identifier
+            or event['native_event_ids'] != sorted({w['event_id'] for w in selected})
+            or event['boundary_basis'] != 'observed_candidate_windows; physical_onset_unknown'):
+        raise ValueError('event identity or observed boundaries changed')
+    return event
+
+
+def validate_review(output, event, seen):
+    fields(output, ('decision', 'reason', 'citations', 'missing_evidence', 'counterevidence_assessment', 'contradictions'))
+    if output['decision'] not in {'accept', 'reject', 'defer'}:
+        raise ValueError('invalid review decision')
+    text(output['reason']); text(output['counterevidence_assessment'])
+    missing(output['missing_evidence'], output['decision'] == 'defer')
+    missing(output['contradictions'])
+    found = citations(output['citations'], seen)
+    if output['decision'] == 'accept' and (output['contradictions'] or not supports_event(found, event['window_ids'], seen)):
+        raise ValueError('accept needs event support and no unresolved contradictions')
+    return output
