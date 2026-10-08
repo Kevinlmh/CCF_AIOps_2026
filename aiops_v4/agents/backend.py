@@ -130,10 +130,11 @@ class HTTPBackend:
 
 
 class ReplayBackend:
-    def __init__(self, model, entries):
+    def __init__(self, model, entries, capture_requests=True):
         if not isinstance(model, str) or not model.strip():
             raise ValueError('model required even for simulated replay')
         self.model, self.entries, self.requests = model, {}, []
+        self.capture_requests = capture_requests
         for entry in entries:
             if not isinstance(entry, dict) or set(entry) - {'role', 'case_id', 'turn', 'message', 'usage'}:
                 raise ValueError('invalid replay entry')
@@ -147,7 +148,8 @@ class ReplayBackend:
         return dict(kind='replay', simulated=True, model=self.model)
 
     def complete(self, messages, tools, *, role, case_id, turn):
-        self.requests.append(loads(dumps(dict(role=role, case_id=case_id, turn=turn, messages=messages, tools=tools))))
+        if self.capture_requests:
+            self.requests.append(loads(dumps(dict(role=role, case_id=case_id, turn=turn, messages=messages, tools=tools))))
         entry = self.entries.get((role, case_id, turn))
         if entry is None:
             raise BackendError('replay_missing')

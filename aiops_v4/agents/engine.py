@@ -28,14 +28,16 @@ def run_role(backend, session, role, case_id, payload, budget=Budget()):
     tools, trace, usage, call_count = tool_definitions(), [], {}, 0
     result = dict(role=role, case_id=case_id, status='deferred', output=None, error_code=None,
                   model=backend.model, backend=backend.metadata(), prompt_version=PROMPT_VERSION,
-                  budget=asdict(budget), trace=trace, usage=usage)
+                  budget=asdict(budget), trace=trace, usage=usage, backend_calls=0, usage_reported_calls=0)
     try:
         for turn in range(budget.max_turns):
             request = dict(messages=messages, tools=tools, model=backend.model)
             serialized = dumps(request)
             if len(serialized) > budget.max_prompt_chars:
                 raise BackendError('prompt_char_budget')
+            result['backend_calls'] += 1
             completion = backend.complete(messages, tools, role=role, case_id=case_id, turn=turn)
+            result['usage_reported_calls'] += int('total_tokens' in completion.usage)
             response_text = dumps(completion.message)
             for key, count in completion.usage.items():
                 usage[key] = usage.get(key, 0) + count

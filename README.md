@@ -1,12 +1,12 @@
 # CCF AIOps 2026 · v4
 
-v4 采用“统计特征与轻量聚类发现运行状态，规则补充异常线索，同一个 LLM 通过多个角色完成事件确认、根因定位和故障分类”的混合架构。已实现原始数据基础层、窗口特征、稳健参考尺度、轻量聚类、规则候选事件、审阅证据包和只读查询。
+v4 采用“统计特征与轻量聚类发现运行状态，规则补充异常线索，同一个 LLM 通过多个角色完成事件确认、根因定位和故障分类”的混合架构。已实现原始数据基础层、窗口特征、稳健参考尺度、轻量聚类、规则候选事件、审阅证据包、共享 LLM 后端、独立角色诊断、一致性复核和官方 JSONL 导出。
 
-总体方案见 [v4 设计](docs/superpowers/specs/2026-10-08-v4-design.md)，窗口定义见 [窗口特征设计](docs/superpowers/specs/2026-10-08-v4-window-features-design.md)，状态发现见 [第三阶段设计](docs/superpowers/specs/2026-10-08-v4-state-discovery-design.md)。LLM Agent 与官方诊断导出尚未实现。
+总体方案见 [v4 设计](docs/superpowers/specs/2026-10-08-v4-design.md)，窗口定义见 [窗口特征设计](docs/superpowers/specs/2026-10-08-v4-window-features-design.md)，状态发现见 [第三阶段设计](docs/superpowers/specs/2026-10-08-v4-state-discovery-design.md)。角色与导出设计见 [LLM 角色设计](docs/superpowers/specs/2026-10-08-v4-llm-roles-design.md)。真实模型效果、全量评测与消融尚待下一批验证。
 
 原始数据层见 [数据基础交付记录](docs/v4-data-foundation-2026-10-08.md)；本步实现、实测结论和下一步任务见 [窗口特征交付记录](docs/v4-window-features-2026-10-08.md)。
 
-设计回顾见 [架构一致性检查](docs/v4-design-audit-2026-10-08.md)，最新进展见 [证据包交付记录](docs/v4-evidence-bundles-2026-10-08.md)。
+设计回顾见 [架构一致性检查](docs/v4-design-audit-2026-10-08.md)，证据层见 [证据包交付记录](docs/v4-evidence-bundles-2026-10-08.md)，最新进展见 [多角色诊断交付记录](docs/v4-llm-roles-2026-10-08.md)。
 
 ## 保留内容
 
@@ -197,3 +197,35 @@ v3 分支及标签 `v3-archive-2026-10-08` 保留原版本，归档提交为 `5e
 ```
 
 归档中的 `manifest.json` 记录移动项；`protected-before.json` 记录保留目录及提交脚本的文件元数据。
+
+## 共享 LLM 与多角色诊断
+
+`aiops_v4/agents/` 使用一个后端和一个配置模型，分别启动事件确认、根因定位、故障分类及复核会话。定位和分类读取相同输入且互不读取结论。窗口覆盖、引用、观测边界、官方设备和类别由程序校验；证据不足或预算耗尽会保留待判断记录。
+
+```bash
+# 已有的 contract 2 证据索引；首先显式选择小范围运行。
+# 预先配置 AIOPS_LLM_MODEL、AIOPS_LLM_BASE_URL 和 AIOPS_LLM_API_KEY。
+python -m aiops_v4.agents diagnose \
+  --database outputs/v4/evidence-bundles/20261008/public-reviewed/evidence.sqlite \
+  --batch public-case-001 --backend http \
+  --model "${AIOPS_LLM_MODEL}" --base-url "${AIOPS_LLM_BASE_URL}" \
+  --api-key-env AIOPS_LLM_API_KEY --limit-bundles 5 \
+  --output-dir outputs/v4/my-run/real-roles
+
+# 离线协议回放：每行按 role/case_id/turn 提供 assistant message；明确标为 simulated。
+# 示例 fixture 已在本地生成；选择信息见同目录 public-replay-selection.json。
+python -m aiops_v4.agents diagnose \
+  --database outputs/v4/evidence-bundles/20261008/public-reviewed/evidence.sqlite \
+  --batch public-case-001 --backend replay --model replay-contract-fixture \
+  --replay-file outputs/v4/llm-roles/20261008/public-replay-fixture.jsonl \
+  --bundle-id e9bc6efa8ec9428d6dd983f0148624f68def2ecfdd0c00feea401718ee2f5fc3 \
+  --output-dir outputs/v4/my-run/replay-roles
+```
+
+HTTP 后端要求兼容 `/chat/completions` 的 JSON 和 function tools；base URL 通常以 `/v1` 结尾。密钥只从指定环境变量读取。模型没有默认值，未运行真实付费模型实验。HTTP 不自动重试，网络错误不会转为模拟。接口依据 [OpenAI Docs：Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) 和 [Function calling](https://developers.openai.com/api/docs/guides/function-calling)。
+
+新目录包含 `bundles.jsonl`（候选窗口分配/未处理原因）、`roles.jsonl`（消息哈希、响应、只读工具和用量）、`diagnoses.jsonl`（证据解释与待判断）、`predictions.jsonl`（官方五字段）和最后发布的 `summary.json`。根因排序最多导出前五个，不补齐；仅复核接受的完整诊断可导出。
+
+默认每角色 6 轮、12 次工具调用、120000 输入字符、32000 响应字符，每 bundle 2000 个候选窗口；`--max-*` 可调整。这些是执行预算。`--max-completion-tokens` 调整 HTTP 单次生成上限（默认 4096）。工具大 JSON 显式分块，完整读取后才可引用。API 未报告的用量标为不完整；不把未知用量记作零成本。
+
+`selection_complete` 表示当前索引的 bundle 是否全部选择；`diagnosis_complete` 表示整个索引队列是否全部得到非待判断结果。原始数据是否全量另看 `input_scope.complete`，两者不能等同原始批次全部处理。观测边界不是物理故障起止，自报置信度未校准，合法 JSONL 不等于诊断准确。完整原始数据入口、评测/消融和容器复现属于下一批。

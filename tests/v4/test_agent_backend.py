@@ -80,3 +80,10 @@ def test_replay_is_explicit_and_exact_not_fallback():
     with pytest.raises(backend().BackendError, match='replay_missing'):
         api.complete([], [], role='classification', case_id='bundle', turn=0)
     with pytest.raises(ValueError): backend().ReplayBackend('fixture-model', [entry, entry])
+
+
+def test_replay_can_run_without_retaining_prompt_bodies():
+    api = backend().ReplayBackend('fixture-model', [dict(role='confirmation', case_id='bundle', turn=0,
+        message={'role': 'assistant', 'content': '{}'})], capture_requests=False)
+    api.complete([{'role': 'user', 'content': 'large evidence snapshot'}], [], role='confirmation', case_id='bundle', turn=0)
+    assert api.requests == []
