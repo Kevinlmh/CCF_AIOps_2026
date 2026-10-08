@@ -7,3 +7,5 @@ Ruling: keep current user-selectedv4 and execute inline — no concurrent implem
 Ruling: topology is an explicit provenance-bearing adapter, not fabricated role edges — missing real link data stays visible; no propagation/root-cause inference.
 Ruling: association bundles are review contexts, not merged fault intervals — native membership persists, transitive overlaps can contain multiple hypotheses.
 Pre-flight: Task1 packet/grain IDs consumed by Task3 indexed events/states; Task2 verified RawRecord matches producer ID/schema and feature time strategy; Task3 disk tables supply bounded support/counter/quality rows to Task1. Interfaces consistent.
+
+Task 1: RED 8 missing-module failures; GREEN full suite 137/137. Streaming strict-overlap bundles, native-grain bounded packets and provenance-bearing topology validation implemented. Full members will be assigned from indexed original events in Task 3.

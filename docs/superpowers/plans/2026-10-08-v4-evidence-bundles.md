@@ -27,9 +27,9 @@
 
 Files aiops_v4/evidence/{__init__,association,packet}.py, tests/v4/test_evidence_bundles.py.
 Interfaces iter_bundles(ordered_events,batch)->iterator[dict]; load_topology(path)->dict; compact_observation(state,matrix)->dict; make_packet(bundle,support,counter,quality,source_metadata,relations,limits)->dict.
-- [ ] Literal tests overlap/touch/gap/entity/aux, topology endpoint/source validation, untriggered vs unscorable, packet/ref caps and flags.
-- [ ] Run test file, expected missing implementation failures.
-- [ ] Implement interfaces, full suite green; commit.
+- [x] Literal tests overlap/touch/gap/entity/aux, topology endpoint/source validation, untriggered vs unscorable, packet/ref caps and flags.
+- [x] Run test file, expected missing implementation failures.
+- [x] Implement interfaces, full suite green; commit.
 
 ## Task 2: Verified raw retrieval
 
