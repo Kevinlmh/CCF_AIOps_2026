@@ -11,3 +11,5 @@ Execution: current user-selected v4 checkout, sequential implementation. No mode
 Task 1: complete — 17 new reader tests + 9 shared tests pass (26 total), including full multiline logs and seven sources.
 
 Task 2: complete — bounded profiles, role/metric separation, explicit prefix sampling, errors and quality counts; full suite 37 passed.
+
+Task 3: complete — atomic non-overwriting SQLite snapshots, persisted scan scope and batch-scoped read-only evidence queries; full suite 47 passed.
