@@ -189,7 +189,8 @@ class RecordReader:
             flags.append("city_conflict")
         names = ("hostname", "node") if source == "frr" else ("node_key", "node")
         node_id = next((node for field in names if (node := _node(raw.get(field), city))), None)
-        if source == "traffic" and city:
+        # An explicit auxiliary name must not be replaced by a candidate role.
+        if source == "traffic" and city and all(is_missing(raw.get(field)) for field in names):
             node_id = f"{city}-traffic-vm"
             flags.append("entity_from_source_role")
         if node_id is None:

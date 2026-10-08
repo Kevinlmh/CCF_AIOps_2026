@@ -4,7 +4,7 @@ v4 采用“统计特征与轻量聚类发现运行状态，规则补充异常�
 
 总体方案见 [v4 设计](docs/superpowers/specs/2026-10-08-v4-design.md)，窗口定义见 [窗口特征设计](docs/superpowers/specs/2026-10-08-v4-window-features-design.md)。参考尺度、聚类、规则事件和 LLM Agent 尚未实现。
 
-本步交付、实测数据结论和下一步任务见 [数据基础交付记录](docs/v4-data-foundation-2026-10-08.md)。
+原始数据层见 [数据基础交付记录](docs/v4-data-foundation-2026-10-08.md)；本步实现、实测结论和下一步任务见 [窗口特征交付记录](docs/v4-window-features-2026-10-08.md)。
 
 ## 保留内容
 
