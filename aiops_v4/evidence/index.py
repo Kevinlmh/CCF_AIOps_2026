@@ -13,7 +13,7 @@ def create_index(path):
         PRAGMA foreign_keys=ON;
         PRAGMA temp_store=FILE;
         PRAGMA cache_size=-8192;
-        PRAGMA user_version=1;
+        PRAGMA user_version=2;
         CREATE TABLE metadata(key TEXT PRIMARY KEY,payload TEXT NOT NULL);
         CREATE TABLE models(grp TEXT PRIMARY KEY,payload TEXT NOT NULL);
         CREATE TABLE states(id TEXT PRIMARY KEY,entity TEXT,grp TEXT REFERENCES models(grp),
@@ -50,6 +50,11 @@ def metadata(db, key):
     return _load(row[0])
 
 
+def scoring_provenance(summary):
+    return {key: summary[key] for key in ('reference_scope', 'config', 'input_scope',
+                                         'input_summary_sha256', 'input_windows_sha256')}
+
+
 @contextmanager
 def read_index(database, batch):
     if not isinstance(batch, str) or not batch.strip():
@@ -58,8 +63,8 @@ def read_index(database, batch):
     db = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)
     try:
         db.execute('PRAGMA query_only=ON')
-        if db.execute('PRAGMA user_version').fetchone()[0] != 1 or metadata(db, 'batch') != batch:
-            raise ValueError('evidence database schema/batch mismatch')
+        if db.execute('PRAGMA user_version').fetchone()[0] != 2 or metadata(db, 'batch') != batch:
+            raise ValueError('evidence database schema/batch mismatch; rebuild old packet contracts into a new directory')
         yield db
     finally:
         db.close()
@@ -104,6 +109,7 @@ def query_evidence(database, batch, kind, *, bundle_id=None, entity_id=None, sou
         query += ' WHERE ' + ' AND '.join(predicates)
     query += ' ORDER BY ' + ordering + ' LIMIT ? OFFSET ?'
     with read_index(database, batch) as db:
+        provenance = scoring_provenance(metadata(db, 'state_summary'))
         if bundle_id is not None and db.execute('SELECT 1 FROM bundles WHERE id=?', (bundle_id,)).fetchone() is None:
             raise ValueError('unknown bundle_id')
         rows = []
@@ -111,6 +117,7 @@ def query_evidence(database, batch, kind, *, bundle_id=None, entity_id=None, sou
             result = _load(row[0])
             if kind == 'states':
                 result['matrix'] = _load(row[1])
+            result['scoring_provenance'] = provenance
             rows.append(result)
         return rows
 

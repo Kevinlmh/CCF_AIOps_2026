@@ -33,6 +33,7 @@ def make_packet(bundle, support, counter, quality, source_metadata, relations, l
     counter = [o for o in counter if o.get('candidate') is False and o.get('scoring_status') == 'scored']
     lists = {'support': support, 'observations_without_current_trigger': counter, 'quality_context': quality}
     result = dict(bundle)
+    result['schema_version'] = 2
     totals = limits.get('totals', {})
     result['observation_counts'] = {key: totals.get(key, len(value)) for key, value in lists.items()}
     result['truncation'] = {key: result['observation_counts'][key] > cap for key in lists}
@@ -56,6 +57,15 @@ def make_packet(bundle, support, counter, quality, source_metadata, relations, l
                 truncated = True
     result['references'], result['references_truncated'] = refs, truncated
     result['truncation']['references'] = truncated
+    # One budget covers the entire packet, including nested observation anchors.
+    # Omitted anchors remain available through full states in the persistent index.
+    for kind in lists:
+        compact = []
+        for obs in result[kind]:
+            kept = [ref for ref in obs.get('references', []) if ref['record_id'] in ids]
+            removed = len(kept) != len(obs.get('references', []))
+            compact.append(dict(obs, references=kept, references_truncated=obs.get('references_truncated', False) or removed))
+        result[kind] = compact
     limitations = ['semantic_units_not_fully_verified', 'association_not_confirmed_fault', 'bundle_envelope_not_fault_duration']
     for source, info in sorted(source_metadata.get('sources', {}).items()):
         if not info.get('files') or not info.get('rows'):

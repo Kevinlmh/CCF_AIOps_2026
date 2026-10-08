@@ -11,8 +11,9 @@ from aiops_v4.data.reader import utc_time
 from aiops_v4.features.time import iso_time, time_zone
 from aiops_v4.features.series import VIEWS
 from aiops_v4.states.pipeline import _load, _dump
+from aiops_v4.states.matrix import window_vector
 from .association import iter_bundles, load_topology
-from .index import create_index, put_metadata
+from .index import create_index, put_metadata, scoring_provenance
 from .packet import compact_observation, make_packet
 from .raw import resolve_references, validate_reference
 
@@ -61,11 +62,20 @@ def _add_anchor(db, ref, manifest):
         db.execute('INSERT INTO anchors VALUES (?,?,?,?)', (ref['record_id'], ref['source_file'], ref['record_index'], payload))
 
 
-def _import(db, root, batch, state_summary, window_summary):
+def _import(db, root, windows, batch, state_summary, window_summary):
     counts, sources, hashes = Counter(), Counter(), {}
     manifest = {entry['path']: entry for entry in window_summary['files']}
     if len(manifest) != len(window_summary['files']):
         raise ValueError('duplicate raw manifest file')
+    # The summary hash identifies the linked window artifact. Independently derive
+    # its vectors so a genuine summary from a different run cannot bless old files.
+    db.execute('CREATE TEMP TABLE linked_vectors(id TEXT PRIMARY KEY,payload TEXT NOT NULL)')
+    window_hashes = {}
+    for window in _rows(windows / 'windows.jsonl', window_hashes):
+        vector = window_vector(window, batch)
+        db.execute('INSERT INTO linked_vectors VALUES (?,?)', (vector['vector_id'], _dump(vector)))
+    if window_hashes['windows.jsonl'] != state_summary['input_windows_sha256']:
+        raise ValueError('linked windows changed during import')
     for model in _rows(root / 'models.jsonl', hashes):
         group = model['group_id']
         reference = model['reference']
@@ -84,6 +94,12 @@ def _import(db, root, batch, state_summary, window_summary):
         start, end = _interval(state)
         if state.get('schema_version') != 1 or matrix.get('schema_version') != 1 or state['batch'] != batch:
             raise ValueError('state/matrix batch or schema mismatch')
+        expected = db.execute('SELECT payload FROM linked_vectors WHERE id=?', (matrix['vector_id'],)).fetchone()
+        derived = {k: v for k, v in matrix.items() if k != 'in_reference'}
+        scope = state_summary['reference_scope']
+        in_reference = scope['mode'] == 'offline_same_batch' or (scope['start'] <= start and end <= scope['end'])
+        if expected is None or expected[0] != _dump(derived) or matrix.get('in_reference') is not in_reference or state['is_reference'] is not in_reference:
+            raise ValueError('imported matrix/state does not match linked window and reference scope')
         if state['source'] not in VIEWS or state['view'] != VIEWS[state['source']] or type(state['candidate']) is not bool:
             raise ValueError('invalid native source/view/candidate')
         entity, group = state['identity']['entity_id'], state['group_id']
@@ -108,6 +124,10 @@ def _import(db, root, batch, state_summary, window_summary):
         start, end = _interval(event)
         if event.get('schema_version') != 1 or event['batch'] != batch or event.get('needs_confirmation') is not True:
             raise ValueError('event schema/batch/confirmation mismatch')
+        if not isinstance(event['references'], list) or len(event['references']) > 16:
+            raise ValueError('event references exceed producer capacity')
+        requested_refs = {ref['record_id'] for ref in event['references']}
+        member_refs = set()
         db.execute('INSERT INTO events VALUES (?,?,?,?,?,?)',
                    (event['event_id'], event['identity']['entity_id'], event['group_id'], start, end, _dump(event)))
         member_count, ids, prior_end = 0, [], None
@@ -119,6 +139,7 @@ def _import(db, root, batch, state_summary, window_summary):
             if (prior_end is None and state['start_time'] != start) or (prior_end is not None and state['start_time'] != prior_end):
                 raise ValueError('event member windows must be contiguous')
             prior_end = state['end_time']
+            member_refs.update(ref['record_id'] for ref in state['references'] if ref['record_id'] in requested_refs)
             member_count += 1
             if len(ids) < 64:
                 ids.append(state['vector_id'])
@@ -130,6 +151,8 @@ def _import(db, root, batch, state_summary, window_summary):
             old = db.execute('SELECT payload FROM anchors WHERE id=?', (ref['record_id'],)).fetchone()
             if old is None or old[0] != _dump(canonical):
                 raise ValueError('event reference missing from indexed states')
+            if ref['record_id'] not in member_refs:
+                raise ValueError('event reference ownership does not match its member windows')
         counts['events'] += 1
     for local, expected in [('states', 'states'), ('groups', 'groups'), ('ready_models', 'ready_models'),
                             ('candidate_windows', 'candidate_windows'), ('events', 'candidate_events')]:
@@ -141,6 +164,9 @@ def _import(db, root, batch, state_summary, window_summary):
         raise ValueError('not every candidate state has exactly one event')
     if db.execute('SELECT count(DISTINCT grp) FROM states').fetchone()[0] != counts['groups']:
         raise ValueError('orphan model or missing group')
+    if db.execute('SELECT count(*) FROM linked_vectors').fetchone()[0] != counts['states']:
+        raise ValueError('linked window/matrix count mismatch')
+    db.execute('DROP TABLE linked_vectors')
     return counts, hashes
 
 
@@ -173,7 +199,7 @@ def _relations(db, topology):
                 db.execute('INSERT INTO relations VALUES (?,?,?,?)', (a, b, edge['relation'], _dump(payload)))
 
 
-def _context(db, bundle, seconds, cap, window_summary, topology, skip_raw):
+def _context(db, bundle, seconds, cap, state_summary, window_summary, topology, skip_raw):
     start = iso_time(datetime.fromisoformat(bundle['start_time'].replace('Z', '+00:00')) - timedelta(seconds=seconds))
     end = iso_time(datetime.fromisoformat(bundle['end_time'].replace('Z', '+00:00')) + timedelta(seconds=seconds))
     scopes = {
@@ -196,8 +222,10 @@ def _context(db, bundle, seconds, cap, window_summary, topology, skip_raw):
         context_start=start, context_end=end, raw_materialized=not skip_raw,
         topology_available=topology['available'], topology_provenance=topology['provenance'],
         selection='earliest_time_then_source_and_native_group; bounded_examples_not_exhaustive')
-    return make_packet(bundle, observations['support'], observations['observations_without_current_trigger'],
-                       observations['quality_context'], source_metadata, relations, dict(observations_per_kind=cap, totals=totals))
+    packet = make_packet(bundle, observations['support'], observations['observations_without_current_trigger'],
+                         observations['quality_context'], source_metadata, relations, dict(observations_per_kind=cap, totals=totals))
+    packet['scoring_provenance'] = scoring_provenance(state_summary)
+    return packet
 
 
 def _publish(scratch, output):
@@ -241,6 +269,13 @@ def build_evidence(states_dir, batch, output_dir, *, raw_root=None, skip_raw=Fal
         raise ValueError('upstream summary/windows hash link mismatch')
     if any(state_summary['input_scope'].get(k) != window_summary.get(k) for k in state_summary['input_scope']):
         raise ValueError('upstream scope metadata mismatch')
+    scope = state_summary['reference_scope']
+    if scope.get('known_healthy') is not False or scope.get('mode') not in {'explicit_interval', 'offline_same_batch'}:
+        raise ValueError('invalid reference scope')
+    if scope['mode'] == 'explicit_interval':
+        _interval(dict(start_time=scope['start'], end_time=scope['end']))
+    elif scope.get('start') is not None or scope.get('end') is not None:
+        raise ValueError('offline reference scope must not have interval bounds')
     raw = Path(raw_root if raw_root is not None else window_summary['input_root']).resolve()
     output = output.resolve()
     inputs = (root, windows, raw, Path(window_summary['input_root']).resolve())
@@ -253,7 +288,7 @@ def build_evidence(states_dir, batch, output_dir, *, raw_root=None, skip_raw=Fal
         scratch = Path(temporary)
         db = create_index(scratch / 'evidence.sqlite')
         try:
-            counts, hashes = _import(db, root, batch, state_summary, window_summary)
+            counts, hashes = _import(db, root, windows, batch, state_summary, window_summary)
             counts['bundles'] = _associate(db, batch)
             _relations(db, topology)
             for key, value in dict(batch=batch, raw_root=str(raw), raw_manifest=window_summary['files'],
@@ -262,7 +297,7 @@ def build_evidence(states_dir, batch, output_dir, *, raw_root=None, skip_raw=Fal
                 put_metadata(db, key, value)
             with (scratch / 'bundles.jsonl').open('w', encoding='utf-8') as stream:
                 for bundle_id, payload in db.execute('SELECT id,payload FROM bundles ORDER BY entity,start,id'):
-                    packet = _context(db, _load(payload), context_seconds, observations_per_kind, window_summary, topology, skip_raw)
+                    packet = _context(db, _load(payload), context_seconds, observations_per_kind, state_summary, window_summary, topology, skip_raw)
                     stream.write(_dump(packet) + '\n')
                     db.execute('UPDATE bundles SET payload=? WHERE id=?', (_dump(packet), bundle_id))
                     for ref in packet['references']:
@@ -282,7 +317,7 @@ def build_evidence(states_dir, batch, output_dir, *, raw_root=None, skip_raw=Fal
             raise ValueError(f'invalid/inconsistent evidence input: {error}') from error
         finally:
             db.close()
-        summary = dict(schema_version=1, batch=batch, states_dir=str(root), windows_dir=str(windows), raw_root=str(raw),
+        summary = dict(schema_version=2, batch=batch, states_dir=str(root), windows_dir=str(windows), raw_root=str(raw),
                        output_dir=str(output), input_state_summary_sha256=hashlib.sha256(state_bytes).hexdigest(),
                        input_artifact_sha256=hashes, input_windows_sha256=state_summary['input_windows_sha256'],
                        input_scope=state_summary['input_scope'], reference_scope=state_summary['reference_scope'],

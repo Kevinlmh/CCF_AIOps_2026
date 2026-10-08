@@ -224,3 +224,101 @@ def test_direct_topology_touching_intervals_do_not_create_relation(tmp_path):
     topology.write_text(json.dumps(dict(provenance='test', edges=[dict(a='xian-br-1', b='xian-br-2', relation='link')])))
     summary = module('pipeline').build_evidence(states, 'stage2', out, topology=topology)
     assert summary['bundles'] == 2 and summary['relations'] == 0
+
+
+@pytest.mark.parametrize('entity', ['xian-br-2', 'xian-br-1'])
+def test_event_cannot_borrow_a_registered_anchor_outside_its_members(tmp_path, entity):
+    _, _, states = inputs(tmp_path, interfaces=0)
+    source_states = [json.loads(l) for l in (states / 'states.jsonl').read_text().splitlines()]
+    foreign = next(s['references'][0] for s in source_states if s['identity']['entity_id'] == entity and s['start_time'] == '2026-09-17T04:00:00.000000Z')
+    path = states / 'events.jsonl'; events = [json.loads(l) for l in path.read_text().splitlines()]
+    next(e for e in events if e['identity']['entity_id'] == 'xian-br-1')['references'] = [foreign]
+    path.write_text(''.join(json.dumps(e) + '\n' for e in events))
+    out = tmp_path / 'evidence'
+    with pytest.raises(ValueError, match='member|ownership'):
+        module('pipeline').build_evidence(states, 'stage2', out)
+    assert not out.exists()
+
+
+def test_role_queries_expose_reference_scope_and_trigger_configuration(tmp_path):
+    _, _, states = inputs(tmp_path, interfaces=0)
+    out = tmp_path / 'evidence'
+    module('pipeline').build_evidence(states, 'stage2', out, skip_raw=True)
+    db = out / 'evidence.sqlite'
+    packet = module('index').query_evidence(db, 'stage2', 'bundle')[0]
+    state = module('index').query_evidence(db, 'stage2', 'states', source='node', limit=1)[0]
+    model = module('index').query_evidence(db, 'stage2', 'model', group_id=state['group_id'])[0]
+    for result in (packet, state, model):
+        provenance = result['scoring_provenance']
+        assert provenance['reference_scope']['start'] == '2026-09-17T04:00:00.000000Z'
+        assert provenance['reference_scope']['end'] == '2026-09-17T04:12:00.000000Z'
+        assert provenance['reference_scope']['known_healthy'] is False
+        assert provenance['config']['stat_threshold'] == 6
+        assert provenance['config']['cluster_threshold'] == 3
+        assert provenance['config']['rules_enabled'] is True
+        assert provenance['config']['mode'] == 'hybrid'
+    serialized = json.loads((out / 'bundles.jsonl').open().readline())
+    assert serialized['scoring_provenance'] == packet['scoring_provenance']
+
+
+def test_role_provenance_preserves_offline_and_nondefault_trigger_policy(tmp_path):
+    _, windows, _ = inputs(tmp_path, interfaces=0)
+    states = tmp_path / 'offline-states'
+    discover_states(windows, 'stage2', states, mode='statistics', rules_enabled=False,
+                    stat_threshold=17, cluster_threshold=9)
+    out = tmp_path / 'evidence'
+    module('pipeline').build_evidence(states, 'stage2', out, skip_raw=True)
+    db = out / 'evidence.sqlite'
+    state = module('index').query_evidence(db, 'stage2', 'states', limit=1)[0]
+    p = state['scoring_provenance']
+    assert p['reference_scope'] == dict(mode='offline_same_batch', start=None, end=None, known_healthy=False)
+    assert p['config']['mode'] == 'statistics' and p['config']['rules_enabled'] is False
+    assert p['config']['stat_threshold'] == 17 and p['config']['cluster_threshold'] == 9
+
+
+def test_packet_total_anchor_budget_includes_nested_observations(tmp_path):
+    _, _, states = inputs(tmp_path)
+    out = tmp_path / 'evidence'
+    module('pipeline').build_evidence(states, 'stage2', out)
+    db = out / 'evidence.sqlite'
+    for p in module('index').query_evidence(db, 'stage2', 'bundle'):
+        listed = {r['record_id'] for r in p['references']}
+        all_ids = set(listed)
+        for kind in ('support', 'observations_without_current_trigger', 'quality_context'):
+            for obs in p[kind]:
+                all_ids.update(r['record_id'] for r in obs['references'])
+        assert all_ids == listed and len(all_ids) <= 32
+        with module('index').read_index(db, 'stage2') as c:
+            materialized = {r[0] for r in c.execute('SELECT id FROM raw_records')}
+        assert all_ids <= materialized
+        if p['entity_id'] == 'xian-br-1':
+            assert any(o['references_truncated'] for o in p['observations_without_current_trigger'])
+
+
+def test_genuine_other_run_summary_cannot_relabel_matrix_provenance(tmp_path):
+    raw_a, _, states_a = inputs(tmp_path / 'a', interfaces=0)
+    raw_b, windows_b, states_b = inputs(tmp_path / 'b', interfaces=0)
+    # Both inputs are genuine producer runs, with identical grains but different data.
+    for path in raw_b.rglob('node_metrics.csv'):
+        path.write_text(path.read_text().replace(',90', ',77'))
+    windows_b2, states_b2 = tmp_path / 'b' / 'windows-new', tmp_path / 'b' / 'states-new'
+    build_features(raw_b, 'stage2', windows_b2, naive_timezone='UTC')
+    discover_states(windows_b2, 'stage2', states_b2, reference_start='2026-09-17T04:00:00Z', reference_end='2026-09-17T04:12:00Z')
+    (states_a / 'summary.json').write_bytes((states_b2 / 'summary.json').read_bytes())
+    out = tmp_path / 'evidence'
+    with pytest.raises(ValueError, match='linked|window.*matrix|matrix.*window'):
+        module('pipeline').build_evidence(states_a, 'stage2', out, raw_root=raw_a)
+    assert not out.exists()
+
+
+def test_old_packet_contract_database_is_rejected_without_rewriting(tmp_path):
+    _, _, states = inputs(tmp_path, interfaces=0)
+    out = tmp_path / 'evidence'
+    module('pipeline').build_evidence(states, 'stage2', out, skip_raw=True)
+    db = out / 'evidence.sqlite'
+    with sqlite3.connect(db) as c:
+        c.execute('PRAGMA user_version=1')
+    before = sha(db)
+    with pytest.raises(ValueError, match='schema|contract'):
+        module('index').query_evidence(db, 'stage2', 'bundle')
+    assert sha(db) == before
