@@ -9,3 +9,5 @@ Official website data/rules read through browser on 2026-10-08: stage2 omits det
 Time corroboration: all 477 public traffic records have Unix last-batch times; 474 are within ten minutes of CSV time under UTC and zero under Asia/Shanghai. This supports UTC, does not prove every source timezone.
 
 Task 1: complete — semantic/time/auxiliary policies, snapshot routing counts exempted from generic _count rule; full suite 67 passed.
+
+Task 2: complete — bounded series windows and provenance, missing/invalid/duplicate/conflict distinctions, counter breaks, peer grains, additive NetFlow quantities and bounded quantiles; full suite 75 passed.
