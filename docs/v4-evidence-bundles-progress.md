@@ -11,3 +11,6 @@ Pre-flight: Task1 packet/grain IDs consumed by Task3 indexed events/states; Task
 Task 1: RED 8 missing-module failures; GREEN full suite 137/137. Streaming strict-overlap bundles, native-grain bounded packets and provenance-bearing topology validation implemented. Full members will be assigned from indexed original events in Task 3.
 
 Task 2: Initial test collection import corrected before RED; RED 9 missing-module failures; GREEN full suite 146/146. Disk-sorted references, single pass to maximum selected row, content/physical-line verification, complete log preservation and explicit observed_time implemented.
+
+Task 3: RED 14 missing implementation/entrypoint failures. First integration exposed that empty explicit reference intervals legitimately have reference.group_id=None; validation now accepts this only for zero observed rows with insufficient_reference. GREEN full suite 163/163; producer-driven tests include 37-member paged bundle, raw/on-demand anchors, long FRR, prefix scope, direct topology overlap, mutation rejection and publication rollback/read-only invariance.
+Task 3: Ruling: retain all state anchors in a disk index, while materializing only packet anchors — allows role tools to retrieve references omitted from compact packets without rescanning the whole dataset; cost is a larger SQLite index.

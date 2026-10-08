@@ -5,7 +5,7 @@ def compact_observation(state, matrix):
     fields = ('vector_id', 'group_id', 'batch', 'source', 'view', 'identity', 'dimensions',
               'start_time', 'end_time', 'candidate', 'scoring_status', 'reference_status',
               'is_reference', 'feature_coverage', 'time_coverage', 'stat_score',
-              'cluster_id', 'cluster_distance', 'cluster_support_basis', 'state_changed')
+              'cluster_id', 'cluster_distance', 'cluster_reference_support', 'cluster_support_basis', 'state_changed')
     result = {k: state[k] for k in fields if k in state}
     result['drivers'] = state.get('drivers', [])[:5]
     selected = {d.get('feature') for d in result['drivers']}
@@ -13,13 +13,14 @@ def compact_observation(state, matrix):
     result['feature_values'] = {k: v for k, v in features.items() if k in selected}
     # Binary facts (including recovered last values) remain visible to role agents.
     rule_inputs = matrix.get('rule_inputs', {})
-    binary = [(k, v) for k, v in rule_inputs.items() if v.get('kind') == 'binary' or k == 'up']
-    result['rule_inputs'] = dict(binary[:16])
+    proof_metrics = {s.split(':', 1)[1] for s in state.get('rule_signals', []) if ':' in s}
+    selected_rules = [(k, v) for k, v in rule_inputs.items() if v.get('unit') in {'binary', 'state_code'} or k in proof_metrics or k == 'up']
+    result['rule_inputs'] = dict(selected_rules[:16])
     result['references'] = state.get('references', [])[:4]
     result['references_truncated'] = state.get('references_truncated', False) or len(state.get('references', [])) > 4
     for field in ('statistical_signals', 'cluster_signals', 'rule_signals', 'quality_signals', 'quality_flags', 'triggers', 'unseen_categories'):
         result[field] = state.get(field, [])[:8]
-    result['details_truncated'] = len(binary) > 16 or any(len(state.get(f, [])) > 8 for f in
+    result['details_truncated'] = len(selected_rules) > 16 or any(len(state.get(f, [])) > 8 for f in
         ('statistical_signals', 'cluster_signals', 'rule_signals', 'quality_signals', 'quality_flags', 'triggers', 'unseen_categories'))
     return result
 
