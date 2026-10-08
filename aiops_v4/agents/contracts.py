@@ -17,7 +17,7 @@ def text(value):
 
 
 def confidence(value):
-    if type(value) not in {int, float} or not math.isfinite(value) or not 0 <= value <= 1:
+    if type(value) not in {int, float} or not 0 <= value <= 1 or not math.isfinite(value):
         raise ValueError('confidence must be finite in [0,1]')
 
 

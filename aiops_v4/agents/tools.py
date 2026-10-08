@@ -9,6 +9,15 @@ def entity_of(row):
     return row.get('entity_id') or identity.get('network_element_id') or identity.get('entity_id')
 
 
+def _annotate_relation(row):
+    # Query-level scoring metadata is not part of a relation's identity.
+    fields = ('bundle_id', 'other_bundle_id', 'other_entity_id', 'start_time', 'end_time',
+              'relation', 'provenance', 'interpretation')
+    basis = {key: row[key] for key in fields}
+    row['relation_id'] = hashlib.sha256(dumps(basis).encode()).hexdigest()
+    return row['relation_id']
+
+
 class EvidenceSession:
     def __init__(self, database, batch, packet, max_chunk_chars=12000, max_cached_chars=2000000):
         if type(max_chunk_chars) is not int or not 128 <= max_chunk_chars <= 32000:
@@ -43,9 +52,8 @@ class EvidenceSession:
             return
         citation_kind, id_key = keys[kind]
         identifier = value.get(id_key)
-        if kind == 'relations' and not identifier:
-            identifier = hashlib.sha256(dumps(value).encode()).hexdigest()
-            value['relation_id'] = identifier
+        if kind == 'relations':
+            identifier = _annotate_relation(value)
         if not identifier:
             return
         entity = entity_of(value)
@@ -75,8 +83,14 @@ class EvidenceSession:
             'query_members': {'bundle_id', 'limit', 'offset'},
             'query_model': {'group_id'}, 'query_relations': {'limit', 'offset'},
             'query_raw': {'record_id'}, 'read_chunk': {'handle', 'offset'}}
-        if name not in allowed or not isinstance(args, dict) or set(args) - allowed[name]:
+        if not isinstance(name, str) or name not in allowed or not isinstance(args, dict) or set(args) - allowed[name]:
             raise ValueError('unknown tool or unsupported parameters')
+        for key, value in args.items():
+            if key in {'limit', 'offset'}:
+                if type(value) is not int or value < (1 if key == 'limit' else 0) or (key == 'limit' and value > 1000):
+                    raise ValueError('invalid integer tool parameter')
+            elif not isinstance(value, str) or not value.strip():
+                raise ValueError('tool identifiers and timestamps must be nonempty strings')
         if name == 'read_chunk':
             if set(args) != {'handle', 'offset'}:
                 raise ValueError('handle and offset required')
@@ -97,6 +111,9 @@ class EvidenceSession:
         else:
             kind = {'query_states': 'states', 'query_members': 'members', 'query_model': 'model', 'query_relations': 'relations'}[name]
             value = query_evidence(self.database, self.batch, kind, **params)
+        if kind == 'relations':
+            for row in value:
+                _annotate_relation(row)
         text = dumps(value)
         if self._cached_chars + len(text) > self.max_cached_chars:
             raise ValueError('tool cache budget exhausted; narrow query')

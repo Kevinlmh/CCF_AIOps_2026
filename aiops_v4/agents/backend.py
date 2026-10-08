@@ -1,5 +1,6 @@
 """Bounded Chat Completions adapter and explicitly simulated replay backend."""
 from dataclasses import dataclass
+from http.client import HTTPException
 import socket
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -123,7 +124,7 @@ class HTTPBackend:
         except HTTPError as error:
             error.close()
             raise BackendError('http_status_' + str(error.code)) from None
-        except (URLError, socket.timeout, TimeoutError, OSError):
+        except (URLError, HTTPException, socket.timeout, TimeoutError, OSError):
             raise BackendError('network_error') from None
         except (ValueError, KeyError, TypeError, AttributeError, RecursionError):
             raise BackendError('invalid_backend_response') from None

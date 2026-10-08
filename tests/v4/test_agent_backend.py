@@ -19,6 +19,17 @@ def server():
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             captured.append((self.path, self.headers.get('Authorization'), json.loads(self.rfile.read(int(self.headers['Content-Length'])))))
+            if reply.get('transport') == 'bad_status':
+                self.connection.sendall(b'test-secret secret-server-text\r\n\r\n')
+                self.close_connection = True
+                return
+            if reply.get('transport') == 'chunked':
+                self.send_response(200)
+                self.send_header('Transfer-Encoding', 'chunked')
+                self.end_headers()
+                self.wfile.write(b'20\r\nbroken\r\n')
+                self.close_connection = True
+                return
             self.send_response(reply['status'])
             if reply['status'] == 302:
                 self.send_header('Location', '/redirected')
@@ -87,3 +98,14 @@ def test_replay_can_run_without_retaining_prompt_bodies():
         message={'role': 'assistant', 'content': '{}'})], capture_requests=False)
     api.complete([{'role': 'user', 'content': 'large evidence snapshot'}], [], role='confirmation', case_id='bundle', turn=0)
     assert api.requests == []
+
+
+@pytest.mark.parametrize('transport', ['bad_status', 'chunked'])
+def test_http_framing_failures_never_escape_or_echo_server_text(server, transport):
+    url, captured, reply = server
+    reply['transport'] = transport
+    api = backend().HTTPBackend('fixture-model', url, 'test-secret', timeout=2)
+    with pytest.raises(backend().BackendError) as exc:
+        api.complete([], [], role='confirmation', case_id='case', turn=0)
+    assert str(exc.value) == 'network_error' and len(captured) == 1
+    assert 'test-secret' not in str(exc.value) and 'secret-server-text' not in str(exc.value)

@@ -5,6 +5,7 @@ import sys
 
 import pytest
 from test_agent_tools import evidence
+from test_agent_backend import server
 from test_agent_confirmation import assessment, cite
 from test_agent_diagnosis import confirmed, entries
 from test_agent_review_export import review
@@ -121,3 +122,52 @@ def test_failed_role_calls_are_counted_and_unreported_usage_is_explicit(evidence
     summary = pipeline().diagnose(db, 'stage2', tmp_path / 'usage', api, bundle_id=packet['bundle_id'])
     assert summary['backend_calls'] == 1 and summary['usage_reported_calls'] == 0
     assert summary['usage_complete'] is False
+
+
+def test_later_malformed_tool_call_preserves_earlier_audit_and_prediction(evidence, tmp_path):
+    from aiops_v4.evidence.index import query_evidence
+    db, packet = evidence; before = sha(db)
+    other = query_evidence(db, 'stage2', 'bundle', entity_id='xian-br-2')[0]
+    replies = replay_entries(db, packet) + [dict(role='confirmation', case_id=other['bundle_id'], turn=0,
+        message={'role': 'assistant', 'content': None, 'tool_calls': [dict(id='bad', type='function',
+            function={'name': 'query_states', 'arguments': '{"start":123}'})]})]
+    out = tmp_path / 'later-failure'
+    summary = pipeline().diagnose(db, 'stage2', out, ReplayBackend('fixture-model', replies))
+    assert summary['predictions'] == 1 and summary['bundles_deferred'] == 1
+    assert summary['selection_complete'] and not summary['diagnosis_complete']
+    assert len(rows(out / 'roles.jsonl')) == 5 and len(rows(out / 'predictions.jsonl')) == 1
+    assert rows(out / 'bundles.jsonl')[-1]['error_code'] == 'invalid_tool_query'
+    assert rows(out / 'roles.jsonl')[-1]['status'] == 'deferred' and sha(db) == before
+
+
+@pytest.mark.parametrize('role', ['confirmation', 'localization', 'classification'])
+def test_huge_confidence_defers_role_and_publishes_audit(evidence, tmp_path, role):
+    db, packet = evidence
+    replies = replay_entries(db, packet)
+    entry = next(e for e in replies if e['role'] == role)
+    output = json.loads(entry['message']['content'])
+    if role == 'confirmation': output['assessments'][0]['confidence'] = 10 ** 400
+    elif role == 'localization': output['candidates'][0]['confidence'] = 10 ** 400
+    else: output['confidence'] = 10 ** 400
+    entry['message']['content'] = json.dumps(output)
+    out = tmp_path / 'huge-confidence'
+    summary = pipeline().diagnose(db, 'stage2', out, ReplayBackend('fixture-model', replies), bundle_id=packet['bundle_id'])
+    assert summary['predictions'] == 0 and not summary['diagnosis_complete']
+    run = next(r for r in rows(out / 'roles.jsonl') if r['role'] == role)
+    assert run['status'] == 'deferred' and run['error_code'] == 'invalid_role_contract'
+    assert run['trace'] and (out / 'summary.json').is_file()
+
+
+@pytest.mark.parametrize('transport', ['bad_status', 'chunked'])
+def test_malformed_http_transport_is_deferred_with_sanitized_published_audit(evidence, tmp_path, server, transport):
+    from aiops_v4.agents.backend import HTTPBackend
+    db, packet = evidence; url, captured, reply = server
+    reply['transport'] = transport
+    out = tmp_path / 'http-failure'
+    summary = pipeline().diagnose(db, 'stage2', out, HTTPBackend('fixture-model', url, 'test-secret', timeout=2), bundle_id=packet['bundle_id'])
+    assert summary['bundles_deferred'] == 1 and summary['predictions'] == 0 and len(captured) == 1
+    assert rows(out / 'roles.jsonl')[0]['error_code'] == 'network_error'
+    assert summary['backend_calls'] == 1 and summary['usage_complete'] is False
+    for artifact in out.iterdir():
+        text = artifact.read_text()
+        assert 'test-secret' not in text and 'secret-server-text' not in text

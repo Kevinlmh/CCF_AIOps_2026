@@ -95,3 +95,19 @@ def test_independent_abstentions_and_invalid_output_are_preserved(evidence):
     assert result['classification']['result'] is None
     assert result['classification']['run']['error_code'] == 'invalid_role_contract'
     assert result['classification']['run']['trace'][0]['response']
+
+
+@pytest.mark.parametrize('role', ['confirmation', 'localization', 'classification'])
+def test_oversized_integer_confidence_is_a_controlled_contract_failure(evidence, role):
+    db, packet = evidence; event, session = confirmed(db, packet)
+    identifier = event['citations'][0]['id']
+    if role == 'confirmation':
+        item = assessment(event['window_ids'], [cite(identifier)]); item['confidence'] = 10 ** 400
+        validate = lambda: contracts().validate_confirmation({'assessments': [item]}, load_manifest(db, 'stage2', packet['bundle_id']), session.seen)
+    elif role == 'localization':
+        item = localization(identifier); item['candidates'][0]['confidence'] = 10 ** 400
+        validate = lambda: contracts().validate_localization(item, session.seen)
+    else:
+        item = classification(identifier); item['confidence'] = 10 ** 400
+        validate = lambda: contracts().validate_classification(item, event, session.seen)
+    with pytest.raises(ValueError): validate()
