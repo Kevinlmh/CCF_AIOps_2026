@@ -2,6 +2,7 @@
 from dataclasses import asdict
 from datetime import datetime,timezone
 import os
+import hashlib
 from pathlib import Path
 from time import monotonic
 from aiops_v4.agents.backend import HTTPBackend,ReplayBackend
@@ -138,7 +139,7 @@ def run_experiment(config,output_dir,*,backend=None):
         _write(output/'experiment.json',{k:v for k,v in summary.items() if k!='stages'})
         summary['artifact_sha256']={str(p.relative_to(output)):sha256(p) for p in sorted(output.rglob('*')) if p.is_file()}
         encoded=dumps(summary)+'\n'
-        _write(output/'seal.json',dict(schema_version=1,summary_sha256=__import__('hashlib').sha256(encoded.encode()).hexdigest()))
+        _write(output/'seal.json',dict(schema_version=1,summary_sha256=hashlib.sha256(encoded.encode()).hexdigest()))
         with (output/'summary.json').open('x',encoding='utf-8') as stream:stream.write(encoded)
         return summary
     except Exception as error:
