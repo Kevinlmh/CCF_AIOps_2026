@@ -2,11 +2,11 @@
 
 v4 采用“统计特征与轻量聚类发现运行状态，规则补充异常线索，同一个 LLM 通过多个角色完成事件确认、根因定位和故障分类”的混合架构。已实现原始数据基础层、窗口特征、稳健参考尺度、轻量聚类、规则候选事件、审阅证据包、共享 LLM 后端、独立角色诊断、一致性复核和官方 JSONL 导出；统一运行、公共知识卡、可选状态解释、独立评测、九种消融和成本记录也已实现。
 
-总体方案见 [v4 设计](docs/superpowers/specs/2026-10-08-v4-design.md)，窗口定义见 [窗口特征设计](docs/superpowers/specs/2026-10-08-v4-window-features-design.md)，状态发现见 [第三阶段设计](docs/superpowers/specs/2026-10-08-v4-state-discovery-design.md)。角色与导出设计见 [LLM 角色设计](docs/superpowers/specs/2026-10-08-v4-llm-roles-design.md)。真实模型效果、全量评测与消融尚待下一批验证。
+总体方案见 [v4 设计](docs/superpowers/specs/2026-10-08-v4-design.md)，窗口定义见 [窗口特征设计](docs/superpowers/specs/2026-10-08-v4-window-features-design.md)，状态发现见 [第三阶段设计](docs/superpowers/specs/2026-10-08-v4-state-discovery-design.md)。角色与导出设计见 [LLM 角色设计](docs/superpowers/specs/2026-10-08-v4-llm-roles-design.md)。主体代码与接口已完成；按最新要求，真实 LLM 接入留到服务器迁移后，全量验证、真实模型效果与消融仍待实验。
 
 原始数据层见 [数据基础交付记录](docs/v4-data-foundation-2026-10-08.md)；本步实现、实测结论和下一步任务见 [窗口特征交付记录](docs/v4-window-features-2026-10-08.md)。
 
-设计回顾见 [架构一致性检查](docs/v4-design-audit-2026-10-08.md)，证据层见 [证据包交付记录](docs/v4-evidence-bundles-2026-10-08.md)，多角色实现见 [诊断交付记录](docs/v4-llm-roles-2026-10-08.md)；最新完整结论见 [2026-10-09 整体审查](docs/v4-project-audit-2026-10-09.md) 和 [本机复现](docs/v4-reproduction.md)。Docker 按用户要求暂停。
+设计回顾见 [架构一致性检查](docs/v4-design-audit-2026-10-08.md)，证据层见 [证据包交付记录](docs/v4-evidence-bundles-2026-10-08.md)，多角色实现见 [诊断交付记录](docs/v4-llm-roles-2026-10-08.md)；当前架构、离线入口及新增漏洞修复见 [离线交付与追加审查](docs/v4-architecture-offline-audit-2026-10-09.md)，前次全链路审查见 [整体审查](docs/v4-project-audit-2026-10-09.md)，命令见 [本机复现](docs/v4-reproduction.md)。Docker 按用户要求暂停。
 
 ## 保留内容
 
@@ -148,7 +148,7 @@ python -m aiops_v4.evidence query-raw \
 
 同网元严格重叠的候选形成审阅包，不同网元保持独立；原事件及其窗口完整保存在 SQLite。传递重叠只是关联，包络不是故障区间。每包 event_id 和原始引用各至多32个，支持、无当前触发的可评分观测、质量上下文各至多8条（`--observations-per-kind` 可调1..32）。默认上下文前后120秒，按时间及来源选取有界例子，并记录各类完整数量及截断；LLM 可进一步分页读取完整线索。
 
-`query` 输出一个 JSON 数组，支持 `bundle/members/states/model/relations`。`states` 按网元、source、group、半开重叠时间范围查询，同时返回完整 matrix；`members/relations` 必须提供 bundle_id，`model` 可按 group_id 查询。limit1..1000，offset非负；所有时间须带时区，批次必须匹配数据库。
+`query` 输出一个 JSON 数组，支持 `bundle/members/states/model/relations`。`states` 按网元、source、group、半开重叠时间范围查询，同时返回完整 matrix；`members/relations` 必须提供 bundle_id，`model` 可按 group_id 查询。limit1..1000，offset为0..2^63−1；所有时间须带时区且可转换为 UTC，批次必须匹配数据库。
 
 构建核验上游摘要哈希，并从所链接窗口重新生成向量，逐条对比完整矩阵与参考范围；原事件引用必须来自自身成员窗口。包及 `states/model` 等查询返回 `scoring_provenance`，包含参考模式/区间、统计和聚类阈值、规则开关及输入范围；该信息供角色解释候选及未触发观测。
 
@@ -185,7 +185,7 @@ print(stream.stats.files_by_source)
 
 ## 下一步
 
-下一步实现共享 LLM 后端及事件确认角色，接入现有只读证据工具，再实现独立根因定位、故障分类、复核、官方导出、诊断评测和复现。先用离线后端验证角色契约和失败处理，再做真实模型实验。
+主体实现已完成。下一步将代码与原始数据迁移到服务器，分别做两批全量离线验证，检查时间/字段语义、参考污染、候选规模与资源开销；迁移后再连接同一个真实 LLM，验证定位/分类效果及消融。目前可以使用下方离线入口运行到证据包。
 
 ## v3 存档
 
@@ -201,6 +201,8 @@ v3 分支及标签 `v3-archive-2026-10-08` 保留原版本，归档提交为 `5e
 ## 共享 LLM 与多角色诊断
 
 `aiops_v4/agents/` 使用一个后端和一个配置模型，分别启动事件确认、根因定位、故障分类及复核会话。定位和分类读取相同输入且互不读取结论。窗口覆盖、引用、观测边界、官方设备和类别由程序校验；证据不足或预算耗尽会保留待判断记录。
+
+实际模型连接按要求留到服务器上；以下 HTTP 命令作为届时的接口用法保留，当前使用后文的离线入口。
 
 ```bash
 # 已有的 contract 2 证据索引；首先显式选择小范围运行。
@@ -239,4 +241,13 @@ python -m aiops_v4.experiments run --config configs/v4/public-discovery.json --o
 python -m aiops_v4.experiments --help
 ```
 
-全量模板：configs/v4/stage1.json 和 stage2.json（需指定真实模型和环境密钥）；运行与评测为两个独立命令。默认四角色保持同一模型及独立定位/分类。Replay、prefix_sample、部分 bundle、未知费用和 deferred 都会明确记录；流程验证不能代表模型效果。完整本机用法见 [v4-reproduction](docs/v4-reproduction.md)。
+当前无需模型的两批全量入口：
+
+```sh
+python -m aiops_v4.experiments run --config configs/v4/stage1-offline.json --output-dir outputs/v4/experiments/my-stage1-offline
+python -m aiops_v4.experiments run --config configs/v4/stage2-offline.json --output-dir outputs/v4/experiments/my-stage2-offline
+```
+
+这两个配置运行到证据包，不构造模型后端、不读取 Replay 占位文件、不需要密钥，调用与预测均为0，不能作为诊断或提交结果。每次使用新输出目录；全量开销尚未用本机前缀检查验证。
+
+未来真实诊断模板：configs/v4/stage1.json 和 stage2.json，服务器迁移后再配置模型及环境密钥。运行与评测为两个独立命令，默认四角色保持同一模型及独立定位/分类。Replay、prefix_sample、部分 bundle、未知费用和 deferred 都会明确记录；流程验证不能代表模型效果。完整本机用法见 [v4-reproduction](docs/v4-reproduction.md)。

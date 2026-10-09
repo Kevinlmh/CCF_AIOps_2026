@@ -87,7 +87,7 @@ class EvidenceSession:
             raise ValueError('unknown tool or unsupported parameters')
         for key, value in args.items():
             if key in {'limit', 'offset'}:
-                if type(value) is not int or value < (1 if key == 'limit' else 0) or (key == 'limit' and value > 1000):
+                if type(value) is not int or value < (1 if key == 'limit' else 0) or (key == 'limit' and value > 1000) or (key == 'offset' and value > 2**63-1):
                     raise ValueError('invalid integer tool parameter')
             elif not isinstance(value, str) or not value.strip():
                 raise ValueError('tool identifiers and timestamps must be nonempty strings')

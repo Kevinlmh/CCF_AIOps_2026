@@ -37,7 +37,11 @@ def utc_time(value: str, *, require_timezone: bool = False) -> tuple[str, bool]:
         if require_timezone:
             raise ValueError("query timestamp must include timezone")
         parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"), assumed
+    try:
+        normalized = parsed.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    except OverflowError:
+        raise ValueError("UTC timestamp outside supported datetime range") from None
+    return normalized, assumed
 
 
 def _city(value: str | None) -> str | None:

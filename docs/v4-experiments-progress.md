@@ -43,3 +43,15 @@ Protected validation: 543 existing files unchanged by existence/size/mtime, repr
 Final: Ruling: Keep the existing requested v4 branch locally; no integration menu/push/merge because no integration was requested — cost if wrong: integration remains a later explicit task.
 Task 6: complete (commits ffdadc0..a777234, tests: .venv/bin/python -m pytest -q → 339 passed in 16.58s)
 Finish: v4 kept locally; all implementation changes and audit documents committed. Only this plan-owned scratch is removed; experiments/protected files and other plan workspaces remain.
+
+## Subsequent offline handoff audit (2026-10-09)
+
+User steering: keep the LLM interface, defer real integration until the code is on the server; Docker stays paused. This is a subsequent audit of the completed implementation, not a restart of the above plan.
+
+One fresh boundary reviewer reported three Important issues, reproduced locally with synthetic CSV/Replay/SQLite: oversized tool offsets / UTC overflow, source symlinks or non-regular CSV entries, and same-size/mtime raw changes between profile and features. All 11 new regressions failed before the fix and passed afterward. Fixes validate signed SQLite range / controlled UTC errors, reject source links and non-regular files before reading, and compare already computed per-file parsed content digests and scan scope. No extra full raw byte-hash scan added.
+
+The previously deferred Ctrl-C marker is now fixed: stage interruption preserves completed outputs, writes sanitized interrupted failure.json, re-raises KeyboardInterrupt, and publishes no success seal. Two offline config tests prove the shipped full-scan stage1/stage2 templates construct no backend and read no placeholder Replay file. These three additional tests also followed RED→GREEN.
+
+Full suite: .venv/bin/python -m pytest -q → 353 passed in 16.79s. Actual public prefix offline run: 56 files / 29445 rows / 21691 windows / 1539 candidate windows / 991 events / 644 bundles / 6013 materialized raw anchors, 0 model calls / 0 predictions, 17.94s. New output: outputs/v4/experiments/20261009/offline-readiness-reviewed; verify_run passed. Run provenance records old HEAD 0566d03 plus git_dirty=true and the actual source fingerprint; never treated as a clean old-HEAD run or model score.
+
+Protected validation repeated: 543 pre-existing files unchanged by existence/size/mtime; representative evidence SHA and v3 tag unchanged. Old data/outputs/submit.py/archive remain. Current architecture, review limits and server sequence are recorded in docs/v4-architecture-offline-audit-2026-10-09.md. Stage1/stage2 full scale, live model quality/protocol and adversarial semantic prompt influence remain unmeasured; no zero-vulnerability guarantee or Docker work.

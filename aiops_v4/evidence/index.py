@@ -72,8 +72,8 @@ def read_index(database, batch):
 
 def query_evidence(database, batch, kind, *, bundle_id=None, entity_id=None, source=None,
                    group_id=None, start=None, end=None, limit=100, offset=0):
-    if type(limit) is not int or not 1 <= limit <= 1000 or type(offset) is not int or offset < 0:
-        raise ValueError('limit must be 1..1000 and offset nonnegative')
+    if type(limit) is not int or not 1 <= limit <= 1000 or type(offset) is not int or not 0 <= offset <= 2**63-1:
+        raise ValueError('limit must be 1..1000 and offset in SQLite integer range')
     start = utc_time(start, require_timezone=True)[0] if start is not None else None
     end = utc_time(end, require_timezone=True)[0] if end is not None else None
     if start is not None and end is not None and start >= end:

@@ -12,22 +12,30 @@ python -m pytest -q
 python -m aiops_v4.experiments run --config configs/v4/public-discovery.json --output-dir outputs/v4/experiments/my-public-discovery
 ```
 
-`public-discovery.json` 是每文件前1000行的纯线索 smoke，不产生模型判断或可提交预测。stage1.json、stage2.json 为全量模板，共用方法、分批独立学习。运行前设置真实模型 ID 和兼容 Chat Completions 的 base_url；密钥仅通过 AIOPS_LLM_API_KEY 环境变量传入，配置与日志不存明文密钥。不自动读取 .env 或 submit.py。示例 UTC 是显式假设，需通过来源/对齐核验，未获得官方确认。
+`public-discovery.json` 是每文件前1000行的纯线索 smoke，不产生模型判断或可提交预测。当前按用户要求不接入真实模型，使用新增的两批全量离线配置，共用方法、分批独立学习：
 
 ```sh
-python -m aiops_v4.experiments run --config configs/v4/stage1.json --output-dir outputs/v4/experiments/my-stage1
-python -m aiops_v4.experiments run --config configs/v4/stage2.json --output-dir outputs/v4/experiments/my-stage2
+python -m aiops_v4.experiments run --config configs/v4/stage1-offline.json --output-dir outputs/v4/experiments/my-stage1-offline
+python -m aiops_v4.experiments run --config configs/v4/stage2-offline.json --output-dir outputs/v4/experiments/my-stage2-offline
 ```
+
+两个 `*-offline.json` 以 `discovery_only=true` 运行到证据包，不构造模型后端、不读 Replay 占位文件、不需要密钥。调用数/预测均为0，`diagnosis_complete=false`、`submission_ready=false`；completed 表示离线流程完成。max_rows_per_file=null 为全扫描，实际两批全量开销仍待验证。示例 UTC 是显式假设，需通过来源/对齐核验，未获得官方确认。来源 CSV 必须为输入根目录内的普通文件，文件符号链接、目录和 FIFO 均拒绝。
+
+stage1.json、stage2.json 保留为服务器上的真实诊断模板；迁移后再设置模型 ID 和兼容 Chat Completions 的 base_url。密钥仅通过 AIOPS_LLM_API_KEY 环境变量传入，配置与日志不存明文密钥，不自动读取 .env 或 submit.py。真实供应商支持尚待届时验证。
 
 配置相对路径均按配置文件目录解析；运行输出不得存在，不得在 raw_root/data 内。profile.max_rows_per_file 同时限制统计和窗口扫描；取消该字段/设 null 才是全扫描。reference_start/end 不填时使用同批有界离线参考；不是已知健康，首段污染和状态变化需通过实验检查。limit_bundles/bundle_id 是部分诊断，不能称全批结果。根因/类别/引用无法确认则 deferred，不自动补答案。
 
-阶段分别保存 profile（JSON/CSV/Markdown）、features（窗口/拒绝/语义）、states（矩阵/参考/簇/状态/候选）、evidence（完整索引/稀疏原文/证据包）、agents（bundle决策/真实角色 trace/诊断/五字段预测）。根目录保存 config.json、knowledge.json、experiment.json 和最后发布的 summary.json/seal.json。普通 Exception 只留脱敏 failure.json 和已完成阶段，不发布成功摘要。Ctrl-C 的 KeyboardInterrupt 暂不写 failure.json，但同样没有成功标记；SIGKILL/断电不能保证记录落盘。目录使用最终稳定路径，完整复制/搬移后若需要原文补取，应保持 raw 挂载路径；不能假设数据库内绝对路径会自动重写。
+阶段分别保存 profile（JSON/CSV/Markdown）、features（窗口/拒绝/语义）、states（矩阵/参考/簇/状态/候选）、evidence（完整索引/稀疏原文/证据包）、agents（诊断模式为 bundle 决策/角色 trace/诊断/预测，离线模式只有标记和空预测）。根目录保存 config.json、knowledge.json、experiment.json 和最后发布的 summary.json/seal.json。阶段运行中普通 Exception 留脱敏 failure.json 和已完成阶段，Ctrl-C 保存 interrupted 标记并重新抛出 KeyboardInterrupt，均不发布成功摘要；阶段前预检查没有已创建的输出目录，SIGKILL/断电不能保证记录落盘。
+
+统计和窗口两次扫描比较每文件已解析内容摘要、列、行数和完成范围，另核对源文件大小/mtime；前缀只能验证所读部分。服务器上检查 raw_root 并在新目录重新构建证据：已有数据库含 Mac 绝对输入路径，不能假设复制后自动重写。可核验迁移路径的原文查询参数另见 README。
 
 每个阶段发布后即固定清单与 SHA，消费前和最后封存前复验；外部 replay/topology 保存实际路径、文件身份及内容 SHA，真值不得复用它们或硬链接。角色保存初始请求和完整 trace，严格导出重建实际交付证据，核对 confirmation、最后响应及调用数。旧产物保持原样；缺少 `integrity_version=2` / `run_schema_version=2` 记录时需写入新目录重新运行，不能直接升级其验证声明。直接诊断 API 若需严格导出，应传入实际 confirmation 运行及证据块；不自动伪造确认记录。
 
+当前架构、353项测试及新增边界修复见[离线交付与追加审查](v4-architecture-offline-audit-2026-10-09.md)。
+
 ## 评测、消融、比较
 
-推理配置/运行命令不接受真值路径。仅公开或合法获得的真值在完成推理后单独评测：
+以下留作服务器接入后的实验命令，当前不启动真实模型消融。推理配置/运行命令不接受真值路径。仅公开或合法获得的真值在完成推理后单独评测：
 
 ```sh
 python -m aiops_v4.experiments evaluate --run-dir outputs/v4/experiments/my-public-run --ground-truth sample/ground_truth.jsonl --batch public-case-001 --output-dir outputs/v4/experiments/my-evaluation

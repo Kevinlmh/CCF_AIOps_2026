@@ -66,7 +66,7 @@ def run_role(backend, session, role, case_id, payload, budget=Budget()):
                 try:
                     args = loads(function['arguments'])
                     reply = session.call(function['name'], args)
-                except (ValueError, TypeError, OSError, RecursionError):
+                except (ValueError, TypeError, OSError, RecursionError, OverflowError):
                     entry['tools'].append(dict(name=function['name'], arguments=function['arguments'], error_code='invalid_tool_query'))
                     raise BackendError('invalid_tool_query') from None
                 entry['tools'].append(dict(name=function['name'], arguments=args, result=reply))

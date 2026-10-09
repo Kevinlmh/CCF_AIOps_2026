@@ -144,7 +144,11 @@ def run_experiment(config,output_dir,*,backend=None):
         if profile['errors']:raise ValueError('raw scan failed')
         windows=execute('features',lambda:build_features(root,config['batch'],output/'features',
             naive_timezone=config['naive_timezone'],max_rows_per_file=config['profile']['max_rows_per_file'],**config['features']))
-        if snapshot!=_raw_snapshot(root) or profile['rows_scanned']!=windows['rows_scanned']:raise ValueError('raw inputs changed across scans')
+        file_keys=('path','source','columns','rows_scanned','complete','parsed_records_sha256')
+        scanned_files=lambda files:sorted(({k:row[k] for k in file_keys} for row in files),key=lambda row:row['path'])
+        if (snapshot!=_raw_snapshot(root) or profile['rows_scanned']!=windows['rows_scanned']
+            or scanned_files(profile['files'])!=scanned_files(windows['files'])):
+            raise ValueError('raw inputs changed across scans')
         states=execute('states',lambda:discover_states(output/'features',config['batch'],output/'states',**config['states']))
         evidence=execute('evidence',lambda:build_evidence(output/'states',config['batch'],output/'evidence',**config['evidence']))
         if discovery_only:
@@ -189,7 +193,9 @@ def run_experiment(config,output_dir,*,backend=None):
         _write(output/'seal.json',dict(schema_version=1,summary_sha256=hashlib.sha256(encoded.encode()).hexdigest()))
         with (output/'summary.json').open('x',encoding='utf-8') as stream:stream.write(encoded)
         return summary
-    except Exception as error:
-        _write(output/'failure.json',dict(schema_version=1,status='failed',batch=config['batch'],stage=stage,
-            error_type=type(error).__name__,completed_stages=list(stages)))
+    except (Exception,KeyboardInterrupt) as error:
+        interrupted=isinstance(error,KeyboardInterrupt)
+        _write(output/'failure.json',dict(schema_version=1,status='interrupted' if interrupted else 'failed',
+            batch=config['batch'],stage=stage,error_type=type(error).__name__,completed_stages=list(stages)))
+        if interrupted:raise
         raise ValueError('experiment failed; see sanitized failure.json') from None

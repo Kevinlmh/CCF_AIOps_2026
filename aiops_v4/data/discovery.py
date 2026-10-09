@@ -51,7 +51,7 @@ def numeric_columns(source: str, columns: list[str]) -> list[str]:
 
 
 def discover_sources(root: Path) -> list[SourceFile]:
-    root = Path(root)
+    root = Path(root).resolve()
     if not root.is_dir():
         raise FileNotFoundError(f"input root is not a directory: {root}")
     result = []
@@ -59,5 +59,7 @@ def discover_sources(root: Path) -> list[SourceFile]:
         source = next((name for name, prefix in SOURCE_PREFIXES.items()
                        if path.name.lower().startswith(prefix)), None)
         if source is not None:
+            if path.is_symlink() or not path.is_file() or root not in path.resolve(strict=True).parents:
+                raise ValueError("recognized CSV must be a regular file inside input root: " + path.relative_to(root).as_posix())
             result.append(SourceFile(path, path.relative_to(root).as_posix(), source))
     return sorted(result, key=lambda file: (file.source, file.relative_path))

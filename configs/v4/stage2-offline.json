@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "batch": "stage2-local",
+  "raw_root": "../../data/stage2/regions",
+  "naive_timezone": "UTC",
+  "states": {
+    "mode": "hybrid",
+    "rules_enabled": true,
+    "min_reference": 12,
+    "clusters": 3
+  },
+  "agents": {
+    "discovery_only": true
+  },
+  "backend": {
+    "kind": "replay",
+    "model": "offline-no-model",
+    "replay_file": "empty-replay.jsonl"
+  },
+  "profile": {
+    "max_rows_per_file": null
+  }
+}
