@@ -1,12 +1,12 @@
 # CCF AIOps 2026 · v4
 
-v4 采用“统计特征与轻量聚类发现运行状态，规则补充异常线索，同一个 LLM 通过多个角色完成事件确认、根因定位和故障分类”的混合架构。已实现原始数据基础层、窗口特征、稳健参考尺度、轻量聚类、规则候选事件、审阅证据包、共享 LLM 后端、独立角色诊断、一致性复核和官方 JSONL 导出。
+v4 采用“统计特征与轻量聚类发现运行状态，规则补充异常线索，同一个 LLM 通过多个角色完成事件确认、根因定位和故障分类”的混合架构。已实现原始数据基础层、窗口特征、稳健参考尺度、轻量聚类、规则候选事件、审阅证据包、共享 LLM 后端、独立角色诊断、一致性复核和官方 JSONL 导出；统一运行、公共知识卡、可选状态解释、独立评测、九种消融和成本记录也已实现。
 
 总体方案见 [v4 设计](docs/superpowers/specs/2026-10-08-v4-design.md)，窗口定义见 [窗口特征设计](docs/superpowers/specs/2026-10-08-v4-window-features-design.md)，状态发现见 [第三阶段设计](docs/superpowers/specs/2026-10-08-v4-state-discovery-design.md)。角色与导出设计见 [LLM 角色设计](docs/superpowers/specs/2026-10-08-v4-llm-roles-design.md)。真实模型效果、全量评测与消融尚待下一批验证。
 
 原始数据层见 [数据基础交付记录](docs/v4-data-foundation-2026-10-08.md)；本步实现、实测结论和下一步任务见 [窗口特征交付记录](docs/v4-window-features-2026-10-08.md)。
 
-设计回顾见 [架构一致性检查](docs/v4-design-audit-2026-10-08.md)，证据层见 [证据包交付记录](docs/v4-evidence-bundles-2026-10-08.md)，最新进展见 [多角色诊断交付记录](docs/v4-llm-roles-2026-10-08.md)。
+设计回顾见 [架构一致性检查](docs/v4-design-audit-2026-10-08.md)，证据层见 [证据包交付记录](docs/v4-evidence-bundles-2026-10-08.md)，多角色实现见 [诊断交付记录](docs/v4-llm-roles-2026-10-08.md)；最新完整结论见 [2026-10-09 整体审查](docs/v4-project-audit-2026-10-09.md) 和 [本机复现](docs/v4-reproduction.md)。Docker 按用户要求暂停。
 
 ## 保留内容
 
@@ -228,15 +228,15 @@ HTTP 后端要求兼容 `/chat/completions` 的 JSON 和 function tools；base U
 
 默认每角色 6 轮、12 次工具调用、120000 输入字符、32000 响应字符，每 bundle 2000 个候选窗口；`--max-*` 可调整。这些是执行预算。`--max-completion-tokens` 调整 HTTP 单次生成上限（默认 4096）。工具大 JSON 显式分块，完整读取后才可引用。API 未报告的用量标为不完整；不把未知用量记作零成本。
 
-`selection_complete` 表示当前索引的 bundle 是否全部选择；`diagnosis_complete` 表示整个索引队列是否全部得到非待判断结果。原始数据是否全量另看 `input_scope.complete`，两者不能等同原始批次全部处理。观测边界不是物理故障起止，自报置信度未校准，合法 JSONL 不等于诊断准确。完整原始数据入口、评测/消融和容器复现属于下一批。
+`selection_complete` 表示当前索引的 bundle 是否全部选择；`diagnosis_complete` 表示整个索引队列是否全部得到非待判断结果。原始数据是否全量另看 `input_scope.complete`，两者不能等同原始批次全部处理。观测边界不是物理故障起止，自报置信度未校准，合法 JSONL 不等于诊断准确。完整原始数据入口和评测/消融已在下一节实现；Docker 验证按用户要求暂停。
 
 ## v4 一体化运行与实验
 
-最后一批提供统一原始数据到预测入口、公开知识卡/可选状态解释、九组消融、独立真值评测、错误分析、配置/代码/提示/调用/token/费用记录与 Docker 材料。
+最后一批提供统一原始数据到预测入口、公开知识卡/可选状态解释、九组消融、独立真值评测、错误分析、配置/代码/提示/调用/token/费用记录。本机为当前验证路径，Docker 材料暂不启用。
 
 ```sh
 python -m aiops_v4.experiments run --config configs/v4/public-discovery.json --output-dir outputs/v4/experiments/my-smoke
 python -m aiops_v4.experiments --help
 ```
 
-全量模板：configs/v4/stage1.json 和 stage2.json（需指定真实模型和环境密钥）；运行与评测为两个独立命令。默认四角色保持同一模型及独立定位/分类。Replay、prefix_sample、部分 bundle、未知费用和 deferred 都会明确记录；流程验证不能代表模型效果。完整用法与 Docker 挂载说明见 [v4-reproduction](docs/v4-reproduction.md)。
+全量模板：configs/v4/stage1.json 和 stage2.json（需指定真实模型和环境密钥）；运行与评测为两个独立命令。默认四角色保持同一模型及独立定位/分类。Replay、prefix_sample、部分 bundle、未知费用和 deferred 都会明确记录；流程验证不能代表模型效果。完整本机用法见 [v4-reproduction](docs/v4-reproduction.md)。

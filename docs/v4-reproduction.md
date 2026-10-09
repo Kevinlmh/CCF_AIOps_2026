@@ -21,7 +21,9 @@ python -m aiops_v4.experiments run --config configs/v4/stage2.json --output-dir 
 
 配置相对路径均按配置文件目录解析；运行输出不得存在，不得在 raw_root/data 内。profile.max_rows_per_file 同时限制统计和窗口扫描；取消该字段/设 null 才是全扫描。reference_start/end 不填时使用同批有界离线参考；不是已知健康，首段污染和状态变化需通过实验检查。limit_bundles/bundle_id 是部分诊断，不能称全批结果。根因/类别/引用无法确认则 deferred，不自动补答案。
 
-阶段分别保存 profile（JSON/CSV/Markdown）、features（窗口/拒绝/语义）、states（矩阵/参考/簇/状态/候选）、evidence（完整索引/稀疏原文/证据包）、agents（bundle决策/真实角色 trace/诊断/五字段预测）。根目录保存 config.json、knowledge.json、experiment.json 和最后发布的 summary.json/seal.json。失败只留 failure.json 和已完成阶段，不发布成功摘要。目录使用最终稳定路径，完整复制/搬移后若需要原文补取，应保持 raw 挂载路径；不能假设数据库内绝对路径会自动重写。
+阶段分别保存 profile（JSON/CSV/Markdown）、features（窗口/拒绝/语义）、states（矩阵/参考/簇/状态/候选）、evidence（完整索引/稀疏原文/证据包）、agents（bundle决策/真实角色 trace/诊断/五字段预测）。根目录保存 config.json、knowledge.json、experiment.json 和最后发布的 summary.json/seal.json。普通 Exception 只留脱敏 failure.json 和已完成阶段，不发布成功摘要。Ctrl-C 的 KeyboardInterrupt 暂不写 failure.json，但同样没有成功标记；SIGKILL/断电不能保证记录落盘。目录使用最终稳定路径，完整复制/搬移后若需要原文补取，应保持 raw 挂载路径；不能假设数据库内绝对路径会自动重写。
+
+每个阶段发布后即固定清单与 SHA，消费前和最后封存前复验；外部 replay/topology 保存实际路径、文件身份及内容 SHA，真值不得复用它们或硬链接。角色保存初始请求和完整 trace，严格导出重建实际交付证据，核对 confirmation、最后响应及调用数。旧产物保持原样；缺少 `integrity_version=2` / `run_schema_version=2` 记录时需写入新目录重新运行，不能直接升级其验证声明。直接诊断 API 若需严格导出，应传入实际 confirmation 运行及证据块；不自动伪造确认记录。
 
 ## 评测、消融、比较
 
@@ -39,7 +41,9 @@ partial 默认拒绝评分；确需检查抽样/局部流程时加 `--allow-part
 
 报价选填，例如 `pricing={"currency":"USD","input_per_million":2,"output_per_million":4}`（这些数仅演示参数，不是任何供应商报价）。记录模型/config/代码/全部提示与知识卡 SHA、环境、调用失败、真实 usage 覆盖、阶段耗时；缺报价或任何调用缺输入/输出 token，estimated_cost=null，已知部分另列。Replay token 不是账单。缓存折扣及供应商计费差异需另核验。
 
-## Docker
+## Docker（已暂停）
+
+用户于2026-10-09要求暂不考虑 Docker；下面仅保留此前写好的材料，不是本次验证成功的声明，也不作为当前运行任务。
 
 依据 [Dockerfile 文档](https://docs.docker.com/reference/dockerfile/) 和 [构建上下文文档](https://docs.docker.com/build/concepts/context/) 编写，.dockerignore 使用 allowlist。runtime 只复制代码、公共配置、许可证；test target 另复制合成测试。data、outputs、submit.py、.env、git history、压缩包不进入构建上下文，不上传镜像或数据。
 
