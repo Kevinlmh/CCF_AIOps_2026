@@ -3,8 +3,8 @@ from aiops_challenge_2026.schema import validate_prediction
 from aiops_v4.agents.contracts import (fields, text, missing, citations, load_manifest, validate_event,
     validate_localization, validate_classification, validate_review)
 from aiops_v4.agents.diagnosis import (diagnose_event, review_event, evidence_for, evidence_registry,
-    validate_independent_diagnosis)
-from aiops_v4.agents.engine import Budget, run_role
+    validate_independent_diagnosis, _confirmation, validate_confirmation_record, validate_role_record)
+from aiops_v4.agents.engine import Budget, run_role, recorded_delivery
 from aiops_v4.agents.jsonio import dumps, loads
 from aiops_v4.agents.tools import EvidenceSession
 from .knowledge import knowledge_cards
@@ -35,9 +35,9 @@ def explain_state(backend,database,batch,packet,manifest,budget,context):
     return run,block
 
 
-def _joint(backend,database,batch,packet,event,budget,context):
+def _joint(backend,database,batch,packet,event,budget,context,confirmation):
     manifest=load_manifest(database,batch,packet['bundle_id'],budget.max_manifest_windows)
-    validate_event(event,manifest)
+    confirmation=_confirmation(packet,event,manifest,confirmation,database,batch)
     selected=[w for w in manifest if w['vector_id'] in set(event['window_ids'])]
     session=role_session(database,batch,packet,context)
     run=run_role(backend,session,'joint_diagnosis',event['event_id'],dict(bundle=packet,event=event,context=context),budget)
@@ -50,7 +50,7 @@ def _joint(backend,database,batch,packet,event,budget,context):
             outputs=dict(localization=left,classification=right)
             proofs={r:evidence_for(o,session.seen,event) for r,o in outputs.items()}
         except (ValueError,KeyError,TypeError):run.update(status='deferred',output=None,error_code='invalid_role_contract')
-    return dict(batch=batch,bundle_id=packet['bundle_id'],event=event,event_manifest=selected,
+    return dict(batch=batch,bundle_id=packet['bundle_id'],event=event,event_manifest=selected,confirmation=confirmation,
                 diagnostic_mode='joint',accepted=False,status='deferred',
                 joint=dict(run=run,result=run['output']),
                 **{r:dict(run=None,result=outputs[r],evidence=proofs[r],source='joint_diagnosis') for r in outputs})
@@ -59,27 +59,32 @@ def _joint(backend,database,batch,packet,event,budget,context):
 def _validate(item):
     if item['diagnostic_mode']=='independent': return validate_independent_diagnosis(item)
     if item['diagnostic_mode']!='joint':raise ValueError('invalid experiment mode')
-    event=validate_event(item['event'],item['event_manifest'])
+    event=validate_confirmation_record(item)
     block=item['joint'];run,output=block['run'],block['result']
     if (run['status']!='completed' or output is None or run['output']!=output or run['role']!='joint_diagnosis'
         or run['case_id']!=event['event_id'] or run['model']!=run['backend']['model']):raise ValueError('incomplete joint role')
+    payload,seen=recorded_delivery(run,'joint_diagnosis',event['event_id'])
+    from aiops_v4.agents.diagnosis import _scope
+    _scope(payload,item)
+    if payload['event']!=event:raise ValueError('joint event input changed')
+    if run['backend']!=item['confirmation']['run']['backend']:raise ValueError('confirmation backend mismatch')
     fields(output,('localization','classification'))
     for role in ('localization','classification'):
         part=item[role]
         if part['run'] is not None or part['source']!='joint_diagnosis' or part['result']!=output[role] or output[role]['decision']!='resolved':
             raise ValueError('joint answer unresolved or altered')
-        seen=evidence_registry(part['evidence'],item['batch'])
+        if part['evidence']!=evidence_for(part['result'],seen,event):raise ValueError('joint proof not delivered')
         if role=='localization':validate_localization(output[role],seen)
         else:validate_classification(output[role],event,seen)
     return run['backend']
 
 
-def diagnose_case(backend,database,batch,packet,event,budget,context,mode,review_mode):
+def diagnose_case(backend,database,batch,packet,event,budget,context,mode,review_mode,*,confirmation=None):
     if mode=='independent' and review_mode=='llm':
         return review_event(backend,database,batch,packet,
-            diagnose_event(backend,database,batch,packet,event,budget,context=context),budget,context=context)
-    item=(_joint(backend,database,batch,packet,event,budget,context) if mode=='joint'
-          else diagnose_event(backend,database,batch,packet,event,budget,context=context))
+            diagnose_event(backend,database,batch,packet,event,budget,context=context,confirmation=confirmation),budget,context=context)
+    item=(_joint(backend,database,batch,packet,event,budget,context,confirmation) if mode=='joint'
+          else diagnose_event(backend,database,batch,packet,event,budget,context=context,confirmation=confirmation))
     item.update(diagnostic_mode=mode,review_mode=review_mode,accepted=False,status='deferred')
     item['review']=dict(run=None,result=None,evidence=[],mode=review_mode)
     try:
@@ -120,7 +125,11 @@ def experiment_prediction_for(item):
         run,output=review['run'],review['result']
         if (run is None or run['status']!='completed' or run['role']!='review' or run['case_id']!=item['event']['event_id']
             or run['backend']!=common or run['model']!=common['model'] or run['output']!=output):raise ValueError('incomplete experiment review')
-        validate_review(output,item['event'],evidence_registry(review['evidence'],item['batch']))
+        payload,seen=validate_role_record(review,'review',item)
+        if payload['diagnostic_mode']!=item['diagnostic_mode'] or payload['diagnoses']!={
+            r:{k:item[r][k] for k in ('result','evidence')} for r in ('localization','classification')}:
+            raise ValueError('experiment review input changed')
+        validate_review(output,item['event'],seen)
         if output['decision']!='accept':raise ValueError('review did not accept')
     elif item['review_mode']!='program_only' or review['mode']!='program_only' or review['run'] is not None:
         raise ValueError('explicit program-only review required')

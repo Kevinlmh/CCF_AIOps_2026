@@ -111,3 +111,15 @@ def test_oversized_integer_confidence_is_a_controlled_contract_failure(evidence,
         item = classification(identifier); item['confidence'] = 10 ** 400
         validate = lambda: contracts().validate_classification(item, event, session.seen)
     with pytest.raises(ValueError): validate()
+
+
+def confirmation_record(db,packet,event):
+    from aiops_v4.agents.engine import run_role
+    from aiops_v4.agents.diagnosis import evidence_for
+    session=EvidenceSession(db,'stage2',packet)
+    output={'assessments':[assessment(event['window_ids'],event['citations'])]}
+    backend=ReplayBackend('fixture-model',[dict(role='confirmation',case_id=packet['bundle_id'],turn=0,
+        message={'role':'assistant','content':json.dumps(output)})])
+    run=run_role(backend,session,'confirmation',packet['bundle_id'],dict(bundle=packet,
+        manifest=load_manifest(db,'stage2',packet['bundle_id'])))
+    return dict(run=run,evidence=evidence_for(event,session.seen,event))

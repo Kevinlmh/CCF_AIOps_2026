@@ -159,13 +159,17 @@ def validate_classification(output, event, seen):
     return output
 
 
-def validate_event(event, manifest):
+def validate_event(event, manifest, seen=None):
     """Recompute immutable identity/boundaries from registered candidate windows."""
     fields(event, ('decision', 'window_ids', 'confidence', 'reason', 'citations', 'missing_evidence',
                    'event_id', 'native_event_ids', 'start_time', 'end_time', 'boundary_basis'))
     if event['decision'] != 'confirmed':
         raise ValueError('event must be confirmed')
     confidence(event['confidence']); text(event['reason']); missing(event['missing_evidence'])
+    if not isinstance(event['citations'],list) or not event['citations']:
+        raise ValueError('confirmed event requires confirmation citations')
+    if seen is not None and not supports_event(citations(event['citations'],seen),event['window_ids'],seen):
+        raise ValueError('confirmed event requires selected observed support')
     ids = event['window_ids']
     if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids) or len(ids) != len(set(ids)):
         raise ValueError('invalid event window IDs')

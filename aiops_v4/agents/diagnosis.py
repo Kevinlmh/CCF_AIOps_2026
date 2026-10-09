@@ -1,6 +1,6 @@
 """Independent localization and classification; one later consistency gate."""
 from .contracts import load_manifest, validate_event, validate_localization, validate_classification
-from .engine import Budget, run_role
+from .engine import Budget, run_role, recorded_delivery
 from .jsonio import dumps, loads
 from .tools import EvidenceSession
 
@@ -34,11 +34,11 @@ def _validated_role(backend, session, role, event, payload, budget):
     return dict(run=run, result=output, evidence=evidence)
 
 
-def diagnose_event(backend, database, batch, packet, event, budget=Budget(), *, context=None):
+def diagnose_event(backend, database, batch, packet, event, budget=Budget(), *, context=None, confirmation=None):
     if event.get('decision') != 'confirmed':
         raise ValueError('only confirmed events enter independent diagnosis')
     manifest = load_manifest(database, batch, packet['bundle_id'], budget.max_manifest_windows)
-    validate_event(event, manifest)
+    confirmation=_confirmation(packet,event,manifest,confirmation,database,batch)
     selected_manifest = [w for w in manifest if w['vector_id'] in set(event['window_ids'])]
     # Both roles get identical serialized input, each in a new conversation and tool registry.
     payload = loads(dumps(dict(bundle=packet, event=event, **({'context': context} if context is not None else {}))))
@@ -48,7 +48,8 @@ def diagnose_event(backend, database, batch, packet, event, budget=Budget(), *, 
         session = role_session(database, batch, packet, context)
         blocks[role] = _validated_role(backend, session, role, event, loads(dumps(payload)), budget)
     resolved = all(b['result'] is not None and b['result']['decision'] == 'resolved' for b in blocks.values())
-    return dict(batch=batch, bundle_id=packet['bundle_id'], event=event, event_manifest=selected_manifest, accepted=False,
+    return dict(batch=batch, bundle_id=packet['bundle_id'], event=event, event_manifest=selected_manifest,
+                confirmation=confirmation,diagnostic_mode='independent',review_mode='llm',accepted=False,
                 status='awaiting_review' if resolved else 'deferred', **blocks)
 
 
@@ -66,10 +67,56 @@ def evidence_registry(evidence, batch):
     return registry
 
 
+def _scope(payload,item):
+    packet=payload['bundle']
+    if packet['batch']!=item['batch'] or packet['bundle_id']!=item['bundle_id']:
+        raise ValueError('recorded role scope mismatch')
+
+
+def _confirmation(packet,event,manifest,block,database,batch):
+    if block is None:
+        # Direct API can inspect a supported event, but strict export requires a real confirmation run.
+        session=EvidenceSession(database,batch,loads(dumps(packet)))
+        validate_event(event,manifest,session.seen)
+        return dict(run=None,evidence=evidence_for(event,session.seen,event),scope='evidence_only_not_exportable')
+    item=dict(batch=batch,bundle_id=packet['bundle_id'],event=event,
+              event_manifest=[w for w in manifest if w['vector_id'] in set(event['window_ids'])],confirmation=block)
+    payload,_=recorded_delivery(block['run'],'confirmation',packet['bundle_id'])
+    if payload['manifest']!=manifest:raise ValueError('confirmation manifest differs from index')
+    validate_confirmation_record(item)
+    return loads(dumps(block))
+
+
+def validate_confirmation_record(item):
+    from .contracts import validate_confirmation
+    block=item.get('confirmation')
+    if not isinstance(block,dict):raise ValueError('confirmation record required')
+    payload,seen=recorded_delivery(block['run'],'confirmation',item['bundle_id'])
+    _scope(payload,item)
+    event=validate_event(item['event'],payload['manifest'],seen)
+    if (event not in validate_confirmation(block['run']['output'],payload['manifest'],seen)
+        or item['event_manifest']!=[w for w in payload['manifest'] if w['vector_id'] in set(event['window_ids'])]
+        or block['evidence']!=evidence_for(event,seen,event)):
+        raise ValueError('confirmation evidence/result association changed')
+    return event
+
+
+def validate_role_record(block,role,item):
+    payload,seen=recorded_delivery(block['run'],role,item['event']['event_id'])
+    _scope(payload,item)
+    if payload['event']!=item['event'] or block['run']['output']!=block['result']:
+        raise ValueError('recorded diagnostic input/result changed')
+    if block['evidence']!=evidence_for(block['result'],seen,item['event']):
+        raise ValueError('diagnostic proof was not actually delivered')
+    return payload,seen
+
+
 def validate_independent_diagnosis(item):
     from .contracts import validate_event
-    event = validate_event(item['event'], item['event_manifest'])
-    common_backend = None
+    event = validate_confirmation_record(item)
+    if item.get('diagnostic_mode')!='independent':raise ValueError('independent mode required')
+    initial_payload=None
+    common_backend = item['confirmation']['run']['backend']
     for role in ('localization', 'classification'):
         block, case_id = item[role], event['event_id']
         run, output = block['run'], block['result']
@@ -80,7 +127,9 @@ def validate_independent_diagnosis(item):
         if common_backend is not None and common_backend != run['backend']:
             raise ValueError('independent roles must share configured backend and model')
         common_backend = run['backend']
-        seen = evidence_registry(block['evidence'], item['batch'])
+        payload,seen = validate_role_record(block,role,item)
+        if initial_payload is not None and payload!=initial_payload:raise ValueError('independent roles received different inputs')
+        initial_payload=payload
         if role == 'localization':
             validate_localization(output, seen)
         else:

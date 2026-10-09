@@ -5,7 +5,7 @@ import json
 import pytest
 from test_agent_tools import evidence
 from test_agent_confirmation import cite
-from test_agent_diagnosis import confirmed, entries
+from test_agent_diagnosis import confirmed, entries, confirmation_record
 from aiops_v4.agents.backend import ReplayBackend
 from aiops_v4.agents.diagnosis import diagnose_event
 from aiops_challenge_2026.schema import validate_prediction
@@ -28,7 +28,7 @@ def setup(evidence):
     all_entries = entries(event, identifier) + [dict(role='review', case_id=event['event_id'], turn=0,
                               message={'role': 'assistant', 'content': json.dumps(review(identifier))})]
     api = ReplayBackend('fixture-model', all_entries)
-    return api, db, packet, diagnose_event(api, db, 'stage2', packet, event)
+    return api, db, packet, diagnose_event(api, db, 'stage2', packet, event, confirmation=confirmation_record(db,packet,event))
 
 
 def test_review_accepts_complete_evidence_and_export_is_official(evidence):
@@ -83,19 +83,12 @@ def test_invalid_or_negative_review_never_exports(evidence, fault):
 
 
 def test_export_top5_truncates_real_ranked_candidates_without_padding(evidence):
-    api, db, packet, item = setup(evidence)
-    result = diagnosis().review_event(api, db, 'stage2', packet, item)
-    # Export behavior fixture: each additional device has an explicit observed proof and role output.
+    # Formatting is separate from the provenance gate; never forge an accepted role trace.
     from aiops_challenge_2026.schema import VALID_NETWORK_ELEMENTS
-    cause = result['localization']['result']['candidates'][0]
-    for i, node in enumerate(sorted(VALID_NETWORK_ELEMENTS - {'xian-br-1'})[:5]):
-        identifier = f'export-fixture-{i}'
-        result['localization']['result']['candidates'].append(dict(network_element_id=node, confidence=0.4,
-            reason='Explicit export fixture observation.', citations=[cite(identifier)]))
-        result['localization']['evidence'].append(dict(kind='state', id=identifier,
-            data=dict(vector_id=identifier, batch='stage2', entity_id=node)))
-    result['localization']['run']['output'] = copy.deepcopy(result['localization']['result'])
-    record = exporter().prediction_for(result)
-    assert len(record['root_cause_top5']) == 5 and record['root_cause_top5'][0]['network_element_id'] == 'xian-br-1'
-    assert [r['rank'] for r in record['root_cause_top5']] == [1, 2, 3, 4, 5]
+    db,packet=evidence;event,_=confirmed(db,packet)
+    candidates=[dict(network_element_id=node) for node in ['xian-br-1',*sorted(VALID_NETWORK_ELEMENTS-{'xian-br-1'})[:5]]]
+    record=exporter().format_prediction(event,dict(candidates=candidates),
+        dict(category=dict(major_category='routing',sub_category='bgp_session_down')))
+    assert len(record['root_cause_top5'])==5 and record['root_cause_top5'][0]['network_element_id']=='xian-br-1'
+    assert [r['rank'] for r in record['root_cause_top5']]==[1,2,3,4,5]
     validate_prediction(record)

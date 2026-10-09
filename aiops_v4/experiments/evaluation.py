@@ -42,6 +42,10 @@ def evaluate_run(run_dir,truth,batch,output_dir,*,allow_partial=False):
     truth=Path(truth).resolve(strict=True)
     raw=Path(summary['raw_root']).resolve()
     if truth==raw or raw in truth.parents or root in truth.parents:raise ValueError('truth must be isolated from inference inputs/artifacts')
+    identity=truth.stat()
+    if any(str(truth)==source['path'] or (identity.st_dev,identity.st_ino)==(source['device'],source['inode'])
+           for source in summary['external_inputs']):
+        raise ValueError('truth must be isolated from consumed external inference inputs')
     output=new_output(output_dir,(root,raw))
     predictions=load_jsonl(root/'agents'/'predictions.jsonl',validate_prediction)
     # No label content is opened before the sealed run, scope and output preflight.

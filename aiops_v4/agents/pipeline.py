@@ -9,7 +9,7 @@ import tempfile
 
 from aiops_v4.evidence.index import metadata, query_evidence, read_index
 from .contracts import load_manifest, validate_confirmation
-from .diagnosis import diagnose_event, review_event
+from .diagnosis import evidence_for, diagnose_event, review_event
 from .engine import Budget, run_role
 from .export import prediction_for
 from .jsonio import dumps
@@ -148,8 +148,9 @@ def diagnose(database, batch, output_dir, backend, *, bundle_id=None, limit_bund
                             write('diagnoses.jsonl', dict(batch=batch, bundle_id=identifier, event=event, accepted=False,
                                   status=event['decision'], simulated=summary['simulated']))
                             continue
+                        confirmation = dict(run=run, evidence=evidence_for(event, session.seen, event))
                         item = diagnose_case(backend, database, batch, packet, event, budget,
-                            local_context if context is not None or state_explanation else None, diagnostic_mode, review_mode)
+                            local_context if context is not None or state_explanation else None, diagnostic_mode, review_mode, confirmation=confirmation)
                         for role in ('localization', 'classification', 'joint', 'review'):
                             if role in item: role_write(item[role]['run'])
                         item['simulated'] = summary['simulated']
