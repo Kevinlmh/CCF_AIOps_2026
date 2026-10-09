@@ -46,7 +46,11 @@ def _publish(scratch, output):
         raise
 
 
-def diagnose(database, batch, output_dir, backend, *, bundle_id=None, limit_bundles=None, budget=Budget()):
+def diagnose(database, batch, output_dir, backend, *, bundle_id=None, limit_bundles=None, budget=Budget(),
+             context=None, diagnostic_mode='independent', review_mode='llm', state_explanation=False):
+    if diagnostic_mode not in ('independent', 'joint') or review_mode not in ('llm','program_only') or type(state_explanation) is not bool:
+        raise ValueError('invalid diagnostic experiment modes')
+    from aiops_v4.experiments.roles import explain_state, role_session, diagnose_case, experiment_prediction_for
     output = Path(output_dir)
     if output.exists() or output.is_symlink():
         raise FileExistsError('output directory already exists')
@@ -72,6 +76,8 @@ def diagnose(database, batch, output_dir, backend, *, bundle_id=None, limit_bund
         database=str(database), output_dir=str(output), input_evidence_sha256=before,
         input_scope=state_summary['input_scope'], reference_scope=state_summary['reference_scope'],
         input_state_config=state_summary['config'], backend=backend.metadata(), simulated=backend.metadata()['simulated'],
+        diagnostic_mode=diagnostic_mode, review_mode=review_mode, semantic_review=review_mode=='llm',
+        experimental=diagnostic_mode!='independent' or review_mode!='llm', state_explanation=state_explanation,
         prompt_version=PROMPT_VERSION, budget=asdict(budget), selection=dict(bundle_id=bundle_id, limit_bundles=limit_bundles),
         bundles_available=available, bundles_selected=0, bundles_deferred=0, role_runs=0, role_failures=0, backend_calls=0, usage_reported_calls=0,
         assessments_confirmed=0, assessments_rejected=0, assessments_deferred=0,
@@ -113,8 +119,15 @@ def diagnose(database, batch, output_dir, backend, *, bundle_id=None, limit_bund
                         summary['bundles_deferred'] += 1
                         write('bundles.jsonl', bundle_record)
                         continue
-                    session = EvidenceSession(database, batch, packet)
-                    run = run_role(backend, session, 'confirmation', identifier, dict(bundle=packet, manifest=manifest), budget)
+                    local_context = dict(context or {})
+                    if state_explanation:
+                        explanation_run, explanation = explain_state(backend, database, batch, packet, manifest, budget, local_context)
+                        role_write(explanation_run)
+                        if explanation is not None: local_context['state_explanation'] = explanation
+                    session = role_session(database, batch, packet, local_context)
+                    payload = dict(bundle=packet, manifest=manifest)
+                    if context is not None or state_explanation: payload['context'] = local_context
+                    run = run_role(backend, session, 'confirmation', identifier, payload, budget)
                     assessments = None
                     if run['status'] == 'completed':
                         try:
@@ -135,14 +148,14 @@ def diagnose(database, batch, output_dir, backend, *, bundle_id=None, limit_bund
                             write('diagnoses.jsonl', dict(batch=batch, bundle_id=identifier, event=event, accepted=False,
                                   status=event['decision'], simulated=summary['simulated']))
                             continue
-                        item = diagnose_event(backend, database, batch, packet, event, budget)
-                        item = review_event(backend, database, batch, packet, item, budget)
-                        for role in ('localization', 'classification', 'review'):
-                            role_write(item[role]['run'])
+                        item = diagnose_case(backend, database, batch, packet, event, budget,
+                            local_context if context is not None or state_explanation else None, diagnostic_mode, review_mode)
+                        for role in ('localization', 'classification', 'joint', 'review'):
+                            if role in item: role_write(item[role]['run'])
                         item['simulated'] = summary['simulated']
                         summary['diagnoses_' + item['status']] += 1
                         write('diagnoses.jsonl', item)
-                        record = prediction_for(item)
+                        record = experiment_prediction_for(item) if summary['experimental'] else prediction_for(item)
                         if record is not None:
                             if record['prediction_id'] in prediction_ids:
                                 raise ValueError('duplicate prediction_id')

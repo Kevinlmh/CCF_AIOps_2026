@@ -34,17 +34,18 @@ def _validated_role(backend, session, role, event, payload, budget):
     return dict(run=run, result=output, evidence=evidence)
 
 
-def diagnose_event(backend, database, batch, packet, event, budget=Budget()):
+def diagnose_event(backend, database, batch, packet, event, budget=Budget(), *, context=None):
     if event.get('decision') != 'confirmed':
         raise ValueError('only confirmed events enter independent diagnosis')
     manifest = load_manifest(database, batch, packet['bundle_id'], budget.max_manifest_windows)
     validate_event(event, manifest)
     selected_manifest = [w for w in manifest if w['vector_id'] in set(event['window_ids'])]
     # Both roles get identical serialized input, each in a new conversation and tool registry.
-    payload = loads(dumps(dict(bundle=packet, event=event)))
+    payload = loads(dumps(dict(bundle=packet, event=event, **({'context': context} if context is not None else {}))))
     blocks = {}
     for role in ('localization', 'classification'):
-        session = EvidenceSession(database, batch, loads(dumps(packet)))
+        from aiops_v4.experiments.roles import role_session
+        session = role_session(database, batch, packet, context)
         blocks[role] = _validated_role(backend, session, role, event, loads(dumps(payload)), budget)
     resolved = all(b['result'] is not None and b['result']['decision'] == 'resolved' for b in blocks.values())
     return dict(batch=batch, bundle_id=packet['bundle_id'], event=event, event_manifest=selected_manifest, accepted=False,
@@ -87,7 +88,7 @@ def validate_independent_diagnosis(item):
     return common_backend
 
 
-def review_event(backend, database, batch, packet, item, budget=Budget()):
+def review_event(backend, database, batch, packet, item, budget=Budget(), *, context=None):
     from .contracts import load_manifest, validate_event, validate_review
     result = loads(dumps(item))
     result.update(accepted=False, status='deferred')
@@ -102,7 +103,8 @@ def review_event(backend, database, batch, packet, item, budget=Budget()):
     except (ValueError, KeyError, TypeError):
         result['review'] = dict(run=None, result=None, evidence=[], error_code='incomplete_or_invalid_independent_roles')
         return result
-    session = EvidenceSession(database, batch, loads(dumps(packet)))
+    from aiops_v4.experiments.roles import role_session
+    session = role_session(database, batch, packet, context)
     proofs = result['localization']['evidence'] + result['classification']['evidence']
     mapping = {'state': 'states', 'raw': 'raw', 'event': 'members', 'relation': 'relations'}
     for proof in proofs:
@@ -110,6 +112,7 @@ def review_event(backend, database, batch, packet, item, budget=Budget()):
     payload = dict(bundle=packet, event=result['event'], independent_diagnoses={
         role: {key: result[role][key] for key in ('result', 'evidence')}
         for role in ('localization', 'classification')})
+    if context is not None: payload['context'] = context
     run = run_role(backend, session, 'review', result['event']['event_id'], payload, budget)
     output, evidence = None, []
     if run['status'] == 'completed':
