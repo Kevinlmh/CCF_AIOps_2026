@@ -229,3 +229,14 @@ HTTP 后端要求兼容 `/chat/completions` 的 JSON 和 function tools；base U
 默认每角色 6 轮、12 次工具调用、120000 输入字符、32000 响应字符，每 bundle 2000 个候选窗口；`--max-*` 可调整。这些是执行预算。`--max-completion-tokens` 调整 HTTP 单次生成上限（默认 4096）。工具大 JSON 显式分块，完整读取后才可引用。API 未报告的用量标为不完整；不把未知用量记作零成本。
 
 `selection_complete` 表示当前索引的 bundle 是否全部选择；`diagnosis_complete` 表示整个索引队列是否全部得到非待判断结果。原始数据是否全量另看 `input_scope.complete`，两者不能等同原始批次全部处理。观测边界不是物理故障起止，自报置信度未校准，合法 JSONL 不等于诊断准确。完整原始数据入口、评测/消融和容器复现属于下一批。
+
+## v4 一体化运行与实验
+
+最后一批提供统一原始数据到预测入口、公开知识卡/可选状态解释、九组消融、独立真值评测、错误分析、配置/代码/提示/调用/token/费用记录与 Docker 材料。
+
+```sh
+python -m aiops_v4.experiments run --config configs/v4/public-discovery.json --output-dir outputs/v4/experiments/my-smoke
+python -m aiops_v4.experiments --help
+```
+
+全量模板：configs/v4/stage1.json 和 stage2.json（需指定真实模型和环境密钥）；运行与评测为两个独立命令。默认四角色保持同一模型及独立定位/分类。Replay、prefix_sample、部分 bundle、未知费用和 deferred 都会明确记录；流程验证不能代表模型效果。完整用法与 Docker 挂载说明见 [v4-reproduction](docs/v4-reproduction.md)。

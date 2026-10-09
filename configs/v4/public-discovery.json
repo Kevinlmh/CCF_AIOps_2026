@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "batch": "public-case-001",
+  "raw_root": "../../sample/case_001",
+  "naive_timezone": "UTC",
+  "profile": {
+    "max_rows_per_file": 1000
+  },
+  "agents": {
+    "discovery_only": true
+  },
+  "backend": {
+    "kind": "replay",
+    "model": "discovery-no-model",
+    "replay_file": "empty-replay.jsonl"
+  }
+}

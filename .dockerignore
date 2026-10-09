@@ -1,0 +1,19 @@
+# Allowlist: no local raw data, output, credentials, git history, or submit script.
+**
+!Dockerfile.v4
+!.dockerignore
+!LICENSE
+!aiops_common/
+!aiops_common/**
+!aiops_challenge_2026/
+!aiops_challenge_2026/**
+!aiops_v4/
+!aiops_v4/**
+!configs/
+!configs/v4/
+!configs/v4/**
+!tests/
+!tests/**
+**/__pycache__
+**/*.pyc
+**/.env*

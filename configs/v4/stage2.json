@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "batch": "stage2-local",
+  "raw_root": "../../data/stage2/regions",
+  "naive_timezone": "UTC",
+  "states": {
+    "mode": "hybrid",
+    "rules_enabled": true,
+    "min_reference": 12,
+    "clusters": 3
+  },
+  "agents": {
+    "mode": "independent",
+    "review_mode": "llm",
+    "knowledge": true,
+    "state_explanation": false
+  },
+  "backend": {
+    "kind": "http",
+    "model": "REPLACE_WITH_MODEL_ID",
+    "base_url": "https://api.openai.com/v1",
+    "api_key_env": "AIOPS_LLM_API_KEY"
+  }
+}
