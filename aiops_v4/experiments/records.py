@@ -45,7 +45,8 @@ def estimate_cost(summary, pricing):
         result['reason']='input_output_usage_missing'
     else:
         result['known_usage_cost']=(usage['prompt_tokens']*pricing['input_per_million']+usage['completion_tokens']*pricing['output_per_million'])/1000000
-        complete=(summary.get('usage_complete') and summary.get('backend_calls') == summary.get('usage_reported_calls'))
+        complete=(summary.get('usage_complete') and summary.get('backend_calls') == summary.get('usage_reported_calls')
+                  and summary.get('token_pair_reported_calls', summary.get('usage_reported_calls')) == summary.get('backend_calls'))
         result['reason']='configured_rate_estimate' if complete else 'usage_incomplete'
         if complete: result['estimated_cost']=result['known_usage_cost']
     result['billing_note']='configured token-rate estimate only; discounts, cache pricing and provider billing not verified'

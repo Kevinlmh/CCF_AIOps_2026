@@ -83,3 +83,13 @@ def test_provenance_hashes_all_prompts_and_source_without_credentials(tmp_path):
     assert set(result['prompt_sha256']) >= {'confirmation','localization','classification','review'}
     assert result['python'] and result['platform'] and result['git_commit']
     assert 'environment' not in result
+
+
+def test_cost_rejects_complete_total_tokens_when_only_some_calls_report_input_output():
+    records=importlib.import_module('aiops_v4.experiments.records')
+    summary=dict(simulated=False,backend_calls=2,usage_reported_calls=2,usage_complete=True,token_pair_reported_calls=1,
+                 usage=dict(prompt_tokens=1000000,completion_tokens=500000,total_tokens=2000000))
+    price=dict(currency='USD',input_per_million=2,output_per_million=4)
+    result=records.estimate_cost(summary,price)
+    assert result['estimated_cost'] is None and result['known_usage_cost']==4
+    assert result['reason']=='usage_incomplete'
