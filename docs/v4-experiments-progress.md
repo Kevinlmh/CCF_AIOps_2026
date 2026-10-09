@@ -41,3 +41,5 @@ Final: fixed actual relation delivery — test_every_actual_role_prompt_delivers
 Task 6 real verification after ab54f4d: public full 56 files/604284 rows/71208 windows, 4 Replay calls, review defer/0 predictions; stage1 prefix 56 files/51481 rows/41095 windows, stage2 prefix 120 files/120000 rows/96290 windows, each selected1 bundle/1 missing Replay call/0 predictions. All three verified integrity_version=2; public sealed partial contract eval Total0/FN3, never model quality.
 Protected validation: 543 existing files unchanged by existence/size/mtime, representative existing evidence SHA and v3 archive commit unchanged. No existing outputs overwritten.
 Final: Ruling: Keep the existing requested v4 branch locally; no integration menu/push/merge because no integration was requested — cost if wrong: integration remains a later explicit task.
+Task 6: complete (commits ffdadc0..a777234, tests: .venv/bin/python -m pytest -q → 339 passed in 16.58s)
+Finish: v4 kept locally; all implementation changes and audit documents committed. Only this plan-owned scratch is removed; experiments/protected files and other plan workspaces remain.
