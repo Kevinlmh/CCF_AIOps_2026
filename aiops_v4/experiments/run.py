@@ -3,6 +3,8 @@ from dataclasses import asdict
 from datetime import datetime,timezone
 import os
 import hashlib
+import shutil
+import tempfile
 from pathlib import Path
 from time import monotonic
 from aiops_v4.agents.backend import HTTPBackend,ReplayBackend
@@ -22,9 +24,14 @@ from .records import provenance,hash_object,estimate_cost
 from .roles import run_diagnosis
 
 
-def new_output(path,protected=()):
+class DiskReserveError(RuntimeError):
+    """Execution control, distinct from a per-record CSV validation error."""
+
+
+def new_output(path,protected=(),*,allow_existing=False):
     path=Path(path)
-    if path.exists() or path.is_symlink():raise FileExistsError('output already exists')
+    if path.is_symlink() or (path.exists() and not allow_existing):raise FileExistsError('output already exists')
+    if path.exists() and not path.is_dir():raise ValueError('output must be directory')
     path=path.resolve()
     roots=[Path(__file__).resolve().parents[2]/'data',*[Path(p).resolve() for p in protected]]
     if any(path==r or r in path.parents for r in roots):raise ValueError('output must be outside inputs/data')
@@ -45,7 +52,7 @@ def make_backend(config):
         return backend
     key=os.environ.get(b['api_key_env'])
     if not key:raise ValueError('configured API key environment is missing')
-    return HTTPBackend(b['model'],b['base_url'],key,b['timeout'],b['max_response_bytes'],b['max_completion_tokens'])
+    return HTTPBackend(b['model'],b['base_url'],key,b['timeout'],b['max_response_bytes'],b['max_completion_tokens'],b['enable_thinking'],b['temperature'],b['structured_roles'])
 
 
 def _raw_snapshot(root):
@@ -81,9 +88,14 @@ def verify_run(run_dir):
         if summary.get('integrity_version')!=2 or not isinstance(summary.get('external_inputs'),list):
             raise ValueError('legacy run requires a new run for verified evaluation')
         for source in summary['external_inputs']:
-            if (source['kind'] not in {'topology','replay'} or not Path(source['path']).is_absolute()
+            if (source['kind'] not in {'topology','replay','data_layer'} or not Path(source['path']).is_absolute()
                 or len(source['sha256'])!=64 or type(source['device']) is not int or type(source['inode']) is not int):
                 raise ValueError('invalid external input provenance')
+        for source in summary['external_inputs']:
+            if source['kind']=='data_layer':
+                from aiops_v4.data.cache import verify_layer
+                if sha256(source['path'])!=source['sha256']:raise ValueError('data layer seal changed')
+                verify_layer(Path(source['path']).parent)
         expected=set(summary['artifact_sha256'])
         actual={str(p.relative_to(root)) for p in root.rglob('*') if p.is_file()}-{'summary.json','seal.json'}
         if actual!=expected:raise ValueError('run artifacts changed')
@@ -98,10 +110,16 @@ def verify_run(run_dir):
     except (OSError,KeyError,TypeError) as error:raise ValueError('missing or malformed run seal') from error
 
 
-def run_experiment(config,output_dir,*,backend=None):
+def run_experiment(config,output_dir,*,backend=None,resume=False,min_free_bytes=0,progress=None):
+    if type(resume) is not bool or type(min_free_bytes) is not int or min_free_bytes<0:
+        raise ValueError('invalid resume/disk policy')
+    if progress is not None and not callable(progress):raise ValueError('progress must be callable')
     config=validate_config(config)
+    if config['storage']['backend']=='canonical':
+        from .canonical import run_canonical
+        return run_canonical(config,output_dir,backend=backend,resume=resume,min_free_bytes=min_free_bytes,progress=progress)
     root=Path(config['raw_root']).resolve(strict=True)
-    output=new_output(output_dir,(root,))
+    output=new_output(output_dir,(root,),allow_existing=resume)
     snapshot=_raw_snapshot(root)
     if not snapshot:raise ValueError('no recognized raw CSV inputs')
     external=[]
@@ -118,51 +136,102 @@ def run_experiment(config,output_dir,*,backend=None):
     metadata=provenance(config)
     metadata['backend_input']=dict(injected=injected,
         replay_entries_sha256=hash_object(list(backend.entries.values())) if not discovery_only and isinstance(backend,ReplayBackend) else None)
-    started=monotonic();durations={};stages={};stage='setup'
-    output.mkdir(parents=True,exist_ok=False)
-    _write(output/'config.json',config)
-    _write(output/'knowledge.json',knowledge_cards())
-    fixed=_inventory(output)
+    started=monotonic();durations={};stages={};stage='setup';resumed=[]
+    order=['profile','features','states','evidence','agents']
+    signature=dict(config_sha256=hash_object(config),code_sha256=metadata['code_sha256'],
+                   raw_snapshot=snapshot,external_inputs=external,backend_input=metadata['backend_input'])
+    def inventory():
+        return {k:v for k,v in _inventory(output).items() if k not in {'checkpoint.json','failure.json'}}
+    if output.exists():
+        if (output/'summary.json').exists():
+            completed=verify_run(output)
+            if completed['provenance']['config_sha256']!=signature['config_sha256'] or completed['provenance']['code_sha256']!=signature['code_sha256']:
+                raise ValueError('completed run config/code changed')
+            if snapshot!=completed.get('raw_snapshot'):raise ValueError('raw snapshot changed')
+            return completed
+        checkpoint=loads((output/'checkpoint.json').read_text(encoding='utf-8'))
+        completed_stages=checkpoint['completed_stages']
+        stages={name:checkpoint['stages'][name] for name in completed_stages}
+        durations=checkpoint['stage_elapsed_seconds'];fixed=checkpoint['artifact_sha256']
+        if (checkpoint['schema_version']!=1 or checkpoint['signature']!=signature
+                or completed_stages!=order[:len(stages)] or set(checkpoint['stages'])!=set(stages)
+                or set(durations)!=set(stages) or inventory()!=fixed):
+            raise ValueError('checkpoint config/code/input/artifacts changed')
+        resumed=list(stages)
+        if (output/'failure.json').exists():(output/'failure.json').unlink()
+    else:
+        probe=output.parent
+        while not probe.exists():probe=probe.parent
+        if shutil.disk_usage(probe).free<min_free_bytes:raise ValueError('insufficient disk reserve')
+        output.mkdir(parents=True,exist_ok=False)
+        _write(output/'config.json',config)
+        _write(output/'knowledge.json',knowledge_cards())
+        fixed=inventory()
+    last_check=[0.0]
+    def notify(name,value,*,force=False):
+        now=monotonic()
+        if force or now-last_check[0]>=1 or progress is not None:
+            free=shutil.disk_usage(output).free;last_check[0]=now
+            if progress is not None:progress(dict(value,stage=name,disk_free_bytes=free))
+            if free<min_free_bytes:raise DiskReserveError('disk_reserve_exhausted')
+    def save_checkpoint():
+        value=dict(schema_version=1,signature=signature,completed_stages=list(stages),
+                   stages=stages,stage_elapsed_seconds=durations,artifact_sha256=fixed)
+        # Mutable ledger is excluded from stage inventories and sealed at success.
+        with tempfile.NamedTemporaryFile(mode='w',encoding='utf-8',dir=output.parent,delete=False) as stream:
+            temporary=Path(stream.name)
+            stream.write(dumps(value)+'\n')
+        try:temporary.replace(output/'checkpoint.json')
+        finally:
+            if temporary.exists():temporary.unlink()
     def check_fixed():
-        if _inventory(output)!=fixed:raise ValueError('published stage artifacts changed')
+        if inventory()!=fixed:raise ValueError('published stage artifacts changed')
         if any(source!=_external_input(source['path'],source['kind']) for source in external):
             raise ValueError('external inference inputs changed')
+        if provenance(config)['code_sha256']!=metadata['code_sha256']:raise ValueError('code changed during run')
     def capture(name):
         for relative,digest in _inventory(output/name).items():fixed[str(Path(name)/relative)]=digest
         check_fixed()
     def execute(name,operation):
         nonlocal stage
-        stage=name;check_fixed();begin=monotonic();value=operation();capture(name)
+        stage=name;check_fixed();notify(name,dict(event='stage_start'),force=True)
+        if name in stages:
+            notify(name,dict(event='stage_reused'),force=True)
+            return stages[name]
+        begin=monotonic();value=operation()
+        capture(name)
         durations[name]=round(monotonic()-begin,6);stages[name]=value
+        save_checkpoint();notify(name,dict(event='stage_complete',elapsed_seconds=durations[name]),force=True)
         return value
     try:
+        save_checkpoint()
         def publish_profile():
-            value=profile_dataset(root,config['batch'],**config['profile'])
+            value=profile_dataset(root,config['batch'],progress=lambda v:notify('profile',v),**config['profile'])
             _publish_report(value,output/'profile')
             return value
         profile=execute('profile',publish_profile)
         if profile['errors']:raise ValueError('raw scan failed')
         windows=execute('features',lambda:build_features(root,config['batch'],output/'features',
-            naive_timezone=config['naive_timezone'],max_rows_per_file=config['profile']['max_rows_per_file'],**config['features']))
+            naive_timezone=config['naive_timezone'],max_rows_per_file=config['profile']['max_rows_per_file'],compact=config['storage']['compact'],progress=lambda v:notify('features',v),**config['features']))
         file_keys=('path','source','columns','rows_scanned','complete','parsed_records_sha256')
         scanned_files=lambda files:sorted(({k:row[k] for k in file_keys} for row in files),key=lambda row:row['path'])
         if (snapshot!=_raw_snapshot(root) or profile['rows_scanned']!=windows['rows_scanned']
             or scanned_files(profile['files'])!=scanned_files(windows['files'])):
             raise ValueError('raw inputs changed across scans')
-        states=execute('states',lambda:discover_states(output/'features',config['batch'],output/'states',**config['states']))
-        evidence=execute('evidence',lambda:build_evidence(output/'states',config['batch'],output/'evidence',**config['evidence']))
+        states=execute('states',lambda:discover_states(output/'features',config['batch'],output/'states',compact=config['storage']['compact'],progress=lambda v:notify('states',v),**config['states']))
+        evidence=execute('evidence',lambda:build_evidence(output/'states',config['batch'],output/'evidence',compact=config['storage']['compact'],progress=lambda v:notify('evidence',v),**config['evidence']))
         if discovery_only:
-            stage='agents';check_fixed()
-            (output/'agents').mkdir()
-            (output/'agents'/'predictions.jsonl').write_text('',encoding='utf-8')
-            agents=dict(simulated=True,backend_calls=0,usage_reported_calls=0,usage_complete=True,usage={},predictions=0,
-                        selection_complete=False,diagnosis_complete=False,mode='discovery_only',submission_ready=False)
-            stages['agents']=agents;durations['agents']=0.0
-            _write(output/'agents'/'summary.json',agents)
-            capture('agents')
+            def offline_agents():
+                (output/'agents').mkdir()
+                (output/'agents'/'predictions.jsonl').write_text('',encoding='utf-8')
+                value=dict(simulated=True,backend_calls=0,usage_reported_calls=0,usage_complete=True,usage={},predictions=0,
+                            selection_complete=False,diagnosis_complete=False,mode='discovery_only',submission_ready=False)
+                _write(output/'agents'/'summary.json',value)
+                return value
+            agents=execute('agents',offline_agents)
         else:
             args=dict(config['agents']);args.pop('discovery_only');args['budget']=Budget(**args['budget'])
-            agents=execute('agents',lambda:run_diagnosis(output/'evidence'/'evidence.sqlite',config['batch'],output/'agents',backend,**args))
+            agents=execute('agents',lambda:run_diagnosis(output/'evidence'/'evidence.sqlite',config['batch'],output/'agents',backend,progress=lambda v:notify('agents',v),**args))
         stage='seal';check_fixed()
         if snapshot!=_raw_snapshot(root):raise ValueError('raw inputs changed during run')
         raw_fingerprint=hash_object(dict(batch=config['batch'],files=windows['files'],mode=windows['mode'],
@@ -179,6 +248,7 @@ def run_experiment(config,output_dir,*,backend=None):
         partial=(not windows['complete'] or windows['mode']!='full' or not agents['selection_complete'])
         diagnosis_complete=bool(agents['diagnosis_complete'] and not partial and not discovery_only)
         summary=dict(schema_version=1,integrity_version=2,external_inputs=external,status='completed',batch=config['batch'],created_at=datetime.now(timezone.utc).isoformat(),
+            raw_snapshot=snapshot,resumed_stages=resumed,runtime_policy=dict(min_free_bytes=min_free_bytes),
             output_dir=str(output),raw_root=str(root),provenance=metadata,input_fingerprint=raw_fingerprint,
             input_scope={k:windows[k] for k in ('mode','complete','max_rows_per_file','rows_scanned','naive_timezone')},
             partial=partial,diagnosis_complete=diagnosis_complete,valid_for_model_quality=not agents['simulated'] and not discovery_only,
@@ -188,6 +258,7 @@ def run_experiment(config,output_dir,*,backend=None):
         summary['cost']=estimate_cost(summary,config['pricing'])
         _write(output/'experiment.json',{k:v for k,v in summary.items() if k!='stages'})
         fixed['experiment.json']=sha256(output/'experiment.json');check_fixed()
+        fixed['checkpoint.json']=sha256(output/'checkpoint.json')
         summary['artifact_sha256']=dict(fixed)
         encoded=dumps(summary)+'\n'
         _write(output/'seal.json',dict(schema_version=1,summary_sha256=hashlib.sha256(encoded.encode()).hexdigest()))

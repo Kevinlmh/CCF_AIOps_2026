@@ -10,10 +10,12 @@ from aiops_v4.data.reader import utc_time
 
 DEFAULTS = dict(
     profile=dict(max_rows_per_file=None, reservoir_size=512, max_groups=2048, cardinality_limit=128),
-    features=dict(window_seconds=60, expected_step_seconds=None, counter_max_gap_seconds=180),
+    features=dict(window_seconds=60, expected_step_seconds=None, counter_max_gap_seconds=180, netflow_streaming=False),
     states=dict(reference_start=None, reference_end=None, min_reference=12, clusters=3, mode='hybrid',
-                stat_threshold=6.0, cluster_threshold=3.0, rare_fraction=0.1, minimum_overlap=0.5, rules_enabled=True),
+                stat_threshold=6.0, cluster_threshold=3.0, rare_fraction=0.1, minimum_overlap=0.5, rules_enabled=True,
+                candidate_policy='legacy', candidate_min_windows=2),
     evidence=dict(context_seconds=120, observations_per_kind=8, skip_raw=False, topology=None),
+    storage=dict(compact=False,backend='legacy',data_dir=None,workers=4,memory_gib=4,min_free_gib=12,max_workspace_gib=100),
     agents=dict(mode='independent', review_mode='llm', knowledge=True, state_explanation=False,
                 discovery_only=False, bundle_id=None, limit_bundles=None, budget=asdict(Budget())))
 
@@ -67,12 +69,22 @@ def validate_config(config, base=None):
     p=result['profile']
     _integer(p['max_rows_per_file'],nullable=True)
     for key in ('reservoir_size','max_groups','cardinality_limit'): _integer(p[key],high=1000000)
+    storage=result['storage']
+    if storage['backend'] not in ('legacy','canonical'):raise ValueError('invalid storage backend')
+    _integer(storage['workers'],1,8)
+    for name in ('memory_gib','max_workspace_gib'):_number(storage[name],.125,1000000)
+    _number(storage['min_free_gib'],0,1000000)
+    if storage['memory_gib']/(2*storage['workers'])<.125:raise ValueError('insufficient memory per worker')
+    if storage['data_dir'] is not None:storage['data_dir']=_path(storage['data_dir'],base)
     f=result['features']
+    _bool(f['netflow_streaming']); _bool(result['storage']['compact'])
     for key in ('window_seconds','counter_max_gap_seconds'): _integer(f[key])
     _integer(f['expected_step_seconds'],nullable=True)
     if f['expected_step_seconds'] and f['window_seconds'] % f['expected_step_seconds']:
         raise ValueError('expected step must divide window width')
     s=result['states']
+    if s['candidate_policy'] not in ('legacy', 'conservative'): raise ValueError('invalid candidate policy')
+    _integer(s['candidate_min_windows'],1,60)
     _integer(s['min_reference'],2,256); _integer(s['clusters'],1,8)
     if s['mode'] not in ('statistics','cluster','hybrid'): raise ValueError('invalid state mode')
     for key in ('stat_threshold','cluster_threshold'): _number(s[key],0,1e9,True)
@@ -94,19 +106,24 @@ def validate_config(config, base=None):
     if a['limit_bundles'] is not None and a['bundle_id'] is not None: raise ValueError('choose one bundle selection')
     budget={**asdict(Budget()),**_object(a['budget'],asdict(Budget()))}
     a['budget']=asdict(Budget(**budget))
-    b=dict(_object(config.get('backend'),('kind','model','replay_file','base_url','api_key_env','timeout','max_response_bytes','max_completion_tokens')))
+    b=dict(_object(config.get('backend'),('kind','model','replay_file','base_url','api_key_env','timeout','max_response_bytes','max_completion_tokens','enable_thinking','temperature','structured_roles')))
     _text(b.get('model'))
     if b.get('kind') == 'replay':
         _object(b,('kind','model','replay_file'))
         b['replay_file']=_path(b.get('replay_file'),base)
     elif b.get('kind') == 'http':
-        _object(b,('kind','model','base_url','api_key_env','timeout','max_response_bytes','max_completion_tokens'))
+        _object(b,('kind','model','base_url','api_key_env','timeout','max_response_bytes','max_completion_tokens','enable_thinking','temperature','structured_roles'))
         b.setdefault('api_key_env','AIOPS_LLM_API_KEY')
         if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*',_text(b['api_key_env'])): raise ValueError('invalid key environment name')
         b.setdefault('timeout',60); b.setdefault('max_response_bytes',1048576); b.setdefault('max_completion_tokens',4096)
+        b.setdefault('enable_thinking',None)
+        b.setdefault('temperature',None)
+        b.setdefault('structured_roles',False); _bool(b['structured_roles'])
+        if b['temperature'] is not None:_number(b['temperature'],0,2)
+        if b['enable_thinking'] is not None: _bool(b['enable_thinking'])
         # Constructor validates URL and limits, without sending a request or reading secrets.
         HTTPBackend(b['model'],_text(b.get('base_url')),'preflight-placeholder',
-                    b['timeout'],b['max_response_bytes'],b['max_completion_tokens'])
+                    b['timeout'],b['max_response_bytes'],b['max_completion_tokens'],b['enable_thinking'],b['temperature'],b['structured_roles'])
     else:
         raise ValueError('backend kind must be replay or http')
     result['backend']=b

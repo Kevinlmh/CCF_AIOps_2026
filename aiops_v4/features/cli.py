@@ -22,6 +22,7 @@ def main(argv=None):
     build.add_argument('--expected-step-seconds',type=int)
     build.add_argument('--counter-max-gap-seconds',type=int,default=180)
     build.add_argument('--max-rows-per-file',type=int)
+    build.add_argument('--netflow-streaming',action='store_true')
     build.add_argument('--verbose',action='store_true')
     arguments=parser.parse_args(argv)
 
@@ -34,7 +35,7 @@ def main(argv=None):
                                naive_timezone=arguments.naive_timezone,window_seconds=arguments.window_seconds,
                                expected_step_seconds=arguments.expected_step_seconds,
                                counter_max_gap_seconds=arguments.counter_max_gap_seconds,
-                               max_rows_per_file=arguments.max_rows_per_file,progress=progress)
+                               max_rows_per_file=arguments.max_rows_per_file,netflow_streaming=arguments.netflow_streaming,progress=progress)
         print(json.dumps({key:summary[key] for key in ['batch','mode','complete','rows_scanned','rows_rejected','window_count','output_dir']},ensure_ascii=False))
         return 0
     except (OSError,ValueError,csv.Error,sqlite3.DatabaseError) as error:

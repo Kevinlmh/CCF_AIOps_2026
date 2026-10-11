@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "batch": "stage1-local",
+  "raw_root": "../../data/stage1/regions",
+  "naive_timezone": "UTC",
+  "features": {"netflow_streaming": true},
+  "storage": {"compact": true},
+  "evidence": {"observations_per_kind": 2},
+  "states": {
+    "mode": "hybrid", "min_reference": 12, "clusters": 3,
+    "stat_threshold": 8, "cluster_threshold": 4, "rare_fraction": 0,
+    "rules_enabled": true, "candidate_policy": "conservative", "candidate_min_windows": 2
+  },
+  "agents": {
+    "mode": "independent", "review_mode": "llm",
+    "knowledge": true, "state_explanation": false, "discovery_only": false
+  },
+  "backend": {
+    "kind": "http", "model": "Qwen/Qwen3-8B-AWQ",
+    "base_url": "http://127.0.0.1:8000/v1", "api_key_env": "AIOPS_LOCAL_LLM_KEY",
+    "timeout": 300, "max_completion_tokens": 1536,
+    "enable_thinking": false, "temperature": 0, "structured_roles": true
+  },
+  "profile": {"max_rows_per_file": null}
+}

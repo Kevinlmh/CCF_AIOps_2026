@@ -47,7 +47,7 @@ def _publish(scratch, output):
 
 
 def diagnose(database, batch, output_dir, backend, *, bundle_id=None, limit_bundles=None, budget=Budget(),
-             context=None, diagnostic_mode='independent', review_mode='llm', state_explanation=False):
+             context=None, diagnostic_mode='independent', review_mode='llm', state_explanation=False,progress=None):
     if diagnostic_mode not in ('independent', 'joint') or review_mode not in ('llm','program_only') or type(state_explanation) is not bool:
         raise ValueError('invalid diagnostic experiment modes')
     from aiops_v4.experiments.roles import explain_state, role_session, diagnose_case, experiment_prediction_for
@@ -99,6 +99,8 @@ def diagnose(database, batch, output_dir, backend, *, bundle_id=None, limit_bund
                 summary['role_failures'] += int(run['status'] != 'completed')
                 for key, count in run['usage'].items():
                     summary['usage'][key] = summary['usage'].get(key, 0) + count
+                if progress:progress(dict(event='role_complete',role=run['role'],role_status=run['status'],
+                                          backend_calls=summary['backend_calls'],predictions=summary['predictions']))
             with read_index(database, batch) as db:
                 sql, params = 'SELECT id FROM bundles', []
                 if bundle_id is not None:
@@ -112,6 +114,7 @@ def diagnose(database, batch, output_dir, backend, *, bundle_id=None, limit_bund
                     bundle_record = dict(bundle_id=identifier, entity_id=packet['entity_id'], status='deferred',
                                          error_code=None, windows_assigned=0, assessments=[])
                     summary['bundles_selected'] += 1
+                    if progress:progress(dict(event='bundle_start',bundles=summary['bundles_selected'],bundles_total=available))
                     try:
                         manifest = load_manifest(database, batch, identifier, budget.max_manifest_windows)
                     except ValueError as error:
@@ -163,6 +166,8 @@ def diagnose(database, batch, output_dir, backend, *, bundle_id=None, limit_bund
                             prediction_ids.add(record['prediction_id'])
                             write('predictions.jsonl', record); summary['predictions'] += 1
                     write('bundles.jsonl', bundle_record)
+                    if progress:progress(dict(event='bundle_complete',bundles=summary['bundles_selected'],bundles_total=available,
+                                              predictions=summary['predictions'],backend_calls=summary['backend_calls']))
         if sha256(database) != before:
             raise ValueError('evidence changed during run; no artifacts published')
         summary['unselected_bundles'] = available - summary['bundles_selected']

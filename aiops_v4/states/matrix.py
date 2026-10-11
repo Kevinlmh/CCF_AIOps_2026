@@ -3,6 +3,7 @@ import hashlib
 import json
 import math
 from aiops_v4.data.reader import utc_time
+from aiops_v4.features.semantics import counter_rate_unit
 
 MAX_FEATURES = 128
 LOG_UNITS = {'count', 'load', 'bytes', 'packets', 'samples', 'exported_records', 'prefixes', 'cost'}
@@ -53,14 +54,17 @@ def window_vector(window: dict, batch: str) -> dict:
                 value = float(raw)
         if value is None:
             notes.append(f'masked:{name}')
+        feature_unit = counter_rate_unit(unit) if kind == 'counter' else unit
         features[name + '::' + stat] = {'value': value, 'raw_value': raw if _finite(raw) else None,
                                       'kind': 'category' if category else 'numeric', 'metric': name,
-                                      'stat': stat, 'transform': transform, 'unit': unit,
+                                      'stat': stat, 'transform': transform, 'unit': feature_unit,
                                       'semantic_status': semantic.get('status', 'unverified')}
         rule_inputs[name] = {key: metric.get(key) for key in ('last', 'min', 'max', 'mean', 'delta_sum', 'rate_mean',
                             'change_count', 'counter_decrease_count', 'counter_gap_count')}
         rule_inputs[name].update(kind=kind, unit=unit, usable=not blocked and not bad,
                                  semantic_status=semantic.get('status', 'unverified'))
+        if kind == 'counter':
+            rule_inputs[name]['rate_unit'] = feature_unit
     if len(features) > MAX_FEATURES:
         raise ValueError('feature limit exceeded; refine the observation schema')
     return {'schema_version': 1, 'vector_id': window['window_id'], 'group_id': hashlib.sha256(group_key.encode()).hexdigest(),

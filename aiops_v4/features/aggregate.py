@@ -7,7 +7,7 @@ import math
 
 from aiops_v4.data.reader import is_missing
 from aiops_v4.data.statistics import ColumnStats
-from .semantics import metric_semantics
+from .semantics import metric_semantics, counter_rate_unit
 from .time import iso_time, window_start
 
 REFERENCE_LIMIT = 8
@@ -71,7 +71,7 @@ class _Metric:
                   'delta_sum': self.delta_total if self.rates.n else None,
                   'rate_mean': rates['mean'], 'rate_min': rates['min'], 'rate_max': rates['max'],
                   'rate_sample_count': self.rates.n,
-                  'rate_unit': f"{self.semantics['unit']}/second" if self.semantics['kind'] == 'counter' else None,
+                  'rate_unit': counter_rate_unit(self.semantics['unit']) if self.semantics['kind'] == 'counter' else None,
                   'counter_decrease_count': self.decreases, 'counter_gap_count': self.gaps,
                   'counter_first_sample_count': self.first_counter}
         overflow = list(result['overflowed_statistics'])

@@ -1,7 +1,7 @@
 """Explicit role experiments; never manufacture independent or review traces."""
 from aiops_challenge_2026.schema import validate_prediction
 from aiops_v4.agents.contracts import (fields, text, missing, citations, load_manifest, validate_event,
-    validate_localization, validate_classification, validate_review)
+    validate_localization, validate_classification, validate_review, event_scope)
 from aiops_v4.agents.diagnosis import (diagnose_event, review_event, evidence_for, evidence_registry,
     validate_independent_diagnosis, _confirmation, validate_confirmation_record, validate_role_record)
 from aiops_v4.agents.engine import Budget, run_role, recorded_delivery
@@ -40,7 +40,7 @@ def _joint(backend,database,batch,packet,event,budget,context,confirmation):
     confirmation=_confirmation(packet,event,manifest,confirmation,database,batch)
     selected=[w for w in manifest if w['vector_id'] in set(event['window_ids'])]
     session=role_session(database,batch,packet,context)
-    run=run_role(backend,session,'joint_diagnosis',event['event_id'],dict(bundle=packet,event=event,context=context),budget)
+    run=run_role(backend,session,'joint_diagnosis',event['event_id'],dict(bundle=packet,event=event_scope(event),context=context),budget)
     outputs=dict(localization=None,classification=None);proofs=dict(localization=[],classification=[])
     if run['status']=='completed':
         try:
@@ -66,7 +66,7 @@ def _validate(item):
     payload,seen=recorded_delivery(run,'joint_diagnosis',event['event_id'])
     from aiops_v4.agents.diagnosis import _scope
     _scope(payload,item)
-    if payload['event']!=event:raise ValueError('joint event input changed')
+    if payload['event']!=event_scope(event):raise ValueError('joint event input changed')
     if run['backend']!=item['confirmation']['run']['backend']:raise ValueError('confirmation backend mismatch')
     fields(output,('localization','classification'))
     for role in ('localization','classification'):
@@ -104,7 +104,7 @@ def diagnose_case(backend,database,batch,packet,event,budget,context,mode,review
     mapping={'state':'states','raw':'raw','event':'members','relation':'relations'}
     for role in ('localization','classification'):
         for proof in item[role]['evidence']:session._register(mapping[proof['kind']],proof['data'])
-    payload=dict(bundle=packet,event=event,diagnostic_mode=mode,context=context,
+    payload=dict(bundle=packet,event=event_scope(event),diagnostic_mode=mode,context=context,
         diagnoses={r:{k:item[r][k] for k in ('result','evidence')} for r in ('localization','classification')})
     run=run_role(backend,session,'review',event['event_id'],payload,budget);output=None;proofs=[]
     if run['status']=='completed':
@@ -142,9 +142,9 @@ def experiment_prediction_for(item):
 
 
 def run_diagnosis(database,batch,output_dir,backend,*,mode='independent',review_mode='llm',knowledge=True,
-                  state_explanation=False,bundle_id=None,limit_bundles=None,budget=Budget()):
+                  state_explanation=False,bundle_id=None,limit_bundles=None,budget=Budget(),progress=None):
     from aiops_v4.agents.pipeline import diagnose
     if type(knowledge) is not bool:raise ValueError('knowledge boolean required')
     return diagnose(database,batch,output_dir,backend,bundle_id=bundle_id,limit_bundles=limit_bundles,budget=budget,
         context=dict(knowledge=knowledge_cards()) if knowledge else {},diagnostic_mode=mode,
-        review_mode=review_mode,state_explanation=state_explanation)
+        review_mode=review_mode,state_explanation=state_explanation,progress=progress)

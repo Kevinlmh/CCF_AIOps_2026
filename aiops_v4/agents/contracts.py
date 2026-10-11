@@ -11,6 +11,12 @@ def fields(row, expected):
         raise ValueError('output fields mismatch')
 
 
+def event_scope(event):
+    """Share immutable observed scope, not another role's diagnosis narrative."""
+    return {key:event[key] for key in ('decision','event_id','window_ids','native_event_ids',
+            'start_time','end_time','boundary_basis')}
+
+
 def text(value):
     if not isinstance(value, str) or not value.strip():
         raise ValueError('nonempty explanation required')
@@ -88,6 +94,10 @@ def validate_confirmation(output, manifest, seen):
         if item['decision'] not in {'confirmed', 'rejected', 'deferred'}:
             raise ValueError('invalid confirmation decision')
         ids = item['window_ids']
+        if ids == ['*']:
+            if len(output['assessments']) != 1:
+                raise ValueError('all-windows marker requires exactly one assessment')
+            ids=list(windows)
         if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
             raise ValueError('nonempty window_ids required')
         selected = set(ids)

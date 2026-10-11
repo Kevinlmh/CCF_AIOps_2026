@@ -24,6 +24,8 @@ def main(argv=None):
     build.add_argument('--rare-fraction', type=float, default=0.1)
     build.add_argument('--minimum-overlap', type=float, default=0.5)
     build.add_argument('--no-rules', action='store_true')
+    build.add_argument('--candidate-policy', choices=('legacy', 'conservative'), default='legacy')
+    build.add_argument('--candidate-min-windows', type=int, default=2)
     build.add_argument('--verbose', action='store_true')
     args = build_args = parser.parse_args(argv)
     def progress(event):
@@ -34,7 +36,8 @@ def main(argv=None):
                                   min_reference=args.min_reference, clusters=args.clusters, mode=args.mode,
                                   stat_threshold=args.stat_threshold, cluster_threshold=args.cluster_threshold,
                                   rare_fraction=args.rare_fraction, minimum_overlap=args.minimum_overlap,
-                                  rules_enabled=not args.no_rules, progress=progress if args.verbose else None)
+                                  rules_enabled=not args.no_rules, candidate_policy=args.candidate_policy,
+                                  candidate_min_windows=args.candidate_min_windows, progress=progress if args.verbose else None)
     except (OSError, ValueError, sqlite3.Error) as error:
         print(f'error: {error}', file=sys.stderr)
         return 2

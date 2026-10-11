@@ -16,6 +16,9 @@ def test_selects_counter_rates_interval_sums_and_categories_without_unknown():
     assert row['features']['cpu_usage::mean']['value']==10
     assert row['features']['requests_total::rate_mean']['raw_value']==2
     assert row['features']['requests_total::rate_mean']['value']==pytest.approx(math.log(3))
+    assert row['features']['requests_total::rate_mean']['unit']=='count/second'
+    assert row['rule_inputs']['requests_total']['unit']=='count'
+    assert row['rule_inputs']['requests_total']['rate_unit']=='count/second'
     assert row['features']['bytes::sum']['raw_value']==100
     assert row['features']['state::last']['value']=='3'
     assert row['features']['state::last']['kind']=='category'

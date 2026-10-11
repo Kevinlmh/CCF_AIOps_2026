@@ -6,6 +6,15 @@ from .backend import BackendError, _message, _usage
 from .jsonio import dumps, loads
 from .prompts import PROMPT_VERSION, system_prompt
 from .tools import tool_definitions
+from .structured import FINAL_TOOL, STRUCTURED_INSTRUCTION, role_tools, validate_result, contract_feedback, compact_context, canonical_result
+
+JSON_REPAIR_MESSAGE = '上一条最终输出不是合法 JSON 对象。请重新输出一个符合当前角色格式的 JSON 对象，不要 Markdown，不要多余结束符。保持相同证据约束，不得编造或补齐结论。'
+
+
+def _object_json(content):
+    output=loads(content)
+    if not isinstance(output,dict):raise ValueError('object required')
+    return output
 
 
 @dataclass(frozen=True)
@@ -24,14 +33,32 @@ class Budget:
 
 def run_role(backend, session, role, case_id, payload, budget=Budget()):
     started = monotonic()
+    structured = bool(getattr(backend, 'structured_roles', False))
+    if structured:
+        ids=([w['vector_id'] for w in payload['manifest']] if 'manifest' in payload else
+             (payload.get('event') or {}).get('window_ids',[]))
+        session.prepare_candidates(ids)
+        supplied=payload.get('independent_diagnoses') or payload.get('diagnoses') or {}
+        blocks=[supplied[key] for key in sorted(supplied)]
+        explanation=(payload.get('context') or {}).get('state_explanation')
+        if explanation: blocks.append(explanation)
+        mapping={'state':'states','raw':'raw','event':'members','relation':'relations'}
+        for block in blocks:
+            for proof in block['evidence']:session._register(mapping[proof['kind']],proof['data'])
+        if 'context' in payload:payload=dict(payload,context=compact_context(payload['context']))
+        if role=='confirmation':payload=dict(payload,candidate_window_aliases={
+            'w'+str(i):w['vector_id'] for i,w in enumerate(payload['manifest'])})
     if 'bundle' in payload:payload=dict(payload,bundle=session.packet)
-    messages = [{'role': 'system', 'content': system_prompt(role)}, {'role': 'user', 'content': dumps(payload)}]
-    tools, trace, usage, call_count = tool_definitions(), [], {}, 0
-    result = dict(run_schema_version=2, initial_messages=loads(dumps(messages)), initial_tools=loads(dumps(tools)), role=role, case_id=case_id, status='deferred', output=None, error_code=None,
+    prompt=system_prompt(role)+ ('\n'+STRUCTURED_INSTRUCTION if structured else '')
+    messages = [{'role': 'system', 'content': prompt}, {'role': 'user', 'content': dumps(payload)}]
+    tools, trace, usage, call_count, repairs, query_turns = tool_definitions(), [], {}, 0, 0, 0
+    if structured: tools=role_tools(role,payload,session.seen)
+    result = dict(run_schema_version=3 if structured else 2, initial_messages=loads(dumps(messages)), initial_tools=loads(dumps(tools)), role=role, case_id=case_id, status='deferred', output=None, error_code=None,
                   model=backend.model, backend=backend.metadata(), prompt_version=PROMPT_VERSION,
                   budget=asdict(budget), trace=trace, usage=usage, backend_calls=0, usage_reported_calls=0)
     try:
         for turn in range(budget.max_turns):
+            if structured: tools=role_tools(role,payload,session.seen,query_turns)
             request = dict(messages=messages, tools=tools, model=backend.model)
             serialized = dumps(request)
             if len(serialized) > budget.max_prompt_chars:
@@ -48,17 +75,41 @@ def run_role(backend, session, role, case_id, payload, budget=Budget()):
                          response=completion.message, actual_model=completion.model, usage=completion.usage, tools=[])
             trace.append(entry)
             calls = completion.message.get('tool_calls') or []
+            if structured and not calls: raise BackendError('structured_result_required')
             if not calls:
                 try:
-                    output = loads(completion.message['content'])
-                    if not isinstance(output, dict):
-                        raise ValueError('object required')
+                    output = _object_json(completion.message['content'])
                 except (ValueError, RecursionError):
+                    if repairs == 0 and turn+1 < budget.max_turns:
+                        repairs+=1;entry['repair']='invalid_role_json'
+                        messages.append(completion.message)
+                        messages.append(dict(role='user',content=JSON_REPAIR_MESSAGE))
+                        continue
                     raise BackendError('invalid_role_json') from None
                 result.update(status='completed', output=output)
                 break
             if call_count + len(calls) > budget.max_tool_calls:
                 raise BackendError('tool_call_budget')
+            terminal=[c for c in calls if c['function']['name']==FINAL_TOOL]
+            if structured and query_turns>=2 and not terminal:raise BackendError('query_turn_budget')
+            if structured and terminal:
+                if len(calls)!=1: raise BackendError('mixed_terminal_tools')
+                call_count+=1; call=terminal[0]; arguments=loads(call['function']['arguments'])
+                record=dict(name=FINAL_TOOL,arguments=arguments,terminal=True);entry['tools'].append(record)
+                try:
+                    output=canonical_result(role,arguments,payload)
+                    validate_result(role,output,payload,session.seen)
+                except (ValueError,KeyError,TypeError) as error:
+                    if repairs == 0 and turn+1 < budget.max_turns:
+                        repairs+=1;entry['repair']='invalid_role_contract'
+                        record['feedback']=contract_feedback(error)
+                        messages.append(completion.message)
+                        messages.append(dict(role='tool',tool_call_id=call['id'],content=dumps(record['feedback'])))
+                        continue
+                    raise BackendError('invalid_role_contract') from None
+                result.update(status='completed',output=output)
+                break
+            query_turns+=1
             messages.append(completion.message)
             for call in calls:
                 call_count += 1
@@ -82,10 +133,11 @@ def run_role(backend, session, role, case_id, payload, budget=Budget()):
 
 def recorded_delivery(run, role, case_id):
     """Replay the recorded protocol, not the backend, to recover delivered facts."""
-    from .tools import EvidenceSession, entity_of
+    from .tools import EvidenceSession, entity_of, resource_change_summary
     try:
         if not isinstance(run,dict):raise ValueError('recorded role is missing')
-        if (run.get('run_schema_version')!=2 or run['status']!='completed' or run['role']!=role
+        structured=run.get('run_schema_version')==3
+        if (run.get('run_schema_version') not in (2,3) or structured!=run['backend'].get('structured_roles',False) or run['status']!='completed' or run['role']!=role
             or run['case_id']!=case_id or run['model']!=run['backend']['model']):
             raise ValueError('complete recorded role required')
         trace=run['trace'];budget=Budget(**run['budget'])
@@ -93,26 +145,35 @@ def recorded_delivery(run, role, case_id):
             or len(trace)!=run['backend_calls'] or len(trace)>budget.max_turns):
             raise ValueError('role trace/call count mismatch')
         messages=loads(dumps(run['initial_messages']));tools=run['initial_tools']
-        if (len(messages)!=2 or messages[0]!={'role':'system','content':system_prompt(role)}
-            or messages[1]['role']!='user' or tools!=tool_definitions()):
+        if (len(messages)!=2 or messages[0]!={'role':'system','content':system_prompt(role)+('\n'+STRUCTURED_INSTRUCTION if structured else '')}
+            or messages[1]['role']!='user'):
             raise ValueError('invalid recorded initial request')
         payload=loads(messages[1]['content']);packet=payload.get('bundle',{})
+        if structured and 'resource_change_summary' in packet and packet['resource_change_summary']!=resource_change_summary(
+                packet.get('candidate_observations',[]),packet.get('candidate_reference_by_group',{}),
+                packet.get('metric_semantics',{})):
+            raise ValueError('recorded resource comparison differs from delivered observations')
         registry=EvidenceSession.__new__(EvidenceSession)
         registry.seen,registry.anchors,registry.groups={}, {}, set()
-        for name in ('support','observations_without_current_trigger','quality_context'):
+        for name in ('support','observations_without_current_trigger','quality_context','candidate_observations','local_comparison_observations'):
             registry._register('states',packet.get(name,[]))
         for ref in packet.get('references',[]):registry.anchors[ref['record_id']]=dict(ref,entity_id=entity_of(packet))
         registry._register('relations',packet.get('relations',[]))
         mapping={'state':'states','raw':'raw','event':'members','relation':'relations'}
-        blocks=list((payload.get('independent_diagnoses') or payload.get('diagnoses') or {}).values())
+        supplied=payload.get('independent_diagnoses') or payload.get('diagnoses') or {}
+        blocks=[supplied[key] for key in sorted(supplied)]
         explanation=(payload.get('context') or {}).get('state_explanation')
         if explanation:blocks.append(explanation)
         for block in blocks:
             for proof in block['evidence']:registry._register(mapping[proof['kind']],proof['data'])
-        chunks={};call_count=0;usage={};reported=0
+        expected_tools=role_tools(role,payload,registry.seen) if structured else tool_definitions()
+        if tools!=expected_tools:raise ValueError('invalid recorded initial tools')
+        chunks={};call_count=0;usage={};reported=0;repairs=0;query_turns=0
         kinds={'query_states':'states','query_members':'members','query_relations':'relations','query_raw':'raw','query_model':'model'}
         for turn,entry in enumerate(trace):
-            request=dict(messages=messages,tools=tools,model=run['model']);serialized=dumps(request)
+            if structured:tools=role_tools(role,payload,registry.seen,query_turns)
+            request=dict(messages=messages,tools=tools,model=run['model'])
+            serialized=dumps(request)
             if (entry['turn']!=turn or entry['request_sha256']!=hashlib.sha256(serialized.encode()).hexdigest()
                 or len(serialized)>budget.max_prompt_chars or not isinstance(entry['actual_model'],str) or not entry['actual_model']):
                 raise ValueError('recorded request changed')
@@ -123,16 +184,55 @@ def recorded_delivery(run, role, case_id):
             for key,count in token_usage.items():usage[key]=usage.get(key,0)+count
             calls=response.get('tool_calls',[])
             if len(calls)!=len(entry['tools']):raise ValueError('recorded tool count changed')
+            if structured and not calls:raise ValueError('structured result required')
+            terminal=[c for c in calls if c['function']['name']==FINAL_TOOL]
+            if structured and query_turns>=2 and not terminal:raise ValueError('query turn budget changed')
+            if structured and terminal:
+                if len(calls)!=1:raise ValueError('mixed terminal tools')
+                call=terminal[0];record=entry['tools'][0];arguments=loads(call['function']['arguments'])
+                if (record.get('terminal') is not True or record['name']!=FINAL_TOOL or record['arguments']!=arguments):
+                    raise ValueError('recorded terminal changed')
+                call_count+=1
+                if 'repair' in entry:
+                    if entry['repair']!='invalid_role_contract' or repairs or turn==len(trace)-1:
+                        raise ValueError('invalid recorded contract repair')
+                    try:
+                        output=canonical_result(role,arguments,payload)
+                        validate_result(role,output,payload,registry.seen)
+                    except (ValueError,KeyError,TypeError) as error:feedback=contract_feedback(error)
+                    else:raise ValueError('contract repair must follow invalid result')
+                    if record.get('feedback')!=feedback:raise ValueError('recorded feedback changed')
+                    repairs+=1;messages.append(response)
+                    messages.append(dict(role='tool',tool_call_id=call['id'],content=dumps(feedback)))
+                    continue
+                output=canonical_result(role,arguments,payload)
+                validate_result(role,output,payload,registry.seen)
+                if turn!=len(trace)-1 or output!=run['output']:raise ValueError('final role response changed')
+                continue
             if not calls:
+                if 'repair' in entry:
+                    if entry['repair']!='invalid_role_json' or repairs or turn==len(trace)-1:
+                        raise ValueError('invalid recorded JSON repair')
+                    try:_object_json(response['content'])
+                    except (ValueError,RecursionError):pass
+                    else:raise ValueError('repair must follow malformed JSON')
+                    repairs+=1
+                    messages.append(response)
+                    messages.append(dict(role='user',content=JSON_REPAIR_MESSAGE))
+                    continue
                 if turn!=len(trace)-1 or loads(response['content'])!=run['output']:
                     raise ValueError('final role response changed')
                 continue
             if turn==len(trace)-1:raise ValueError('completed role has no final response')
+            query_turns+=1
             messages.append(response)
             for call,record in zip(calls,entry['tools']):
                 name=call['function']['name'];args=loads(call['function']['arguments'])
                 if record['name']!=name or record['arguments']!=args or 'error_code' in record:
                     raise ValueError('recorded tool query changed')
+                if structured and name=='query_states' and (
+                        type(args.get('limit',1)) is not int or args.get('limit',1)!=1):
+                    raise ValueError('recorded query exceeds compact state page')
                 reply=record['result'];handle=reply['handle'];offset=reply['offset'];text=reply['text']
                 if name=='read_chunk':
                     cached=chunks[handle]

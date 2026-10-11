@@ -26,3 +26,7 @@ __pycache__/
 .DS_Store
 /submit.py
 /result.jsonl
+
+# Local project reports
+/汇报.md
+/V3_22_78_项目汇报.md

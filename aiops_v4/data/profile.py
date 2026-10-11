@@ -110,6 +110,8 @@ def profile_dataset(root: Path, batch: str, max_rows_per_file: int | None = None
                             recent.popitem(last=False)
                     if on_record:
                         on_record(record)
+                    if progress and row_count % 10000 == 0:
+                        progress({'event':'rows','rows':row_count,'path':file.relative_path})
         except (OSError, UnicodeError, csv.Error, ValueError) as exc:
             errors.append({"path": file.relative_path, "error": str(exc)})
         entry.update(columns=reader.columns, schema_issues=reader.schema_issues,

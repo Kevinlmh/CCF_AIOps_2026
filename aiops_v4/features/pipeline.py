@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sqlite3
 import tempfile
+from itertools import chain
 
 from aiops_v4.data.discovery import SOURCE_PREFIXES, discover_sources
 from aiops_v4.data.reader import RecordReader
@@ -14,6 +15,8 @@ from .aggregate import iter_windows, METRIC_LIMIT, REFERENCE_LIMIT, RESERVOIR_SI
 from .semantics import metric_semantics, OFFICIAL_URL
 from .series import prepare_record
 from .time import time_zone
+from .netflow import NetflowAccumulator
+from aiops_v4.storage import db_dump, load_json, stored_path, jsonl_writer
 
 
 def _dump(value):
@@ -42,8 +45,9 @@ def _publish(artifacts, destination):
     published = []
     try:
         for name in ['windows.jsonl','rejected.jsonl','semantics.json','semantics.csv','report.md','summary.json']:
-            os.link(artifacts/name,destination/name)
-            published.append(name)
+            source = stored_path(artifacts/name)
+            os.link(source,destination/source.name)
+            published.append(source.name)
     except OSError:
         # Remove only this invocation's links, never pre-existing/user-created files.
         for name in published:
@@ -77,6 +81,9 @@ def _write_metadata(summary, catalog, artifacts):
                   '分位数蓄水池容量 128，原始引用上限 8；按原始序列排序后处理，统计不使用标签或跨批次数据。',
                   'prefix_sample 的每文件前缀不能代表全批次，样本末端窗口可能不完整。',
                   '尚未实现参考尺度、聚类、候选事件或 LLM 诊断，本报告不包含故障判断。'])
+    if summary['netflow_streaming']:
+        lines.extend(['', 'NetFlow 使用有界缓存和磁盘窗口汇总：保留数量和、均值/方差、极值、质量及原始引用；不计算逐流分位数、不同值数量和变化次数。',
+                      '状态特征仍取区间数量和，原始五元组可经已登记引用按需读取。'])
     (artifacts/'report.md').write_text('\n'.join(lines)+'\n',encoding='utf-8')
     (artifacts/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,allow_nan=False,indent=2)+'\n',encoding='utf-8')
 
@@ -84,9 +91,11 @@ def _write_metadata(summary, catalog, artifacts):
 def build_features(root: Path, batch: str, output_dir: Path, *, naive_timezone: str,
                    window_seconds: int = 60, expected_step_seconds: int | None = None,
                    counter_max_gap_seconds: int = 180, max_rows_per_file: int | None = None,
-                   progress=None) -> dict:
+                   netflow_streaming: bool = False, compact: bool = False, progress=None) -> dict:
     root, output_dir = Path(root), Path(output_dir)
     _validate(root,batch,output_dir,naive_timezone,window_seconds,expected_step_seconds,counter_max_gap_seconds,max_rows_per_file)
+    if type(netflow_streaming) is not bool or type(compact) is not bool:
+        raise ValueError('netflow_streaming/compact must be boolean')
     files=discover_sources(root)
     if not files:
         raise ValueError('no recognized CSV files in input')
@@ -107,19 +116,23 @@ def build_features(root: Path, batch: str, output_dir: Path, *, naive_timezone: 
             connection.execute('PRAGMA temp_store=FILE')
             connection.execute('PRAGMA cache_size=-8192')
             connection.execute('CREATE TABLE observations (series TEXT, timestamp TEXT, payload TEXT)')
+            flows = NetflowAccumulator(connection, window_seconds, expected_step_seconds) if netflow_streaming else None
+            raw_sort_rows = 0
             pending=[]
 
             def flush():
                 connection.executemany('INSERT INTO observations VALUES (?,?,?)',pending)
                 pending.clear()
 
-            with (artifacts/'rejected.jsonl').open('w',encoding='utf-8') as rejected:
+            with jsonl_writer(artifacts/'rejected.jsonl',compact) as rejected:
                 for file in files:
                     if progress: progress({'event':'file_start','path':file.relative_path})
                     sources[file.source]['files']+=1
                     with RecordReader(file,batch,max_rows_per_file) as reader:
                         for record in reader:
                             rows_scanned+=1
+                            if progress and rows_scanned % 10000 == 0:
+                                progress({'event':'rows','rows':rows_scanned,'path':file.relative_path})
                             sources[file.source]['rows']+=1
                             try:
                                 prepared=prepare_record(record,naive_timezone)
@@ -134,7 +147,11 @@ def build_features(root: Path, batch: str, output_dir: Path, *, naive_timezone: 
                                     if len(catalog)>=METRIC_LIMIT:
                                         raise ValueError('semantic catalog limit exceeded')
                                     catalog[key]=metric_semantics(file.source,name)
-                            pending.append((prepared['series_key'],prepared['timestamp'],_dump(prepared)))
+                            if flows is not None and file.source == 'netflow':
+                                flows.add(prepared)
+                                continue
+                            pending.append((prepared['series_key'],prepared['timestamp'],db_dump(prepared)))
+                            raw_sort_rows += 1
                             if len(pending)>=1000: flush()
                     manifests.append({'path':file.relative_path,'source':file.source,'columns':reader.columns,
                                       'rows_scanned':reader.rows_scanned,'complete':reader.complete,
@@ -144,11 +161,16 @@ def build_features(root: Path, batch: str, output_dir: Path, *, naive_timezone: 
             connection.commit()
             if progress: progress({'event':'aggregation_start','rows':rows_accepted})
             cursor=connection.execute('SELECT payload FROM observations ORDER BY series,timestamp,rowid')
-            ordered=(json.loads(row[0]) for row in cursor)
-            with (artifacts/'windows.jsonl').open('w',encoding='utf-8') as output:
-                for window in iter_windows(ordered,batch,window_seconds,expected_step_seconds,counter_max_gap_seconds):
+            ordered=(load_json(row[0]) for row in cursor)
+            windows = iter_windows(ordered,batch,window_seconds,expected_step_seconds,counter_max_gap_seconds)
+            if flows is not None:
+                windows = chain(windows, flows.windows())
+            with jsonl_writer(artifacts/'windows.jsonl',compact) as output:
+                for window in windows:
                     output.write(_dump(window)+'\n')
                     window_count+=1
+                    if progress and window_count % 10000 == 0:
+                        progress({'event':'windows','windows':window_count})
                     sources[window['source']]['windows']+=1
                     views[window['view']]+=1
                     flags.update(window['quality_flags'])
@@ -172,6 +194,7 @@ def build_features(root: Path, batch: str, output_dir: Path, *, naive_timezone: 
                  'counter_max_gap_seconds':counter_max_gap_seconds,'naive_timezone':naive_timezone,
                  'timezone_officially_confirmed':False,'semantic_registry_limit':METRIC_LIMIT,
                  'quantile_capacity':RESERVOIR_SIZE,'reference_limit':REFERENCE_LIMIT,
+                 'netflow_streaming':netflow_streaming,'raw_sort_rows':raw_sort_rows,'compact':compact,
                  'time_evidence':['Official SDK interprets naive observations as UTC.',
                                   'Public traffic Unix last-batch timestamps corroborate UTC; not an official guarantee for all sources.'],
                  'official_data_notes_url':OFFICIAL_URL}

@@ -1,5 +1,5 @@
 """Independent localization and classification; one later consistency gate."""
-from .contracts import load_manifest, validate_event, validate_localization, validate_classification
+from .contracts import load_manifest, validate_event, validate_localization, validate_classification, event_scope
 from .engine import Budget, run_role, recorded_delivery
 from .jsonio import dumps, loads
 from .tools import EvidenceSession
@@ -41,7 +41,7 @@ def diagnose_event(backend, database, batch, packet, event, budget=Budget(), *, 
     confirmation=_confirmation(packet,event,manifest,confirmation,database,batch)
     selected_manifest = [w for w in manifest if w['vector_id'] in set(event['window_ids'])]
     # Both roles get identical serialized input, each in a new conversation and tool registry.
-    payload = loads(dumps(dict(bundle=packet, event=event, **({'context': context} if context is not None else {}))))
+    payload = loads(dumps(dict(bundle=packet, event=event_scope(event), **({'context': context} if context is not None else {}))))
     blocks = {}
     for role in ('localization', 'classification'):
         from aiops_v4.experiments.roles import role_session
@@ -104,7 +104,7 @@ def validate_confirmation_record(item):
 def validate_role_record(block,role,item):
     payload,seen=recorded_delivery(block['run'],role,item['event']['event_id'])
     _scope(payload,item)
-    if payload['event']!=item['event'] or block['run']['output']!=block['result']:
+    if payload['event']!=event_scope(item['event']) or block['run']['output']!=block['result']:
         raise ValueError('recorded diagnostic input/result changed')
     if block['evidence']!=evidence_for(block['result'],seen,item['event']):
         raise ValueError('diagnostic proof was not actually delivered')
@@ -158,7 +158,7 @@ def review_event(backend, database, batch, packet, item, budget=Budget(), *, con
     mapping = {'state': 'states', 'raw': 'raw', 'event': 'members', 'relation': 'relations'}
     for proof in proofs:
         session._register(mapping[proof['kind']], proof['data'])
-    payload = dict(bundle=packet, event=result['event'], independent_diagnoses={
+    payload = dict(bundle=packet, event=event_scope(result['event']), independent_diagnoses={
         role: {key: result[role][key] for key in ('result', 'evidence')}
         for role in ('localization', 'classification')})
     if context is not None: payload['context'] = context

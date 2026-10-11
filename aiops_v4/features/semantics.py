@@ -3,6 +3,11 @@
 OFFICIAL_URL = 'https://challenge.aiops.cn/home/competition/2087843807868489822'
 
 
+def counter_rate_unit(quantity_unit):
+    """Difference per elapsed second; unknown source units remain unknown."""
+    return quantity_unit + '/second' if isinstance(quantity_unit,str) and quantity_unit else None
+
+
 def metric_semantics(source: str, metric: str) -> dict:
     kind, unit, status, basis = 'unknown', None, 'unverified', 'No registered interpretation; preserve raw numeric scale.'
     if source == 'node':

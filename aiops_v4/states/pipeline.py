@@ -13,6 +13,8 @@ from .reference import fit_reference, normalize
 from .cluster import fit_clusters
 from .signals import assess
 from .events import EventBuilder
+from aiops_v4.storage import load_json, db_dump, open_jsonl, stored_path, jsonl_writer
+from .selection import select_candidates
 
 ARTIFACTS = ('matrix.jsonl', 'models.jsonl', 'states.jsonl', 'events.jsonl', 'report.md', 'summary.json')
 
@@ -29,7 +31,7 @@ def _finite_float(value):
 
 
 def _load(value):
-    return json.loads(value, parse_constant=_bad_constant, parse_float=_finite_float)
+    return load_json(value)
 
 
 def _dump(value):
@@ -41,8 +43,9 @@ def _publish(scratch, output):
     published = []
     try:
         for name in ARTIFACTS:
-            os.link(scratch / name, output / name)
-            published.append(name)
+            source = stored_path(scratch / name)
+            os.link(source, output / source.name)
+            published.append(source.name)
     except OSError:
         for name in published:
             destination = output / name
@@ -78,8 +81,11 @@ def _report(summary):
 def discover_states(windows_dir, batch, output_dir, *, reference_start=None, reference_end=None,
                     min_reference=12, clusters=3, mode='hybrid', stat_threshold=6.0,
                     cluster_threshold=3.0, rare_fraction=0.1, minimum_overlap=0.5,
-                    rules_enabled=True, progress=None):
+                    rules_enabled=True, candidate_policy='legacy', candidate_min_windows=2, compact=False, progress=None):
     root, output = Path(windows_dir).resolve(), Path(output_dir)
+    if (root/'features.sqlite').exists():
+        from .build import build_state_store
+        return build_state_store(root,batch,output,reference_start=reference_start,reference_end=reference_end,min_reference=min_reference,clusters=clusters,mode=mode,stat_threshold=stat_threshold,cluster_threshold=cluster_threshold,rare_fraction=rare_fraction,minimum_overlap=minimum_overlap,rules_enabled=rules_enabled,candidate_policy=candidate_policy,candidate_min_windows=candidate_min_windows,progress=progress)
     if output.exists() or output.is_symlink():
         raise FileExistsError(f'output directory already exists: {output}')
     output = output.resolve()
@@ -94,6 +100,9 @@ def discover_states(windows_dir, batch, output_dir, *, reference_start=None, ref
             raise ValueError(f'{name} must be finite and positive')
     if minimum_overlap > 1 or not isinstance(rare_fraction, (int, float)) or not math.isfinite(rare_fraction) or not 0 <= rare_fraction <= 1 or type(rules_enabled) is not bool:
         raise ValueError('invalid overlap, rarity fraction or rules switch')
+    if candidate_policy not in {'legacy', 'conservative'} or type(candidate_min_windows) is not int or not 1 <= candidate_min_windows <= 60:
+        raise ValueError('candidate policy/minimum windows invalid')
+    if type(compact) is not bool: raise ValueError('compact must be boolean')
     if (reference_start is None) != (reference_end is None):
         raise ValueError('reference_start and reference_end must be supplied together')
     if reference_start is not None:
@@ -120,14 +129,14 @@ def discover_states(windows_dir, batch, output_dir, *, reference_start=None, ref
             connection.execute('PRAGMA cache_size=-8192')
             connection.execute('CREATE TABLE vectors (id TEXT PRIMARY KEY, grp TEXT, start TEXT, end TEXT, payload TEXT)')
             pending = []
-            with (root / 'windows.jsonl').open('rb') as source:
+            with open_jsonl(root / 'windows.jsonl') as source:
                 for number, line in enumerate(source, 1):
                     digest.update(line)
                     try:
                         row = window_vector(_load(line), batch)
                     except (KeyError, TypeError, AttributeError, ValueError) as error:
                         raise ValueError(f'invalid window at line {number}: {error}') from error
-                    pending.append((row['vector_id'], row['group_id'], row['start_time'], row['end_time'], _dump(row)))
+                    pending.append((row['vector_id'], row['group_id'], row['start_time'], row['end_time'], db_dump(row)))
                     counts['states'] += 1
                     if len(pending) >= 128:
                         connection.executemany('INSERT INTO vectors VALUES (?,?,?,?,?)', pending)
@@ -146,10 +155,10 @@ def discover_states(windows_dir, batch, output_dir, *, reference_start=None, ref
                     args += [reference_start, reference_end]
                 for (payload,) in connection.execute(query + ' ORDER BY start,id', args):
                     yield _load(payload)
-            with (scratch / 'matrix.jsonl').open('w', encoding='utf-8') as matrices, \
-                 (scratch / 'models.jsonl').open('w', encoding='utf-8') as models, \
-                 (scratch / 'states.jsonl').open('w', encoding='utf-8') as states, \
-                 (scratch / 'events.jsonl').open('w', encoding='utf-8') as events:
+            with jsonl_writer(scratch / 'matrix.jsonl',compact) as matrices, \
+                 jsonl_writer(scratch / 'models.jsonl',compact) as models, \
+                 jsonl_writer(scratch / 'states.jsonl',compact) as states, \
+                 jsonl_writer(scratch / 'events.jsonl',compact) as events:
                 def emit(event):
                     events.write(_dump(event) + '\n')
                     counts['candidate_events'] += 1
@@ -164,17 +173,27 @@ def discover_states(windows_dir, batch, output_dir, *, reference_start=None, ref
                     clustering = fit_clusters(points, k=clusters, minimum_overlap=minimum_overlap)
                     counts['ready_models'] += reference['status'] == 'ready'
                     models.write(_dump({'group_id': group, 'reference': reference, 'clustering': clustering}) + '\n')
-                    builder, previous = EventBuilder(), None
-                    for row in rows_for(group):
-                        if previous is not None and row['start_time'] < previous[0]['end_time']:
-                            raise ValueError('overlapping windows within native series')
-                        row['in_reference'] = reference_start is None or (row['start_time'] >= reference_start and row['end_time'] <= reference_end)
-                        state = assess(row, reference, clustering, mode, thresholds, previous)
+                    builder = EventBuilder()
+                    def assessed_rows():
+                        previous = None
+                        for row in rows_for(group):
+                            if previous is not None and row['start_time'] < previous[0]['end_time']:
+                                raise ValueError('overlapping windows within native series')
+                            row['in_reference'] = reference_start is None or (row['start_time'] >= reference_start and row['end_time'] <= reference_end)
+                            state = assess(row, reference, clustering, mode, thresholds, previous)
+                            previous = row, state
+                            yield row, state
+                    selected = assessed_rows()
+                    if candidate_policy == 'conservative':
+                        selected = select_candidates(selected, reference, threshold=stat_threshold, minimum_windows=candidate_min_windows,rules_enabled=rules_enabled)
+                    for row, state in selected:
                         matrices.write(_dump(row) + '\n')
                         states.write(_dump(state) + '\n')
                         statuses[state['scoring_status']] += 1
                         source_counts[row['source']] += 1
                         counts['candidate_windows'] += state['candidate']
+                        counts['raw_candidate_windows'] += state.get('raw_candidate', state['candidate'])
+                        counts['suppressed_candidate_windows'] += state.get('raw_candidate', False) and not state['candidate']
                         counts['state_changes'] += state['state_changed']
                         counts['quality_signal_windows'] += bool(state['quality_signals'])
                         counts['references_truncated_states'] += row['references_truncated']
@@ -182,7 +201,6 @@ def discover_states(windows_dir, batch, output_dir, *, reference_start=None, ref
                             trigger_counts[':'.join(trigger.split(':')[:2])] += 1
                         for event in builder.push(row, state):
                             emit(event)
-                        previous = row, state
                     for event in builder.finish():
                         emit(event)
                     if progress and counts['groups'] % 100 == 0:
@@ -196,9 +214,10 @@ def discover_states(windows_dir, batch, output_dir, *, reference_start=None, ref
                    'input_scope': {key: input_summary.get(key) for key in ('mode', 'complete', 'window_count', 'rows_scanned', 'max_rows_per_file', 'naive_timezone', 'timezone_officially_confirmed')},
                    'reference_scope': {'mode': 'explicit_interval' if reference_start is not None else 'offline_same_batch',
                                        'start': reference_start, 'end': reference_end, 'known_healthy': False},
-                   'config': {**thresholds, 'mode': mode, 'clusters': clusters, 'min_reference': min_reference},
+                   'config': {**thresholds, 'mode': mode, 'clusters': clusters, 'min_reference': min_reference,
+                              'candidate_policy': candidate_policy, 'candidate_min_windows': candidate_min_windows},
                    'capacities': {'features': 128, 'reference_samples': 256, 'cluster_samples': 64, 'categories': 16, 'event_refs': 16, 'event_windows': 64},
-                   **{key: counts[key] for key in ('states', 'groups', 'ready_models', 'candidate_windows', 'candidate_events', 'state_changes', 'quality_signal_windows', 'references_truncated_states')},
+                   **{key: counts[key] for key in ('states', 'groups', 'ready_models', 'candidate_windows', 'raw_candidate_windows', 'suppressed_candidate_windows', 'candidate_events', 'state_changes', 'quality_signal_windows', 'references_truncated_states')},
                    'scoring_status_counts': dict(sorted(statuses.items())), 'trigger_counts': dict(sorted(trigger_counts.items())),
                    'states_by_source': dict(sorted(source_counts.items())), 'diagnoses_confirmed': False}
         (scratch / 'summary.json').write_text(json.dumps(summary, ensure_ascii=False, allow_nan=False, indent=2) + '\n', encoding='utf-8')

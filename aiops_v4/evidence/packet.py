@@ -5,10 +5,12 @@ def compact_observation(state, matrix):
     fields = ('vector_id', 'group_id', 'batch', 'source', 'view', 'identity', 'dimensions',
               'start_time', 'end_time', 'candidate', 'scoring_status', 'reference_status',
               'is_reference', 'feature_coverage', 'time_coverage', 'stat_score',
-              'cluster_id', 'cluster_distance', 'cluster_reference_support', 'cluster_support_basis', 'state_changed')
+              'cluster_id', 'cluster_distance', 'cluster_reference_support', 'cluster_support_basis', 'state_changed',
+              'raw_candidate', 'suppression_reason', 'admission_reference')
     result = {k: state[k] for k in fields if k in state}
     result['drivers'] = state.get('drivers', [])[:5]
     selected = {d.get('feature') for d in result['drivers']}
+    selected.update(s.split(':',1)[1]+'::mean' for s in state.get('rule_signals',[]) if s.startswith('resource_pressure_observation:'))
     features = matrix.get('features', {})
     result['feature_values'] = {k: v for k, v in features.items() if k in selected}
     # Binary facts (including recovered last values) remain visible to role agents.
@@ -30,7 +32,7 @@ def make_packet(bundle, support, counter, quality, source_metadata, relations, l
     if type(cap) is not int or not 1 <= cap <= 32:
         raise ValueError('observations_per_kind must be 1..32')
     support = [o for o in support if o.get('candidate') is True]
-    counter = [o for o in counter if o.get('candidate') is False and o.get('scoring_status') == 'scored']
+    counter = [o for o in counter if o.get('candidate') is False and not o.get('raw_candidate', False) and o.get('scoring_status') == 'scored']
     lists = {'support': support, 'observations_without_current_trigger': counter, 'quality_context': quality}
     result = dict(bundle)
     result['schema_version'] = 2

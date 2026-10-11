@@ -16,6 +16,10 @@ def main(argv=None):
         command=commands.add_parser(name)
         command.add_argument('--config',type=Path,required=True)
         command.add_argument('--output-dir',type=Path,required=True)
+        if name=='run':
+            command.add_argument('--resume',action='store_true',help='Reuse verified completed stages of the same code/config/input')
+            command.add_argument('--min-free-gib',type=float,default=0,help='Stop when disk free space falls below this reserve')
+            command.add_argument('--progress',action='store_true',help='Emit stage/row/model progress as JSON lines')
         if name=='ablate':
             command.add_argument('--variants',nargs='+',choices=VARIANTS)
             command.add_argument('--replay-map',type=Path,help='JSON variant -> replay path, resolved relative to this map')
@@ -31,7 +35,11 @@ def main(argv=None):
     command.add_argument('--output-dir',type=Path,required=True)
     args=parser.parse_args(argv)
     try:
-        if args.command=='run':result=run_experiment(load_config(args.config),args.output_dir)
+        if args.command=='run':
+            if not 0<=args.min_free_gib<=10**9:raise ValueError('invalid disk reserve')
+            callback=(lambda value:print(dumps(dict(progress=value)),flush=True)) if args.progress else None
+            result=run_experiment(load_config(args.config),args.output_dir,resume=args.resume,
+                                  min_free_bytes=int(args.min_free_gib*1024**3),progress=callback)
         elif args.command=='ablate':
             replays=None
             if args.replay_map is not None:

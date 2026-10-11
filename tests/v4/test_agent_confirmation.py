@@ -73,6 +73,59 @@ def test_manifest_budget_is_execution_limit_not_silent_drop(evidence):
         contracts().load_manifest(db, 'stage2', packet['bundle_id'], max_windows=1)
 
 
+def test_all_windows_marker_expands_with_full_coverage_and_support(evidence):
+    db,packet=evidence;session=EvidenceSession(db,'stage2',packet)
+    manifest=contracts().load_manifest(db,'stage2',packet['bundle_id'])
+    visible=next(w['vector_id'] for w in manifest if ('state',w['vector_id']) in session.seen)
+    result=contracts().validate_confirmation({'assessments':[assessment(['*'],[cite(visible)])]},manifest,session.seen)
+    assert result[0]['window_ids']==sorted(w['vector_id'] for w in manifest)
+    with pytest.raises(ValueError):
+        contracts().validate_confirmation({'assessments':[assessment(['*'],[cite(visible)]),assessment([visible],[cite(visible)])]},manifest,session.seen)
+    with pytest.raises(ValueError):
+        contracts().validate_confirmation({'assessments':[assessment(['*'],[])]},manifest,session.seen)
+
+
+def test_all_windows_marker_cannot_bridge_missing_interval():
+    manifest=[dict(vector_id='a',event_id='a',source='node',start_time='2026-09-17T04:00:00Z',end_time='2026-09-17T04:01:00Z'),
+              dict(vector_id='b',event_id='b',source='node',start_time='2026-09-17T05:00:00Z',end_time='2026-09-17T05:01:00Z')]
+    with pytest.raises(ValueError,match='continuous'):
+        contracts().validate_confirmation({'assessments':[assessment(['*'],[cite('a')])]},manifest,{('state','a'):manifest[0]})
+
+
+def test_json_repair_is_bounded_and_recorded_delivery_replays_it(evidence):
+    db,packet=evidence
+    api=ReplayBackend('fixture-model',[
+        dict(role='confirmation',case_id='case',turn=0,message=dict(role='assistant',content='{"assessments":[]}}')),
+        dict(role='confirmation',case_id='case',turn=1,message=dict(role='assistant',content='{"assessments":[]}'))])
+    run=engine().run_role(api,EvidenceSession(db,'stage2',packet),'confirmation','case',dict(bundle=packet))
+    assert run['status']=='completed' and run['backend_calls']==2
+    assert run['trace'][0]['repair']=='invalid_role_json'
+    payload,_=engine().recorded_delivery(run,'confirmation','case')
+    assert payload['bundle']['bundle_id']==packet['bundle_id']
+    assert api.requests[1]['messages'][-1]['role']=='user'
+    broken=copy.deepcopy(run);broken['trace'][0]['repair']='changed'
+    with pytest.raises(ValueError):engine().recorded_delivery(broken,'confirmation','case')
+
+
+def test_repeated_bad_json_stops_after_one_repair(evidence):
+    db,packet=evidence
+    api=ReplayBackend('fixture-model',[dict(role='confirmation',case_id='case',turn=i,
+        message=dict(role='assistant',content='not-json')) for i in range(3)])
+    run=engine().run_role(api,EvidenceSession(db,'stage2',packet),'confirmation','case',dict(bundle=packet))
+    assert run['status']=='deferred' and run['error_code']=='invalid_role_json'
+    assert run['backend_calls']==2 and run['output'] is None
+
+
+def test_default_state_tool_page_is_small_and_still_queryable(evidence):
+    from aiops_v4.agents.jsonio import loads
+    db,packet=evidence;session=EvidenceSession(db,'stage2',packet)
+    reply=session.call('query_states',{})
+    text=reply['text']
+    while not reply['complete']:
+        reply=session.call('read_chunk',dict(handle=reply['handle'],offset=reply['next_offset']));text+=reply['text']
+    assert len(loads(text))==1
+
+
 def test_role_native_tool_round_trip_has_fresh_messages_and_usage(evidence):
     db, packet = evidence; session = EvidenceSession(db, 'stage2', packet)
     api = ReplayBackend('fixture-model', [

@@ -123,6 +123,10 @@ def _publish_report(report, directory):
 
 
 def main(argv=None):
+    selected=list(sys.argv[1:] if argv is None else argv)
+    if selected and selected[0] in ('build','verify','export'):
+        from .build_cli import main as canonical_main
+        return canonical_main(selected)
     arguments = _parser().parse_args(argv)
     try:
         if arguments.command == "query":

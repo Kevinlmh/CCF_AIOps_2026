@@ -5,6 +5,7 @@ import sqlite3
 from aiops_v4.data.reader import utc_time
 from aiops_v4.states.pipeline import _dump, _load
 from .raw import resolve_references, validate_reference
+from aiops_v4.storage import db_dump
 
 
 def create_index(path):
@@ -19,6 +20,7 @@ def create_index(path):
         CREATE TABLE states(id TEXT PRIMARY KEY,entity TEXT,grp TEXT REFERENCES models(grp),
           source TEXT,start TEXT,end TEXT,candidate INTEGER,status TEXT,quality INTEGER,payload TEXT NOT NULL);
         CREATE TABLE matrices(id TEXT PRIMARY KEY REFERENCES states(id),payload TEXT NOT NULL);
+        CREATE TABLE suppressed_states(id TEXT PRIMARY KEY REFERENCES states(id));
         CREATE TABLE events(id TEXT PRIMARY KEY,entity TEXT,grp TEXT REFERENCES models(grp),
           start TEXT,end TEXT,payload TEXT NOT NULL);
         CREATE TABLE event_windows(id TEXT PRIMARY KEY REFERENCES states(id),event TEXT REFERENCES events(id));
@@ -40,7 +42,7 @@ def create_index(path):
 
 
 def put_metadata(db, key, value):
-    db.execute('INSERT INTO metadata VALUES (?,?)', (key, _dump(value)))
+    db.execute('INSERT INTO metadata VALUES (?,?)', (key, db_dump(value)))
 
 
 def metadata(db, key):
@@ -51,8 +53,9 @@ def metadata(db, key):
 
 
 def scoring_provenance(summary):
-    return {key: summary[key] for key in ('reference_scope', 'config', 'input_scope',
-                                         'input_summary_sha256', 'input_windows_sha256')}
+    keys=('reference_scope','config','input_scope','input_summary_sha256')
+    artifact='input_feature_store_sha256' if 'input_feature_store_sha256' in summary else 'input_windows_sha256'
+    return {key:summary[key] for key in (*keys,artifact)}
 
 
 @contextmanager
@@ -61,13 +64,21 @@ def read_index(database, batch):
         raise ValueError('nonempty batch required')
     path = Path(database).resolve(strict=True)
     db = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)
+    linked=None
     try:
+        version=db.execute('PRAGMA user_version').fetchone()[0]
+        if version==3:
+            from aiops_v4.data.cache import verify_layer
+            from .linked import attach_linked
+            verify_layer(path.parent)
+            linked=attach_linked(db,path)
         db.execute('PRAGMA query_only=ON')
-        if db.execute('PRAGMA user_version').fetchone()[0] != 2 or metadata(db, 'batch') != batch:
+        if version not in (2,3) or metadata(db, 'batch') != batch:
             raise ValueError('evidence database schema/batch mismatch; rebuild old packet contracts into a new directory')
         yield db
     finally:
         db.close()
+        if linked is not None:linked.close()
 
 
 def query_evidence(database, batch, kind, *, bundle_id=None, entity_id=None, source=None,
@@ -112,6 +123,12 @@ def query_evidence(database, batch, kind, *, bundle_id=None, entity_id=None, sou
         provenance = scoring_provenance(metadata(db, 'state_summary'))
         if bundle_id is not None and db.execute('SELECT 1 FROM bundles WHERE id=?', (bundle_id,)).fetchone() is None:
             raise ValueError('unknown bundle_id')
+        if kind=='states' and db.execute('PRAGMA user_version').fetchone()[0]==3:
+            from aiops_v4.data.cache import dependency_path
+            from aiops_v4.states.store import StateStore
+            with StateStore(dependency_path(Path(database).parent,metadata(db,'state_dependency'))) as store:
+                pairs=store.query_states(entity_id=entity_id,source=source,group_id=group_id,start=start,end=end,limit=limit,offset=offset)
+            return [dict(state,matrix=matrix,scoring_provenance=provenance) for state,matrix in pairs]
         rows = []
         for row in db.execute(query, (*values, limit, offset)):
             result = _load(row[0])
@@ -144,7 +161,14 @@ def query_raw(database, batch, record_id=None, *, reference=None):
             result = _load(saved[0])
             result['retrieval'] = 'verified_materialized_snapshot'
             return result
-        rows = list(resolve_references(metadata(db, 'raw_root'), batch, [registered], files, metadata(db, 'naive_timezone')))
-        result = rows[0]
+        if db.execute('PRAGMA user_version').fetchone()[0]==3:
+            from aiops_v4.data.cache import dependency_path
+            from aiops_v4.states.store import StateStore
+            from .linked import raw_from_features
+            with StateStore(dependency_path(Path(database).parent,metadata(db,'state_dependency'))) as store:
+                result=raw_from_features(store.features,record_id,metadata(db,'raw_root'))
+        else:
+            rows = list(resolve_references(metadata(db, 'raw_root'), batch, [registered], files, metadata(db, 'naive_timezone')))
+            result = rows[0]
         result['retrieval'] = 'verified_from_registered_raw_file'
         return result

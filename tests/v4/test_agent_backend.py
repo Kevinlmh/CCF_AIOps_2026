@@ -59,6 +59,49 @@ def test_http_real_protocol_and_usage(server):
     assert 'test-secret' not in repr(api) and 'test-secret' not in json.dumps(api.metadata())
 
 
+def test_explicit_qwen_thinking_switch_is_sent_and_optional(server):
+    url, captured, _ = server
+    api = backend().HTTPBackend('fixture-model', url, 'key', enable_thinking=False)
+    api.complete([], [], role='confirmation', case_id='case', turn=0)
+    assert captured[-1][2]['chat_template_kwargs'] == {'enable_thinking': False}
+    backend().HTTPBackend('fixture-model', url, 'key').complete([], [], role='confirmation', case_id='case', turn=0)
+    assert 'chat_template_kwargs' not in captured[-1][2]
+
+
+def test_explicit_temperature_is_recorded_and_optional(server):
+    url,captured,_=server
+    api=backend().HTTPBackend('fixture-model',url,'key',temperature=0)
+    api.complete([],[],role='confirmation',case_id='case',turn=0)
+    assert captured[-1][2]['temperature']==0 and api.metadata()['temperature']==0
+    backend().HTTPBackend('fixture-model',url,'key').complete([],[],role='confirmation',case_id='case',turn=0)
+    assert 'temperature' not in captured[-1][2]
+
+
+def test_structured_roles_require_schema_constrained_single_tool_call(server):
+    url, captured, _ = server
+    api = backend().HTTPBackend('fixture-model', url, 'key', structured_roles=True)
+    tools = [{'type': 'function', 'function': {'name': 'submit_role_result',
+              'strict': True, 'parameters': {'type': 'object'}}}]
+    api.complete([], tools, role='confirmation', case_id='case', turn=0)
+    request = captured[-1][2]
+    assert request['tool_choice'] == 'required'
+    assert request['parallel_tool_calls'] is False
+    assert api.metadata()['structured_roles'] is True
+
+
+def test_stable_structured_wire_records_its_canonical_schema_order(server):
+    from aiops_v4.agents.structured import result_tool
+    url, captured, _ = server
+    api = backend().HTTPBackend('fixture-model', url, 'key', structured_roles=True)
+    tool = result_tool('classification', {}, {})
+    api.complete([], [tool], role='classification', case_id='case', turn=0)
+    params = captured[-1][2]['tools'][0]['function']['parameters']
+    for branch in params['anyOf']:
+        order = list(branch['properties'])
+        assert order == sorted(order)
+    assert api.metadata()['tool_schema_order'] == 'canonical'
+
+
 @pytest.mark.parametrize('fault', ['length', 'refusal', 'bad_choice', 'duplicate_json', 'nonfinite', 'error', 'redirect', 'oversize'])
 def test_http_failures_are_bounded_and_sanitized(server, fault):
     url, captured, reply = server

@@ -76,7 +76,7 @@ class _NoRedirect(HTTPRedirectHandler):
 
 
 class HTTPBackend:
-    def __init__(self, model, base_url, api_key, timeout=60, max_response_bytes=1048576, max_completion_tokens=4096):
+    def __init__(self, model, base_url, api_key, timeout=60, max_response_bytes=1048576, max_completion_tokens=4096, enable_thinking=None, temperature=None, structured_roles=False):
         parts = urlsplit(base_url)
         if (parts.scheme not in {'https', 'http'} or not parts.hostname or parts.username or parts.password
                 or parts.query or parts.fragment or (parts.scheme == 'http' and parts.hostname not in {'localhost', '127.0.0.1', '::1'})):
@@ -89,22 +89,36 @@ class HTTPBackend:
             raise ValueError('response byte limit must be 1024..16777216')
         if type(max_completion_tokens) is not int or not 1 <= max_completion_tokens <= 32768:
             raise ValueError('completion token budget must be 1..32768')
+        if enable_thinking is not None and type(enable_thinking) is not bool:
+            raise ValueError('enable_thinking must be boolean or unset')
         self.model, self.base_url = model, base_url.rstrip('/')
         self._api_key = api_key
         self.timeout, self.max_response_bytes = timeout, max_response_bytes
         self.max_completion_tokens = max_completion_tokens
+        self.enable_thinking = enable_thinking
+        if temperature is not None and (type(temperature) not in {int,float} or not 0<=temperature<=2):
+            raise ValueError('temperature must be 0..2 or None')
+        self.temperature=temperature
+        if type(structured_roles) is not bool: raise ValueError('structured_roles must be boolean')
+        self.structured_roles=structured_roles
         self._opener = build_opener(_NoRedirect())
 
     def metadata(self):
         return dict(kind='http', simulated=False, model=self.model, base_url=self.base_url,
                     timeout=self.timeout, max_response_bytes=self.max_response_bytes,
-                    max_completion_tokens=self.max_completion_tokens, retries=0)
+                    max_completion_tokens=self.max_completion_tokens, enable_thinking=self.enable_thinking, temperature=self.temperature, structured_roles=self.structured_roles,
+                    tool_schema_order='canonical', retries=0)
 
     def complete(self, messages, tools, *, role, case_id, turn):
         payload = dict(model=self.model, messages=messages, max_completion_tokens=self.max_completion_tokens)
+        if self.enable_thinking is not None:
+            payload['chat_template_kwargs'] = {'enable_thinking': self.enable_thinking}
+        if self.temperature is not None:payload['temperature']=self.temperature
         if tools:
-            payload.update(tools=tools, tool_choice='auto')
-        request = Request(self.base_url + '/chat/completions', data=dumps(payload).encode('utf-8'),
+            payload.update(tools=tools, tool_choice='required' if self.structured_roles else 'auto')
+            if self.structured_roles: payload['parallel_tool_calls']=False
+        encoded = dumps(payload)
+        request = Request(self.base_url + '/chat/completions', data=encoded.encode('utf-8'),
                           headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + self._api_key}, method='POST')
         try:
             with self._opener.open(request, timeout=self.timeout) as response:

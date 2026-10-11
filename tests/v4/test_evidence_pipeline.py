@@ -90,6 +90,22 @@ def test_skip_raw_retrieves_on_demand_and_explicit_reference(tmp_path):
         module('index').query_raw(db, 'stage2', 'absent')
 
 
+def test_suppressed_signal_is_not_presented_as_untriggered_counterevidence(tmp_path):
+    raw, _, _ = inputs(tmp_path, interfaces=0)
+    # One weak CPU window, beside a direct two-window BGP interruption.
+    write_csv(raw, 'node_metrics.csv', [dict(timestamp=f'2026-09-17T04:{i:02d}:00Z',
+              node=role, cpu_usage='90' if i == 12 else '10') for role in ('br1','br2') for i in range(15)])
+    windows, states, out = tmp_path/'new_windows', tmp_path/'new_states', tmp_path/'new_evidence'
+    build_features(raw,'stage2',windows,naive_timezone='UTC')
+    discover_states(windows,'stage2',states,candidate_policy='conservative',
+                    reference_start='2026-09-17T04:00:00Z',reference_end='2026-09-17T04:12:00Z')
+    module('pipeline').build_evidence(states,'stage2',out)
+    p = module('index').query_evidence(out/'evidence.sqlite','stage2','bundle',entity_id='xian-br-1')[0]
+    assert all(not o.get('raw_candidate') for o in p['observations_without_current_trigger'])
+    suppressed = [o for o in p['quality_context'] if o.get('raw_candidate') and not o['candidate']]
+    assert suppressed and suppressed[0]['suppression_reason'] == 'insufficient_persistence'
+
+
 def test_topology_relates_direct_overlapping_bundles_only(tmp_path):
     _, _, states = inputs(tmp_path, interfaces=0)
     topology = tmp_path / 'topology.json'

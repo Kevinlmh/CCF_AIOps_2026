@@ -2,7 +2,9 @@
 
 v4 采用“统计特征与轻量聚类发现运行状态，规则补充异常线索，同一个 LLM 通过多个角色完成事件确认、根因定位和故障分类”的混合架构。已实现原始数据基础层、窗口特征、稳健参考尺度、轻量聚类、规则候选事件、审阅证据包、共享 LLM 后端、独立角色诊断、一致性复核和官方 JSONL 导出；统一运行、公共知识卡、可选状态解释、独立评测、九种消融和成本记录也已实现。
 
-总体方案见 [v4 设计](docs/superpowers/specs/2026-10-08-v4-design.md)，窗口定义见 [窗口特征设计](docs/superpowers/specs/2026-10-08-v4-window-features-design.md)，状态发现见 [第三阶段设计](docs/superpowers/specs/2026-10-08-v4-state-discovery-design.md)。角色与导出设计见 [LLM 角色设计](docs/superpowers/specs/2026-10-08-v4-llm-roles-design.md)。主体代码与接口已完成；按最新要求，真实 LLM 接入留到服务器迁移后，全量验证、真实模型效果与消融仍待实验。
+总体方案见 [v4 设计](docs/superpowers/specs/2026-10-08-v4-design.md)，窗口定义见 [窗口特征设计](docs/superpowers/specs/2026-10-08-v4-window-features-design.md)，状态发现见 [第三阶段设计](docs/superpowers/specs/2026-10-08-v4-state-discovery-design.md)。角色与导出设计见 [LLM 角色设计](docs/superpowers/specs/2026-10-08-v4-llm-roles-design.md)。服务器本地模型已完成三个公开样例的四角色实验；第一批完整原始数据任务已于 2026-10-11 按用户要求停止，本轮中间产物已清理，vLLM 服务已关闭。实际结果、规则对照和当前限制见 [端到端实验与第一批全量运行](docs/v4-full-experiment-status.md)。
+
+新增可复用的 canonical 数据后端：一次解析、紧凑分钟库、状态增量、字节定位原始证据及分层复用。当前需显式选择，候选和 LLM 角色流程沿用现有定义；使用方式及实测结果见 [数据处理改造记录](docs/v4-data-processing-results.md)。
 
 原始数据层见 [数据基础交付记录](docs/v4-data-foundation-2026-10-08.md)；本步实现、实测结论和下一步任务见 [窗口特征交付记录](docs/v4-window-features-2026-10-08.md)。
 
@@ -234,6 +236,10 @@ HTTP 后端要求兼容 `/chat/completions` 的 JSON 和 function tools；base U
 
 ## v4 一体化运行与实验
 
+按原四角色架构执行第一批全量诊断，使用 `configs/v4/stage1-local-llm.json`。它不限制逐文件行数或模型包数，依次调用确认、独立定位与分类、LLM 复核。阶段进度、12 GiB 磁盘预留、校验后续跑及实验差异见 [端到端实验与第一批全量运行](docs/v4-full-experiment-status.md)。
+
+服务器磁盘较紧时，请使用 [压缩存储、保守候选和三个公开样例](docs/v4-server-experiments.md) 中的入口。`configs/v4/conservative-compact.json` 启用流式 NetFlow 汇总、gzip 中间产物及压力/错误信号和持续性筛选；`scripts/v4_public_samples.py` 对三个完整公开样例调用本地模型，预测结束后运行官方评分，也支持固定已封存的候选证据、只重跑诊断。本地样例诊断使用必选函数参数约束、完整窗口分配及紧凑观测；资源规则对照另由 `scripts/v4_rules_control.py` 执行，明确不调用 LLM。实际问题、修复和分数见 [v4 审查与样例回归](docs/v4-audit-and-sample-results.md)。下面的旧入口保留默认参数，适合兼容性检查。
+
 最后一批提供统一原始数据到预测入口、公开知识卡/可选状态解释、九组消融、独立真值评测、错误分析、配置/代码/提示/调用/token/费用记录。本机为当前验证路径，Docker 材料暂不启用。
 
 ```sh
@@ -250,4 +256,4 @@ python -m aiops_v4.experiments run --config configs/v4/stage2-offline.json --out
 
 这两个配置运行到证据包，不构造模型后端、不读取 Replay 占位文件、不需要密钥，调用与预测均为0，不能作为诊断或提交结果。每次使用新输出目录；全量开销尚未用本机前缀检查验证。
 
-未来真实诊断模板：configs/v4/stage1.json 和 stage2.json，服务器迁移后再配置模型及环境密钥。运行与评测为两个独立命令，默认四角色保持同一模型及独立定位/分类。Replay、prefix_sample、部分 bundle、未知费用和 deferred 都会明确记录；流程验证不能代表模型效果。完整本机用法见 [v4-reproduction](docs/v4-reproduction.md)。
+真实诊断模板为 `configs/v4/stage1.json` 和 `stage2.json`；当前服务器的第一批本地模型配置为 `configs/v4/stage1-local-llm.json`。运行与评测为两个独立命令，默认四角色保持同一模型及独立定位/分类。Replay、prefix_sample、部分 bundle、未知费用和 deferred 都会明确记录；流程验证不能代表模型效果。完整本机用法见 [v4-reproduction](docs/v4-reproduction.md)。
