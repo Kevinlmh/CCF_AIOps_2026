@@ -1,4 +1,5 @@
 import json
+import os
 from importlib import import_module, util
 
 import pytest
@@ -52,7 +53,8 @@ def test_saved_boundary_resumes_without_duplicate_records_and_prefix_hash_is_sco
     assert prefix['raw_bytes_sha256'] != manifest['raw_bytes_sha256']
 
 
-def test_direct_read_rejects_changed_input_unregistered_span_and_escape(tmp_path):
+@pytest.mark.parametrize('preserve_mtime', [False, True])
+def test_direct_read_rejects_changed_input_unregistered_span_and_escape(tmp_path, preserve_mtime):
     path=tmp_path/'node_metrics.csv';path.write_text('timestamp,node\n2026-09-17T04:00:00Z,xian-br-1\n')
     file=discover_sources(tmp_path)[0]
     with api().PositionReader(file,'stage1') as reader:
@@ -60,7 +62,13 @@ def test_direct_read_rejects_changed_input_unregistered_span_and_escape(tmp_path
     with pytest.raises(ValueError): api().record_at(tmp_path,'stage1',dict(manifest,path='../node_metrics.csv'),anchor)
     with pytest.raises(ValueError): api().record_at(tmp_path,'stage1',manifest,dict(anchor,byte_start=0))
     path.write_text('timestamp,node\n2026-09-17T04:00:00Z,xian-br-2\n')
-    with pytest.raises(ValueError,match='changed'): api().record_at(tmp_path,'stage1',manifest,anchor)
+    # Fast same-size writes can share a filesystem timestamp. Exercise both
+    # the metadata check and the content-ID guard without relying on clock ticks.
+    mtime=manifest['identity']['mtime_ns']+(0 if preserve_mtime else 1_000_000_000)
+    os.utime(path,ns=(path.stat().st_atime_ns,mtime))
+    assert (api().file_identity(path)==manifest['identity']) is preserve_mtime
+    error='content ID mismatch' if preserve_mtime else 'changed'
+    with pytest.raises(ValueError,match=error): api().record_at(tmp_path,'stage1',manifest,anchor)
 
 
 def test_duplicate_header_and_malformed_quotes_never_publish_valid_ranges(tmp_path):
