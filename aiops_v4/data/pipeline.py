@@ -10,10 +10,22 @@ from aiops_v4.evidence.linked import build_linked_evidence
 
 
 def build_data_layers(config,directory,*,resume=False,progress=None,min_free_bytes=None):
+    from .lock import exclusive_producer
+    directory,_=_output_roots(config,directory)
+    with exclusive_producer(directory):
+        return _build_data_layers(config,directory,resume=resume,progress=progress,min_free_bytes=min_free_bytes)
+
+
+def _output_roots(config,directory):
     directory=Path(directory)
     if directory.is_symlink():raise ValueError('data root symlink forbidden')
     directory=directory.resolve();raw=Path(config['raw_root']).resolve(strict=True)
     if directory==raw or raw in directory.parents:raise ValueError('data outputs must be outside raw input')
+    return directory,raw
+
+
+def _build_data_layers(config,directory,*,resume=False,progress=None,min_free_bytes=None):
+    directory,raw=_output_roots(config,directory)
     directory.mkdir(parents=True,exist_ok=True)
     storage=config['storage']
     policy=dict(workers=storage['workers'],memory_bytes=int(storage['memory_gib']*1024**3),

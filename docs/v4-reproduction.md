@@ -9,23 +9,35 @@
 ```sh
 python -m pip install -e '.[test]'
 python -m pytest -q
-python -m aiops_v4.experiments run --config configs/v4/public-discovery.json --output-dir outputs/v4/experiments/my-public-discovery
 ```
 
-`public-discovery.json` 是每文件前1000行的纯线索 smoke，不产生模型判断或可提交预测。当前按用户要求不接入真实模型，使用新增的两批全量离线配置，共用方法、分批独立学习：
+当前保留四份配置/占位文件：
+
+| 文件 | 用途 |
+|---|---|
+| `stage1-data-canonical.json` | 新版数据后端，第一批全量数据及候选证据构建 |
+| `stage1-local-llm.json` | 本地 Qwen 接口与四角色诊断参数，当前仍使用默认旧数据后端 |
+| `conservative-compact.json` | 公开样例及数据对照脚本所用的候选规则和旧后端压缩配置 |
+| `empty-replay.jsonl` | 离线配置引用的空回放文件 |
+
+旧抽样配置、两批离线配置和未填写模型的通用模板已删除。第一批新版数据层的构建入口为：
 
 ```sh
-python -m aiops_v4.experiments run --config configs/v4/stage1-offline.json --output-dir outputs/v4/experiments/my-stage1-offline
-python -m aiops_v4.experiments run --config configs/v4/stage2-offline.json --output-dir outputs/v4/experiments/my-stage2-offline
+python -m aiops_v4.data build \
+  --config configs/v4/stage1-data-canonical.json \
+  --output-dir /data/liminghang/CCF_AIOps_2026/data_store/stage1 \
+  --progress
 ```
 
-两个 `*-offline.json` 以 `discovery_only=true` 运行到证据包，不构造模型后端、不读 Replay 占位文件、不需要密钥。调用数/预测均为0，`diagnosis_complete=false`、`submission_ready=false`；completed 表示离线流程完成。max_rows_per_file=null 为全扫描，实际两批全量开销仍待验证。示例 UTC 是显式假设，需通过来源/对齐核验，未获得官方确认。来源 CSV 必须为输入根目录内的普通文件，文件符号链接、目录和 FIFO 均拒绝。
+该配置的 `max_rows_per_file=null` 表示全扫描，`discovery_only=true` 表示不调用模型、不生成提交预测。构建前确认 `raw_root` 和输出目录；当前输出路径面向服务器的数据盘，Mac 上需改为本机可写路径。中断后在同一命令中增加 `--resume`。数据校验、层复用、导出及性能边界见 [数据处理改造记录](v4-data-processing-results.md)。两批数据应分别配置和学习；准备第二批实验时再提供其原始路径与独立数据目录。
 
-stage1.json、stage2.json 保留为服务器上的真实诊断模板；迁移后再设置模型 ID 和兼容 Chat Completions 的 base_url。密钥仅通过 AIOPS_LLM_API_KEY 环境变量传入，配置与日志不存明文密钥，不自动读取 .env 或 submit.py。真实供应商支持尚待届时验证。
+本地模型参数保存在 `stage1-local-llm.json`。与新版数据后端一起运行时，需显式加入 `storage.backend=canonical` 及数据目录、资源预算，并保持 `discovery_only=false`。HTTP 密钥只从配置指定的环境变量读取，不自动读取 `.env` 或 `submit.py`。示例 UTC 是显式假设，需通过来源/对齐核验，未获得官方确认。来源 CSV 必须为输入根目录内的普通文件，文件符号链接、目录和 FIFO 均拒绝。
 
 配置相对路径均按配置文件目录解析；运行输出不得存在，不得在 raw_root/data 内。profile.max_rows_per_file 同时限制统计和窗口扫描；取消该字段/设 null 才是全扫描。reference_start/end 不填时使用同批有界离线参考；不是已知健康，首段污染和状态变化需通过实验检查。limit_bundles/bundle_id 是部分诊断，不能称全批结果。根因/类别/引用无法确认则 deferred，不自动补答案。
 
-阶段分别保存 profile（JSON/CSV/Markdown）、features（窗口/拒绝/语义）、states（矩阵/参考/簇/状态/候选）、evidence（完整索引/稀疏原文/证据包）、agents（诊断模式为 bundle 决策/角色 trace/诊断/预测，离线模式只有标记和空预测）。根目录保存 config.json、knowledge.json、experiment.json 和最后发布的 summary.json/seal.json。阶段运行中普通 Exception 留脱敏 failure.json 和已完成阶段，Ctrl-C 保存 interrupted 标记并重新抛出 KeyboardInterrupt，均不发布成功摘要；阶段前预检查没有已创建的输出目录，SIGKILL/断电不能保证记录落盘。
+以下 profile、窗口 JSONL 和两次扫描说明对应旧数据后端；canonical 后端的数据层结构和原文取回方式见数据处理改造记录。
+
+旧后端的阶段分别保存 profile（JSON/CSV/Markdown）、features（窗口/拒绝/语义）、states（矩阵/参考/簇/状态/候选）、evidence（完整索引/稀疏原文/证据包）、agents（诊断模式为 bundle 决策/角色 trace/诊断/预测，离线模式只有标记和空预测）。根目录保存 config.json、knowledge.json、experiment.json 和最后发布的 summary.json/seal.json。阶段运行中普通 Exception 留脱敏 failure.json 和已完成阶段，Ctrl-C 保存 interrupted 标记并重新抛出 KeyboardInterrupt，均不发布成功摘要；阶段前预检查没有已创建的输出目录，SIGKILL/断电不能保证记录落盘。
 
 统计和窗口两次扫描比较每文件已解析内容摘要、列、行数和完成范围，另核对源文件大小/mtime；前缀只能验证所读部分。服务器上检查 raw_root 并在新目录重新构建证据：已有数据库含 Mac 绝对输入路径，不能假设复制后自动重写。可核验迁移路径的原文查询参数另见 README。
 
@@ -39,7 +51,7 @@ stage1.json、stage2.json 保留为服务器上的真实诊断模板；迁移后
 
 ```sh
 python -m aiops_v4.experiments evaluate --run-dir outputs/v4/experiments/my-public-run --ground-truth sample/ground_truth.jsonl --batch public-case-001 --output-dir outputs/v4/experiments/my-evaluation
-python -m aiops_v4.experiments ablate --config configs/v4/stage2.json --variants full statistics_only cluster_only no_rules joint_roles program_review no_knowledge with_state_explanation discovery_only --output-dir outputs/v4/experiments/my-ablations
+python -m aiops_v4.experiments ablate --config configs/v4/stage1-local-llm.json --variants full statistics_only cluster_only no_rules joint_roles program_review no_knowledge with_state_explanation discovery_only --output-dir outputs/v4/experiments/my-ablations
 python -m aiops_v4.experiments compare --run-dirs outputs/v4/experiments/my-ablations/full outputs/v4/experiments/my-ablations/no_rules --output-dir outputs/v4/experiments/my-comparison
 ```
 
@@ -79,3 +91,12 @@ docker run --rm \
 ## 公共资源来源
 
 [官方规则页](https://challenge.aiops.cn/home/competition/2087843807868489822#1791516042000'state'=6)，核对日期2026-10-09：鼓励多智能体；FAQ Q3-Q7允许可复现特征工程、通用规则、知识库和公开资料，要求注明来源及外部工具依赖。技术要求表与FAQ对纯规则的表述不一致；本方案保留 LLM 混合主线，不由此推定纯规则提交合规。knowledge.py 机理源于公开32类说明，核验建议是通用工程假设，没有任何测试样本答案。[OpenAI function calling 文档](https://developers.openai.com/api/docs/guides/function-calling) 用于兼容工具协议；供应商实际支持仍需运行验证。
+
+
+### 批量数据与证据请求压缩
+
+当前 canonical 写端为特征 SQLite4 / 状态SQLite3；旧封存格式仍可读取，生产源码变化后的旧未完成检查点需重新构建。数据根目录 producer 独占锁防止同路径并发续跑。
+
+HTTP后端可配置 `"structured_roles": true, "compact_evidence": true`，启用无损观测列表示、共有字段和短证据别名。内部工具与验证仍使用原始ID/观测；模型回复先恢复ID再校验。角色记录保留logical请求及实际wire摘要。默认关闭以保留旧实验配置，新的压缩协议需要后续真实LLM质量A/B；本地tokenizer比较不能证明准确率相同。
+
+第一批292个故障作为官方总数量的用户提供参考；该数字不得用于强行凑数、调整前缀事件数量或替代隐藏标签评分。

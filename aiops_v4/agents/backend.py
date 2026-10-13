@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from http.client import HTTPException
 import socket
+import hashlib
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -18,6 +19,7 @@ class Completion:
     message: dict
     usage: dict
     model: str
+    wire: dict | None = None
 
 
 def _message(message):
@@ -25,7 +27,8 @@ def _message(message):
         raise BackendError('invalid_message')
     if message.get('refusal'):
         raise BackendError('model_refusal')
-    content, calls = message.get('content'), message.get('tool_calls') or []
+    content, calls = message.get('content'), message.get('tool_calls')
+    if calls is None:calls=[]
     if content is not None and not isinstance(content, str):
         raise BackendError('invalid_content')
     if not isinstance(calls, list) or len(calls) > 16:
@@ -76,7 +79,7 @@ class _NoRedirect(HTTPRedirectHandler):
 
 
 class HTTPBackend:
-    def __init__(self, model, base_url, api_key, timeout=60, max_response_bytes=1048576, max_completion_tokens=4096, enable_thinking=None, temperature=None, structured_roles=False):
+    def __init__(self, model, base_url, api_key, timeout=60, max_response_bytes=1048576, max_completion_tokens=4096, enable_thinking=None, temperature=None, structured_roles=False, compact_evidence=False):
         parts = urlsplit(base_url)
         if (parts.scheme not in {'https', 'http'} or not parts.hostname or parts.username or parts.password
                 or parts.query or parts.fragment or (parts.scheme == 'http' and parts.hostname not in {'localhost', '127.0.0.1', '::1'})):
@@ -101,15 +104,22 @@ class HTTPBackend:
         self.temperature=temperature
         if type(structured_roles) is not bool: raise ValueError('structured_roles must be boolean')
         self.structured_roles=structured_roles
+        if type(compact_evidence) is not bool or (compact_evidence and not structured_roles):
+            raise ValueError("compact evidence requires structured roles")
+        self.compact_evidence=compact_evidence
         self._opener = build_opener(_NoRedirect())
 
     def metadata(self):
-        return dict(kind='http', simulated=False, model=self.model, base_url=self.base_url,
+        result=dict(kind='http', simulated=False, model=self.model, base_url=self.base_url,
                     timeout=self.timeout, max_response_bytes=self.max_response_bytes,
                     max_completion_tokens=self.max_completion_tokens, enable_thinking=self.enable_thinking, temperature=self.temperature, structured_roles=self.structured_roles,
                     tool_schema_order='canonical', retries=0)
+        if self.compact_evidence:
+            from .wire import VERSION
+            result['evidence_wire']=VERSION
+        return result
 
-    def complete(self, messages, tools, *, role, case_id, turn):
+    def _payload(self,messages,tools):
         payload = dict(model=self.model, messages=messages, max_completion_tokens=self.max_completion_tokens)
         if self.enable_thinking is not None:
             payload['chat_template_kwargs'] = {'enable_thinking': self.enable_thinking}
@@ -117,8 +127,21 @@ class HTTPBackend:
         if tools:
             payload.update(tools=tools, tool_choice='required' if self.structured_roles else 'auto')
             if self.structured_roles: payload['parallel_tool_calls']=False
-        encoded = dumps(payload)
-        request = Request(self.base_url + '/chat/completions', data=encoded.encode('utf-8'),
+        return payload
+
+    def complete(self, messages, tools, *, role, case_id, turn):
+        codec=None;wire=None
+        try:
+            payload=self._payload(messages,tools)
+            if self.compact_evidence:
+                from .wire import pack_request,request_stats
+                logical=payload;payload,codec=pack_request(logical)
+                wire=request_stats(logical,payload,codec)
+            encoded=dumps(payload)
+            encoded_bytes=encoded.encode('utf-8')
+        except (ValueError,KeyError,TypeError,AttributeError,RecursionError):
+            raise BackendError('invalid_wire_request' if self.compact_evidence else 'invalid_backend_request') from None
+        request = Request(self.base_url + '/chat/completions', data=encoded_bytes,
                           headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + self._api_key}, method='POST')
         try:
             with self._opener.open(request, timeout=self.timeout) as response:
@@ -134,7 +157,9 @@ class HTTPBackend:
             actual_model = data.get('model')
             if not isinstance(actual_model, str) or not actual_model:
                 raise BackendError('missing_response_model')
-            return Completion(_message(choice.get('message')), _usage(data.get('usage')), actual_model)
+            message=choice.get('message')
+            if codec is not None:message=codec.decode_response(message)
+            return Completion(_message(message), _usage(data.get('usage')), actual_model, wire)
         except HTTPError as error:
             error.close()
             raise BackendError('http_status_' + str(error.code)) from None

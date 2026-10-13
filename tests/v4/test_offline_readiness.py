@@ -29,18 +29,22 @@ def test_ctrl_c_records_interruption_without_success_or_exception_text(evidence,
 @pytest.mark.parametrize('batch',['stage1','stage2'])
 def test_shipped_offline_configuration_never_constructs_a_model_backend(tmp_path,monkeypatch,batch):
     raw,_,_=inputs(tmp_path,interfaces=0,spike=False)
-    path=Path(__file__).resolve().parents[2]/'configs'/'v4'/(batch+'-offline.json')
+    path=Path(__file__).resolve().parents[2]/'configs'/'v4'/'stage1-data-canonical.json'
     config=load_config(path)
     assert config['agents']['discovery_only'] and config['profile']['max_rows_per_file'] is None
     assert config['backend']['kind']=='replay'
     # No fake replies are loaded or used, even if the configured placeholder is absent.
     config['raw_root']=str(raw)
+    config['batch']=batch
+    config['storage'].update(data_dir=str(tmp_path/'data'),workers=1,min_free_gib=0)
     config['backend']['replay_file']=str(tmp_path/'does-not-exist.jsonl')
     def forbidden(*args,**kwargs):raise AssertionError('offline path tried to construct a provider')
     monkeypatch.setattr(run,'make_backend',forbidden)
     monkeypatch.setattr('aiops_v4.experiments.config.HTTPBackend',forbidden)
     summary=run.run_experiment(config,tmp_path/'offline')
     assert summary['status']=='completed' and summary['discovery_only']
-    assert summary['backend_calls']==0 and summary['external_inputs']==[]
+    assert summary['backend_calls']==0
+    assert len(summary['external_inputs'])==3
+    assert all(entry['kind']=='data_layer' and Path(entry['path']).is_relative_to(tmp_path/'data') for entry in summary['external_inputs'])
     assert summary['predictions']==0 and not summary['submission_ready']
-    assert (tmp_path/'offline'/'evidence'/'evidence.sqlite').is_file()
+    assert (Path(summary['data_layers']['evidence'])/'evidence.sqlite').is_file()

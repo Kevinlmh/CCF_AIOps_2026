@@ -51,7 +51,9 @@ backend.complete(messages, tools, *, role, case_id, turn)
 
 已有 HTTP 兼容适配器和测试用 Replay 后端；保留适配器不等于本次已经接通供应商。此次没有设置模型/密钥、读取 .env 或调用真实服务。未来服务器上的真实后端通过该接口接入，统计、特征、证据和角色职责不需要为此重写；供应商协议差异仍须实际验证。
 
-新增 [stage1-offline.json](../configs/v4/stage1-offline.json) 和 [stage2-offline.json](../configs/v4/stage2-offline.json)，采用现有 `discovery_only=true` 分支，`max_rows_per_file=null` 表示全量扫描：
+本节记录当时的旧后端验证。下述抽样、两批离线和通用模型配置已在数据处理改造后清理，历史命令不再作为当前运行入口；当前配置及命令见 [v4 运行与复现](v4-reproduction.md)。
+
+当时新增 `stage1-offline.json` 和 `stage2-offline.json`，采用现有 `discovery_only=true` 分支，`max_rows_per_file=null` 表示全量扫描：
 
 ```sh
 python -m aiops_v4.experiments run --config configs/v4/stage1-offline.json --output-dir outputs/v4/experiments/my-stage1-offline

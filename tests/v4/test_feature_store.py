@@ -99,7 +99,7 @@ def test_feature_store_interns_extras_and_uses_typed_anchor_positions(tmp_path):
     raw=tmp_path/'raw';fixture(raw);build,store=api();out=tmp_path/'new'
     build.build_feature_store(raw,'stage1',out,naive_timezone='UTC',workers=1,min_free_bytes=0)
     with store.FeatureStore(out/'features.sqlite') as f:
-        assert f.db.execute('PRAGMA user_version').fetchone()[0]==2
+        assert f.db.execute('PRAGMA user_version').fetchone()[0]==4
         assert f.db.execute('SELECT count(*) FROM extras').fetchone()[0]<f.summary['window_count']
         assert all(length==40 for length, in f.db.execute('SELECT length(payload) FROM anchors'))
 

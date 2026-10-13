@@ -73,6 +73,7 @@ def run_role(backend, session, role, case_id, payload, budget=Budget()):
                 raise BackendError('response_char_budget')
             entry = dict(turn=turn, request_sha256=hashlib.sha256(serialized.encode()).hexdigest(),
                          response=completion.message, actual_model=completion.model, usage=completion.usage, tools=[])
+            if getattr(completion,"wire",None) is not None:entry["wire"]=completion.wire
             trace.append(entry)
             calls = completion.message.get('tool_calls') or []
             if structured and not calls: raise BackendError('structured_result_required')
@@ -140,6 +141,17 @@ def recorded_delivery(run, role, case_id):
         if (run.get('run_schema_version') not in (2,3) or structured!=run['backend'].get('structured_roles',False) or run['status']!='completed' or run['role']!=role
             or run['case_id']!=case_id or run['model']!=run['backend']['model']):
             raise ValueError('complete recorded role required')
+        wire_backend=None
+        if 'evidence_wire' in run['backend']:
+            from .wire import VERSION
+            from .backend import HTTPBackend
+            meta=run['backend']
+            if meta['evidence_wire']!=VERSION or meta.get('kind')!='http' or meta.get('simulated') is not False or meta.get('structured_roles') is not True or not structured:
+                raise ValueError('invalid recorded evidence wire backend')
+            wire_backend=HTTPBackend(meta['model'],meta['base_url'],'recorded',timeout=meta['timeout'],
+                max_response_bytes=meta['max_response_bytes'],max_completion_tokens=meta['max_completion_tokens'],
+                enable_thinking=meta['enable_thinking'],temperature=meta['temperature'],structured_roles=True,compact_evidence=True)
+            if wire_backend.metadata()!=meta:raise ValueError('recorded HTTP metadata changed')
         trace=run['trace'];budget=Budget(**run['budget'])
         if (not isinstance(trace,list) or not trace or type(run['backend_calls']) is not int
             or len(trace)!=run['backend_calls'] or len(trace)>budget.max_turns):
@@ -177,6 +189,19 @@ def recorded_delivery(run, role, case_id):
             if (entry['turn']!=turn or entry['request_sha256']!=hashlib.sha256(serialized.encode()).hexdigest()
                 or len(serialized)>budget.max_prompt_chars or not isinstance(entry['actual_model'],str) or not entry['actual_model']):
                 raise ValueError('recorded request changed')
+            if wire_backend is None:
+                if 'wire' in entry:raise ValueError('unexpected recorded wire request')
+            else:
+                from .wire import pack_request,unpack_request,request_stats
+                logical=wire_backend._payload(messages,tools)
+                packed,codec=pack_request(logical)
+                stats=entry.get('wire')
+                expected=request_stats(logical,packed,codec)
+                if (not isinstance(stats,dict) or set(stats)!=set(expected)
+                    or any(type(stats.get(k)) is not int or stats[k]<0 for k in ('logical_bytes','request_bytes','aliases'))):
+                    raise ValueError('invalid recorded wire metadata')
+                if (dumps(unpack_request(packed,codec))!=dumps(logical) or stats!=expected):
+                    raise ValueError('recorded wire request changed')
             response=_message(entry['response']);token_usage=_usage(entry['usage'])
             if token_usage!=entry['usage'] or len(dumps(response))>budget.max_response_chars:
                 raise ValueError('invalid recorded response/usage')

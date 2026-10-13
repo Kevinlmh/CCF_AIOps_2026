@@ -1,5 +1,6 @@
 """One CSV parse per input, private file spools, canonical minute-store publication."""
 from collections import Counter,OrderedDict
+from contextlib import closing
 from concurrent.futures import ProcessPoolExecutor,as_completed
 from itertools import groupby
 import json
@@ -18,8 +19,11 @@ from .aggregate import iter_windows
 from .netflow import NetflowAccumulator
 from .spool import parse_file,merge_flow,aggregate_series
 from aiops_v4.data.workers import initialize,bounded_results
-from .store import create_store,StoreWriter
+from .store import create_store,StoreWriter,configure_build_connection,finalize_build_connection
+from .source_stream import iter_netflow_windows
+from .spool_codec import series_keys
 from .time import time_zone
+from .write_codec import canonicalize_window
 
 
 def build_feature_store(root,batch,output_dir,*,naive_timezone,window_seconds=60,expected_step_seconds=None,
@@ -54,6 +58,8 @@ def build_feature_store(root,batch,output_dir,*,naive_timezone,window_seconds=60
         if (output/'seal.json').exists():
             summary=verify_layer(output,verify_raw=True)
             if summary['layer_signature']!=signature:raise ValueError('feature producer/config/input changed')
+            if (output/'.work').exists():shutil.rmtree(output/'.work')
+            if (output/'.build.json').exists():(output/'.build.json').unlink()
             return summary
         saved=json.loads((output/'.build.json').read_text())
         if saved['signature']!=signature:raise ValueError('feature producer/config/input changed since checkpoint')
@@ -79,78 +85,43 @@ def build_feature_store(root,batch,output_dir,*,naive_timezone,window_seconds=60
         context=multiprocessing.get_context('spawn');stop=context.Event()
         pool=ProcessPoolExecutor(max_workers=workers,mp_context=context,initializer=initialize,initargs=(stop,))
         try:
-            for task,manifest in bounded_results(pool,parse_file,scheduled,workers):
+            for task,manifest in bounded_results(pool,parse_file,scheduled,workers,ordered=False):
                 manifests[task[0].relative_path]=manifest;policy.check()
                 if progress:progress(dict(event='file_done',path=task[0].relative_path,rows=manifest['rows_scanned']))
         except BaseException:stop.set();raise
         finally:pool.shutdown(wait=True,cancel_futures=True)
     manifests=[manifests[f.relative_path] for f in files]
     if snapshot!=[dict(path=f.relative_path,source=f.source,identity=file_identity(f.path)) for f in files]:raise ValueError('raw inputs changed during scan')
-    merged_path=work/'merged.sqlite'
-    # A merged spool is rebuilt only if it was interrupted before its commit marker.
-    merge_done=work/'merge.json'
-    if not merge_done.exists():
-        if merged_path.exists():merged_path.unlink()
-        merged=sqlite3.connect(merged_path);merged.execute('PRAGMA cache_size=-8192');merged.execute('PRAGMA temp_store=FILE')
-        merged.execute('CREATE TABLE observations(series TEXT,time TEXT,file INTEGER,idx INTEGER,payload BLOB)')
-        flows=NetflowAccumulator(merged,window_seconds,expected_step_seconds,capacity=512) if netflow_streaming else None
+    # Each parser owns an indexed private spool. Keep one copy and merge only
+    # the current series across files in discovery order inside the worker.
+    native_sources={};flow_sources=[]
+    for file_index,task in enumerate(tasks):
+        path=Path(task[2]);source=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
         try:
-            for file_index,task in enumerate(tasks):
-                inp=sqlite3.connect(Path(task[2]).as_uri()+'?mode=ro',uri=True)
-                try:
-                    with policy.guard_sql(merged):
-                        merged.executemany('INSERT INTO observations VALUES (?,?,?,?,?)',((s,t,file_index,i,p) for s,t,i,p in inp.execute('SELECT series,time,idx,payload FROM observations')))
-                    if flows is not None and task[0].source=='netflow':
-                        for series,start,payload in inp.execute('SELECT series,start,payload FROM flow_windows ORDER BY series,start'):
-                            saved=merged.execute('SELECT payload FROM flow_windows WHERE series=? AND start=?',(series,start)).fetchone()
-                            value=merge_flow(load_json(saved[0]),load_json(payload)) if saved else load_json(payload)
-                            merged.execute('INSERT OR REPLACE INTO flow_windows VALUES (?,?,?)',(series,start,db_dump(value)))
-                        merged.executemany('INSERT OR IGNORE INTO flow_times VALUES (?,?,?)',inp.execute('SELECT series,start,time FROM flow_times'))
-                finally:inp.close()
-                merged.commit();policy.check()
-            with policy.guard_sql(merged):merged.execute('CREATE INDEX observations_order ON observations(series,time,file,idx)')
-            merged.commit()
-            atomic_json(merge_done,dict(signature=signature))
-        finally:merged.close()
-    merged=sqlite3.connect(merged_path.as_uri()+'?mode=ro',uri=True)
+            for series in series_keys(source):
+                native_sources.setdefault(series,[]).append((file_index,str(path)))
+            if netflow_streaming and task[0].source=='netflow':
+                flow_sources.append((file_index,str(path)))
+        finally:source.close()
     target=output/'.features.sqlite'
     # Completed native groups remain committed across interruption.
-    db=create_store(target) if not target.exists() else sqlite3.connect(target)
-    writer=StoreWriter.__new__(StoreWriter)
-    if not db.execute('SELECT count(*) FROM files').fetchone()[0]:writer=StoreWriter(db,batch,manifests);db.commit()
-    else:
-        writer.db=db;writer.batch=batch
-        writer.file_ids={p:i for i,p in db.execute('SELECT id,path FROM files')}
-        writer.groups={s:i for i,s in db.execute('SELECT id,series FROM groups')}
-        key=lambda v:json.dumps(v,sort_keys=True,ensure_ascii=False,separators=(',',':'),allow_nan=False)
-        writer.definitions={key(load_json(v)):i for i,v in db.execute('SELECT id,payload FROM definitions')}
-        writer.flags={key(load_json(v)):i for i,v in db.execute('SELECT id,payload FROM flags')}
-        writer.extras={key(load_json(v)):i for i,v in db.execute('SELECT id,payload FROM extras')}
+    db=create_store(target,memory_bytes=memory_bytes,workers=workers) if not target.exists() else sqlite3.connect(target)
+    configure_build_connection(db,memory_bytes=memory_bytes,workers=workers)
+    if not db.execute('SELECT count(*) FROM files').fetchone()[0]:
+        writer=StoreWriter(db,batch,manifests);db.commit()
+    else:writer=StoreWriter.resume(db,batch)
     completed={r[0] for r in db.execute('SELECT grp FROM progress')}
     by_file={f['path']:f for f in manifests}
     def canonicalize(window):
-        anchors={};refs=[]
-        for ref in window['references']:
-            manifest=by_file[ref['source_file']]
-            if ref['record_id'].startswith('position:'):
-                # Recover the immutable old ID only for the selected finite references.
-                from aiops_v4.data.position import record_id
-                cells=ref['_cells']
-                raw={n:cells[i] if i<len(cells) else None for i,n in enumerate(manifest['columns'])}
-                ref=dict(ref,record_id=record_id(batch,manifest['path'],ref['record_index'],raw,tuple(cells[len(manifest['columns']):])))
-            ref={k:v for k,v in ref.items() if k!='_cells'}
-            anchors[ref['record_id']]=ref
-            refs.append({k:ref[k] for k in ('record_id','source_file','record_index','line_start','line_end')})
-        window['references']=refs
-        return window,anchors
+        return canonicalize_window(window,by_file,batch)
     def commit_group(series):
         db.execute('INSERT INTO progress VALUES (?)',(series,));db.commit();policy.check()
         if progress:progress(dict(event='group_complete',group=series,window_count=db.execute('SELECT count(*) FROM windows').fetchone()[0]))
     try:
-        groups=[r[0] for r in merged.execute('SELECT DISTINCT series FROM observations ORDER BY series')]
+        groups=sorted(native_sources)
         for series in completed:
             if progress:progress(dict(event='group_reused',group=series))
-        tasks_aggregate=[(str(merged_path),batch,series,settings,str(work/f'group_{index}.sqlite')) for index,series in enumerate(groups) if series not in completed]
+        tasks_aggregate=[(native_sources[series],batch,series,settings,str(work/f'group_{index}.sqlite')) for index,series in enumerate(groups) if series not in completed]
         context=multiprocessing.get_context('spawn');stop=context.Event()
         pool=ProcessPoolExecutor(max_workers=workers,mp_context=context,initializer=initialize,initargs=(stop,)) if workers>1 else None
         try:
@@ -158,9 +129,7 @@ def build_feature_store(root,batch,output_dir,*,naive_timezone,window_seconds=60
             for task,result in results:
                 series=task[2];inp=sqlite3.connect(Path(result['path']).as_uri()+'?mode=ro',uri=True)
                 try:
-                    for number,(payload,) in enumerate(inp.execute('SELECT payload FROM windows ORDER BY position'),1):
-                        value,anchors=canonicalize(load_json(payload));writer.add(value,anchors)
-                        if number%1000==0:policy.check()
+                    writer.import_prepared(inp,batch_size=512,check=policy.check)
                     db.execute('INSERT INTO progress VALUES (?)',(series,));db.commit();policy.check()
                     if progress:progress(dict(event='group_complete',group=series,aggregation_worker_pid=result['worker_pid']))
                 finally:inp.close()
@@ -170,19 +139,16 @@ def build_feature_store(root,batch,output_dir,*,naive_timezone,window_seconds=60
         finally:
             if pool:pool.shutdown(wait=True,cancel_futures=True)
         if netflow_streaming:
-            flow=NetflowAccumulator.__new__(NetflowAccumulator);flow.db=merged;flow.width=window_seconds;flow.step=expected_step_seconds;flow.cache=OrderedDict()
-            # Inherited reader writes cache and commits; reopen the completed spool writable.
-            merged.close();merged=sqlite3.connect(merged_path);flow.db=merged
-            current=None
-            for number,window in enumerate(flow.windows(),1):
-                series=json.dumps([batch,window['source'],window['identity']['entity_id'],window['dimensions']],ensure_ascii=False,sort_keys=True,separators=(',',':'))
-                if current!=series:
-                    if current is not None and current not in completed:commit_group(current)
-                    current=series
-                if series in completed:continue
-                value,anchors=canonicalize(window);writer.add(value,anchors)
-                if number%1000==0:policy.check()
-            if current is not None and current not in completed:commit_group(current)
+            def flow_series(window):
+                return json.dumps([batch,window['source'],window['identity']['entity_id'],window['dimensions']],ensure_ascii=False,sort_keys=True,separators=(',',':'))
+            with closing(iter_netflow_windows(flow_sources,window_seconds,expected_step_seconds,completed)) as flow_windows:
+                for series,windows in groupby(flow_windows,key=flow_series):
+                    def values():
+                        for number,window in enumerate(windows,1):
+                            if number%1000==0:policy.check()
+                            yield canonicalize(window)
+                    writer.add_many(values(),batch_size=512)
+                    commit_group(series)
         db.execute('CREATE INDEX IF NOT EXISTS window_group_time ON windows(grp,start,id)');db.commit()
         count=db.execute('SELECT count(*) FROM windows').fetchone()[0]
         sources={s:dict(files=0,rows=0,windows=0) for s in SOURCE_PREFIXES}
@@ -192,12 +158,12 @@ def build_feature_store(root,batch,output_dir,*,naive_timezone,window_seconds=60
         summary=dict(schema_version=1,storage_format='canonical_features_v1',batch=batch,input_root=str(root),output_dir=str(output),
             mode='full' if max_rows_per_file is None else 'prefix_sample',max_rows_per_file=max_rows_per_file,
             complete=all(f['complete'] for f in manifests),rows_scanned=sum(f['rows_scanned'] for f in manifests),rows_accepted=accepted,rows_rejected=rejected,
-            window_count=count,files=manifests,sources=sources,profile_policy='essential',csv_parse_passes=1,naive_timezone=naive_timezone,
+            window_count=count,files=manifests,sources=sources,profile_policy='essential',csv_parse_passes=1,intermediate_policy='private_spools_direct_merge',naive_timezone=naive_timezone,
             timezone_officially_confirmed=False,window_seconds=window_seconds,expected_step_seconds=expected_step_seconds,
             counter_max_gap_seconds=counter_max_gap_seconds,netflow_streaming=netflow_streaming,
             resource_policy=dict(workers=workers,memory_bytes=memory_bytes,min_free_bytes=min_free_bytes,max_workspace_bytes=max_workspace_bytes),peak_workspace_bytes=policy.peak_bytes)
         db.execute("INSERT OR REPLACE INTO metadata VALUES ('summary',?)",(db_dump(summary),));db.commit()
-        with policy.guard_sql(db):db.execute('VACUUM')
+        finalize_build_connection(db)
         db.close();db=None
         if snapshot!=[dict(path=f.relative_path,source=f.source,identity=file_identity(f.path)) for f in files]:raise ValueError('raw inputs changed during aggregation')
         if layer_signature('features',producer_config,snapshot)!=signature:raise ValueError('feature producer changed during build')
@@ -207,4 +173,3 @@ def build_feature_store(root,batch,output_dir,*,naive_timezone,window_seconds=60
         return summary
     finally:
         if db is not None:db.close()
-        merged.close()

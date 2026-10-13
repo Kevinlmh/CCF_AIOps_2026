@@ -6,9 +6,9 @@ from pathlib import Path
 import tempfile
 
 DEPENDENCIES = {
- 'features':('data/position.py','data/reader.py','data/discovery.py','data/contracts.py','data/essential.py','features/build.py','features/spool.py','features/store.py','features/aggregate.py','features/netflow.py','features/series.py','features/time.py','features/identity.py','features/semantics.py','data/statistics.py','storage.py','data/resources.py','data/workers.py','data/cache.py'),
- 'states':('states/build.py','states/store.py','states/codec.py','states/matrix.py','states/reference.py','states/cluster.py','states/signals.py','states/events.py','states/selection.py','states/pipeline.py','features/store.py','storage.py','data/resources.py','data/workers.py','data/cache.py'),
- 'evidence':('evidence/linked.py','evidence/pipeline.py','evidence/association.py','evidence/packet.py','evidence/raw.py','evidence/index.py','states/store.py','features/store.py','data/position.py','storage.py','data/resources.py','data/workers.py','data/cache.py')}
+ 'features':('data/position.py','data/reader.py','data/discovery.py','data/contracts.py','data/essential.py','features/build.py','features/spool.py','features/spool_codec.py','features/source_stream.py','features/store.py','features/write_codec.py','features/aggregate.py','features/netflow.py','features/flow_codec.py','features/block_codec.py','features/ingest_batch.py','features/series.py','features/time.py','features/identity.py','features/semantics.py','data/statistics.py','storage.py','data/resources.py','data/workers.py','data/lock.py','data/cache.py'),
+ 'states':('states/build.py','states/vector_batch.py','states/blocks.py','states/store.py','states/codec.py','states/blocks.py','states/matrix.py','states/reference.py','states/cluster.py','states/signals.py','states/events.py','states/selection.py','states/pipeline.py','features/store.py','features/write_codec.py','features/block_codec.py','storage.py','data/resources.py','data/workers.py','data/lock.py','data/cache.py'),
+ 'evidence':('evidence/linked.py','evidence/pipeline.py','evidence/association.py','evidence/packet.py','evidence/raw.py','evidence/index.py','states/store.py','states/codec.py','states/blocks.py','states/matrix.py','features/store.py','features/write_codec.py','data/position.py','storage.py','data/resources.py','data/workers.py','data/lock.py','data/cache.py')}
 _VERIFIED={}
 
 

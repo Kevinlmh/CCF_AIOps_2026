@@ -52,7 +52,7 @@ def make_backend(config):
         return backend
     key=os.environ.get(b['api_key_env'])
     if not key:raise ValueError('configured API key environment is missing')
-    return HTTPBackend(b['model'],b['base_url'],key,b['timeout'],b['max_response_bytes'],b['max_completion_tokens'],b['enable_thinking'],b['temperature'],b['structured_roles'])
+    return HTTPBackend(b['model'],b['base_url'],key,b['timeout'],b['max_response_bytes'],b['max_completion_tokens'],b['enable_thinking'],b['temperature'],b['structured_roles'],b['compact_evidence'])
 
 
 def _raw_snapshot(root):

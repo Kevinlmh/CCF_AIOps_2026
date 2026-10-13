@@ -106,24 +106,25 @@ def validate_config(config, base=None):
     if a['limit_bundles'] is not None and a['bundle_id'] is not None: raise ValueError('choose one bundle selection')
     budget={**asdict(Budget()),**_object(a['budget'],asdict(Budget()))}
     a['budget']=asdict(Budget(**budget))
-    b=dict(_object(config.get('backend'),('kind','model','replay_file','base_url','api_key_env','timeout','max_response_bytes','max_completion_tokens','enable_thinking','temperature','structured_roles')))
+    b=dict(_object(config.get('backend'),('kind','model','replay_file','base_url','api_key_env','timeout','max_response_bytes','max_completion_tokens','enable_thinking','temperature','structured_roles','compact_evidence')))
     _text(b.get('model'))
     if b.get('kind') == 'replay':
         _object(b,('kind','model','replay_file'))
         b['replay_file']=_path(b.get('replay_file'),base)
     elif b.get('kind') == 'http':
-        _object(b,('kind','model','base_url','api_key_env','timeout','max_response_bytes','max_completion_tokens','enable_thinking','temperature','structured_roles'))
+        _object(b,('kind','model','base_url','api_key_env','timeout','max_response_bytes','max_completion_tokens','enable_thinking','temperature','structured_roles','compact_evidence'))
         b.setdefault('api_key_env','AIOPS_LLM_API_KEY')
         if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*',_text(b['api_key_env'])): raise ValueError('invalid key environment name')
         b.setdefault('timeout',60); b.setdefault('max_response_bytes',1048576); b.setdefault('max_completion_tokens',4096)
         b.setdefault('enable_thinking',None)
         b.setdefault('temperature',None)
         b.setdefault('structured_roles',False); _bool(b['structured_roles'])
+        b.setdefault('compact_evidence',False); _bool(b['compact_evidence'])
         if b['temperature'] is not None:_number(b['temperature'],0,2)
         if b['enable_thinking'] is not None: _bool(b['enable_thinking'])
         # Constructor validates URL and limits, without sending a request or reading secrets.
         HTTPBackend(b['model'],_text(b.get('base_url')),'preflight-placeholder',
-                    b['timeout'],b['max_response_bytes'],b['max_completion_tokens'],b['enable_thinking'],b['temperature'],b['structured_roles'])
+                    b['timeout'],b['max_response_bytes'],b['max_completion_tokens'],b['enable_thinking'],b['temperature'],b['structured_roles'],b['compact_evidence'])
     else:
         raise ValueError('backend kind must be replay or http')
     result['backend']=b

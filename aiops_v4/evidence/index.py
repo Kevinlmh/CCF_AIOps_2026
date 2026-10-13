@@ -150,7 +150,16 @@ def query_raw(database, batch, record_id=None, *, reference=None):
             if reference.get('batch', batch) != batch:
                 raise ValueError('raw reference batch mismatch')
             record_id = ref['record_id']
-        row = db.execute('SELECT payload FROM anchors WHERE id=?', (record_id,)).fetchone()
+        version=db.execute('PRAGMA user_version').fetchone()[0]
+        if version==3:
+            # The linked text-ID view would scan every registered anchor. Keep
+            # the external ID canonical and search its native UNIQUE digest.
+            if not isinstance(record_id,str) or len(record_id)!=64 or any(c not in '0123456789abcdef' for c in record_id):
+                raise ValueError('unknown/unregistered raw reference')
+            row=db.execute('SELECT v4_ref(a.digest,a.file,a.payload) FROM upstream_features.anchors a WHERE a.digest=?',
+                           (bytes.fromhex(record_id),)).fetchone()
+        else:
+            row = db.execute('SELECT payload FROM anchors WHERE id=?', (record_id,)).fetchone()
         if row is None:
             raise ValueError('unknown/unregistered raw reference')
         registered = _load(row[0])
@@ -161,7 +170,7 @@ def query_raw(database, batch, record_id=None, *, reference=None):
             result = _load(saved[0])
             result['retrieval'] = 'verified_materialized_snapshot'
             return result
-        if db.execute('PRAGMA user_version').fetchone()[0]==3:
+        if version==3:
             from aiops_v4.data.cache import dependency_path
             from aiops_v4.states.store import StateStore
             from .linked import raw_from_features

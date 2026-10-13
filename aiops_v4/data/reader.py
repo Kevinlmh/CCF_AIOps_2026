@@ -152,7 +152,7 @@ class RecordReader:
             record_id = hashlib.sha256(identity.encode()).hexdigest()
             yield self._normalize(raw, extra, record_id, line_start, self._csv.line_num)
 
-    def _normalize(self, raw, extra, record_id, line_start, line_end):
+    def _normalize(self, raw, extra, record_id, line_start, line_end, grain=None):
         source = self.file.source
         flags = []
         if extra:
@@ -176,6 +176,36 @@ class RecordReader:
             break
         if timestamp is None:
             flags.append("invalid_timestamp" if had_time else "missing_timestamp")
+        city, node_id, dimensions, grain_flags = (self._normalize_grain(raw) if grain is None else grain)
+        flags.extend(grain_flags)
+        values = {}
+        for name in self._numeric:
+            value = raw.get(name)
+            if is_missing(value):
+                continue
+            try:
+                number = float(value)
+            except (ValueError, TypeError):
+                flags.append(f"invalid_numeric:{name}")
+                continue
+            if not math.isfinite(number):
+                flags.append(f"nonfinite_numeric:{name}")
+                continue
+            metric = raw.get("metric_name") if source == "routing" else name
+            if not metric:
+                flags.append("missing_metric_name")
+                continue
+            values[metric] = number
+        text_fields = ("message", "program", "severity") if source == "frr" else ("scrape_error",)
+        text = {name: raw[name] for name in text_fields if not is_missing(raw.get(name))}
+        return RawRecord(self.batch, record_id, source, self.file.relative_path, self.rows_scanned,
+                         line_start, line_end, timestamp, city, node_id, dimensions, values, text,
+                         raw, extra, tuple(sorted(set(flags))))
+
+    def _normalize_grain(self, raw):
+        """The original identity/dimension validator, reusable for equal raw grains."""
+        source = self.file.source
+        flags = []
         city_fields = ("source_region",) if source == "traffic" else ("region_code", "region")
         cities = []
         explicit_region = False
@@ -208,26 +238,4 @@ class RecordReader:
             # Raw label remains authoritative if a parsed label key collides with metadata.
             for name, value in _LABEL.findall(raw.get("label") or ""):
                 dimensions.setdefault(name, value)
-        values = {}
-        for name in self._numeric:
-            value = raw.get(name)
-            if is_missing(value):
-                continue
-            try:
-                number = float(value)
-            except (ValueError, TypeError):
-                flags.append(f"invalid_numeric:{name}")
-                continue
-            if not math.isfinite(number):
-                flags.append(f"nonfinite_numeric:{name}")
-                continue
-            metric = raw.get("metric_name") if source == "routing" else name
-            if not metric:
-                flags.append("missing_metric_name")
-                continue
-            values[metric] = number
-        text_fields = ("message", "program", "severity") if source == "frr" else ("scrape_error",)
-        text = {name: raw[name] for name in text_fields if not is_missing(raw.get(name))}
-        return RawRecord(self.batch, record_id, source, self.file.relative_path, self.rows_scanned,
-                         line_start, line_end, timestamp, city, node_id, dimensions, values, text,
-                         raw, extra, tuple(sorted(set(flags))))
+        return city, node_id, dimensions, tuple(flags)

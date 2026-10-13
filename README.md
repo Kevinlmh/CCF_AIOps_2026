@@ -236,24 +236,22 @@ HTTP 后端要求兼容 `/chat/completions` 的 JSON 和 function tools；base U
 
 ## v4 一体化运行与实验
 
-按原四角色架构执行第一批全量诊断，使用 `configs/v4/stage1-local-llm.json`。它不限制逐文件行数或模型包数，依次调用确认、独立定位与分类、LLM 复核。阶段进度、12 GiB 磁盘预留、校验后续跑及实验差异见 [端到端实验与第一批全量运行](docs/v4-full-experiment-status.md)。
+新版数据处理入口使用 `configs/v4/stage1-data-canonical.json`，显式选择 `storage.backend=canonical`。一次解析原始 CSV 后生成可复用的 SQLite 特征、状态和证据数据层；实现、资源限制及对照结果见 [数据处理改造记录](docs/v4-data-processing-results.md)。当前配置只构建数据及候选证据，不调用模型、不生成可提交预测。
 
-服务器磁盘较紧时，请使用 [压缩存储、保守候选和三个公开样例](docs/v4-server-experiments.md) 中的入口。`configs/v4/conservative-compact.json` 启用流式 NetFlow 汇总、gzip 中间产物及压力/错误信号和持续性筛选；`scripts/v4_public_samples.py` 对三个完整公开样例调用本地模型，预测结束后运行官方评分，也支持固定已封存的候选证据、只重跑诊断。本地样例诊断使用必选函数参数约束、完整窗口分配及紧凑观测；资源规则对照另由 `scripts/v4_rules_control.py` 执行，明确不调用 LLM。实际问题、修复和分数见 [v4 审查与样例回归](docs/v4-audit-and-sample-results.md)。下面的旧入口保留默认参数，适合兼容性检查。
-
-最后一批提供统一原始数据到预测入口、公开知识卡/可选状态解释、九组消融、独立真值评测、错误分析、配置/代码/提示/调用/token/费用记录。本机为当前验证路径，Docker 材料暂不启用。
+在服务器上先确认原始数据路径和 `/data/liminghang/CCF_AIOps_2026/data_store/stage1` 可写，然后构建数据层：
 
 ```sh
-python -m aiops_v4.experiments run --config configs/v4/public-discovery.json --output-dir outputs/v4/experiments/my-smoke
+python -m aiops_v4.data build \
+  --config configs/v4/stage1-data-canonical.json \
+  --output-dir /data/liminghang/CCF_AIOps_2026/data_store/stage1 \
+  --progress
 python -m aiops_v4.experiments --help
 ```
 
-当前无需模型的两批全量入口：
+中断后在构建命令中增加 `--resume`。在 Mac 或其他服务器上使用时，先把 `storage.data_dir` 和命令中的输出路径改为本机可写目录。
 
-```sh
-python -m aiops_v4.experiments run --config configs/v4/stage1-offline.json --output-dir outputs/v4/experiments/my-stage1-offline
-python -m aiops_v4.experiments run --config configs/v4/stage2-offline.json --output-dir outputs/v4/experiments/my-stage2-offline
-```
+`configs/v4/stage1-local-llm.json` 保留本地 Qwen 的接口、生成参数及四角色诊断设置，依次调用事件确认、独立定位与分类、LLM 复核。该配置目前仍使用默认的旧数据后端；要结合新版数据处理运行，必须显式加入 canonical 存储配置。此前全量运行的记录见 [端到端实验与第一批全量运行](docs/v4-full-experiment-status.md)。
 
-这两个配置运行到证据包，不构造模型后端、不读取 Replay 占位文件、不需要密钥，调用与预测均为0，不能作为诊断或提交结果。每次使用新输出目录；全量开销尚未用本机前缀检查验证。
+`configs/v4/conservative-compact.json` 仍被公开样例脚本和数据后端对照脚本引用，保存保守候选规则及旧后端的压缩参数；`empty-replay.jsonl` 是离线配置引用的空回放文件。旧抽样配置、两批离线配置和未填写模型的通用模板已清理。
 
-真实诊断模板为 `configs/v4/stage1.json` 和 `stage2.json`；当前服务器的第一批本地模型配置为 `configs/v4/stage1-local-llm.json`。运行与评测为两个独立命令，默认四角色保持同一模型及独立定位/分类。Replay、prefix_sample、部分 bundle、未知费用和 deferred 都会明确记录；流程验证不能代表模型效果。完整本机用法见 [v4-reproduction](docs/v4-reproduction.md)。
+`scripts/v4_public_samples.py` 对三个完整公开样例调用本地模型，预测结束后运行官方评分；资源规则对照由 `scripts/v4_rules_control.py` 执行。实际问题、修复和历史分数见 [v4 审查与样例回归](docs/v4-audit-and-sample-results.md)。运行与评测为两个独立命令，Replay、prefix_sample、部分 bundle、未知费用和 deferred 都会明确记录。完整用法见 [v4-reproduction](docs/v4-reproduction.md)。
