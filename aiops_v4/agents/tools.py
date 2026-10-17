@@ -227,14 +227,16 @@ class EvidenceSession:
         comparison_total=len(comparisons)
         if profile:comparisons=sample_comparison_observations(comparisons,2)
         root_context=[]
+        # Endpoint associations are part of the packet even when the review
+        # prompt omits the local comparison shortlist.
+        from .review_basis import endpoint_associations
+        associated=endpoint_associations(rows) if profile=='a1-readable-1' and ids else []
         if include_root_context and profile=='a1-readable-1' and ids:
             from aiops_challenge_2026.schema import VALID_NETWORK_ELEMENTS
             from .ranking import root_context_observations
             start=min(w['start_time'] for w in manifest if w['vector_id'] in wanted)
             end=max(w['end_time'] for w in manifest if w['vector_id'] in wanted)
             observed=sorted({entity_of(r) for r in rows+comparisons+[r for k in ('support','observations_without_current_trigger','quality_context') for r in self.packet.get(k,[])] if entity_of(r) in VALID_NETWORK_ELEMENTS})
-            from .review_basis import endpoint_associations
-            associated=endpoint_associations(rows)
             observed=sorted(set(observed)|{a['mapped_service_node'] for a in associated})
             root_context=root_context_observations(str(self.database),self.batch,start,end,tuple(observed),entity_of(self.packet))
         packet=dict(self.packet,endpoint_associations=associated if profile=='a1-readable-1' and ids else [],root_candidate_context=root_context,candidate_observations=rows,candidate_observation_count=len(ids),

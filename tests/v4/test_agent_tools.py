@@ -158,3 +158,13 @@ def test_review_context_can_omit_the_local_comparison_shortlist(evidence):
     manifest = load_manifest(db, 'stage2', packet['bundle_id'])
     session.prepare_candidates([w['vector_id'] for w in manifest], include_root_context=False)
     assert session.packet['root_candidate_context'] == []
+
+
+def test_readable_review_context_omits_shortlist_without_losing_associations(evidence):
+    db, packet = evidence
+    from aiops_v4.agents.contracts import load_manifest
+    session = tool_session()(db, 'stage2', dict(packet, initial_evidence_profile='a1-readable-1'))
+    manifest = load_manifest(db, 'stage2', packet['bundle_id'])
+    session.prepare_candidates([w['vector_id'] for w in manifest], include_root_context=False)
+    assert session.packet['root_candidate_context'] == []
+    assert session.packet['endpoint_associations'] == []
