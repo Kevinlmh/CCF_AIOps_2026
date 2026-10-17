@@ -11,6 +11,10 @@ def tool_module():
     return importlib.import_module('aiops_v4.agents.tools')
 
 
+def tool_session():
+    return importlib.import_module('aiops_v4.agents.tools').EvidenceSession
+
+
 @pytest.fixture
 def evidence(tmp_path):
     _, _, states = inputs(tmp_path, interfaces=1)
@@ -138,3 +142,19 @@ def test_compact_observation_preserves_statistical_drivers_and_cluster_context()
     assert row['drivers'][0]['feature'] == 'cpu_usage::mean' and row['state_changed'] is True
     assert row['feature_coverage'] == 0.9 and row['reference_status'] == 'ready'
     assert row['statistical_signals'] == ['statistics:robust_deviation']
+
+
+def test_compact_observation_can_drop_drivers_for_comparison_rows():
+    row = tool_module().compact_initial_observation({'vector_id': 'v', 'source': 'node', 'entity_id': 'xian-br-1',
+        'drivers': [{'feature': 'cpu_usage::mean', 'raw_value': 90.0, 'deviation': 9.5}],
+        'feature_values': {'cpu_usage::mean': {'raw_value': 90.0}}}, profile='a1-readable-1', include_drivers=False)
+    assert 'drivers' not in row and row['feature_values']
+
+
+def test_review_context_can_omit_the_local_comparison_shortlist(evidence):
+    db, packet = evidence
+    from aiops_v4.agents.contracts import load_manifest
+    session = tool_session()(db, 'stage2', packet)
+    manifest = load_manifest(db, 'stage2', packet['bundle_id'])
+    session.prepare_candidates([w['vector_id'] for w in manifest], include_root_context=False)
+    assert session.packet['root_candidate_context'] == []

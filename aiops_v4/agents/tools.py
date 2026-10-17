@@ -12,7 +12,7 @@ def entity_of(row):
     return row.get('entity_id') or identity.get('network_element_id') or identity.get('entity_id')
 
 
-def compact_role_observation(state, matrix=None):
+def compact_role_observation(state, matrix=None, *, include_drivers=True, driver_cap=4):
     keys=('vector_id','batch','source','view','group_id','start_time','end_time','candidate',
           'raw_candidate','suppression_reason','scoring_status','quality_flags','quality_signals','rule_signals','dimensions',
           'stat_score','statistical_signals','cluster_id','cluster_distance','cluster_reference_support','cluster_signals',
@@ -21,11 +21,13 @@ def compact_role_observation(state, matrix=None):
     row={k:state[k] for k in keys if k in state}
     row['entity_id']=entity_of(state)
     drivers=state.get('drivers')
-    if isinstance(drivers,list):
+    if not include_drivers:
+        pass
+    elif isinstance(drivers,list):
         row['drivers']=[{k:item[k] for k in ('feature','raw_value','deviation','transform','unit','semantic_status')
-                         if k in item} for item in drivers[:8] if isinstance(item,dict)]
+                         if k in item} for item in drivers[:driver_cap] if isinstance(item,dict)]
     elif isinstance(drivers,dict):
-        row['drivers']={k:drivers[k] for k in list(drivers)[:8]}
+        row['drivers']={k:drivers[k] for k in list(drivers)[:driver_cap]}
     features=(matrix or {}).get('features',state.get('feature_values',{}))
     row['feature_values']={k:{f:v[f] for f in ('raw_value','unit','semantic_status') if f in v}
                           for k,v in features.items()}
@@ -50,10 +52,10 @@ def compact_role_observation(state, matrix=None):
 
 
 
-def compact_initial_observation(state,matrix=None,profile=None):
+def compact_initial_observation(state,matrix=None,profile=None,*,include_drivers=True,driver_cap=4):
     """Opt-in initial projection; query_states keeps the complete compact detail."""
     if profile not in (None,'a1-bounded-1','a1-readable-1'):raise ValueError('unknown initial evidence profile')
-    row=compact_role_observation(state,matrix)
+    row=compact_role_observation(state,matrix,include_drivers=include_drivers,driver_cap=driver_cap)
     if profile:
         for metric in row['rule_inputs'].values():
             if metric.get('kind')=='counter':
@@ -178,7 +180,7 @@ class EvidenceSession:
         for row in packet.get('relations', []):
             self._register('relations', row)
 
-    def prepare_candidates(self, window_ids, maximum=16):
+    def prepare_candidates(self, window_ids, maximum=16, *, include_root_context=True):
         """Deliver compact actual metrics from the registered candidate windows.
 
         Uniform sampling includes both endpoints; omissions are explicit. This
@@ -225,7 +227,7 @@ class EvidenceSession:
         comparison_total=len(comparisons)
         if profile:comparisons=sample_comparison_observations(comparisons,2)
         root_context=[]
-        if profile=='a1-readable-1' and ids:
+        if include_root_context and profile=='a1-readable-1' and ids:
             from aiops_challenge_2026.schema import VALID_NETWORK_ELEMENTS
             from .ranking import root_context_observations
             start=min(w['start_time'] for w in manifest if w['vector_id'] in wanted)

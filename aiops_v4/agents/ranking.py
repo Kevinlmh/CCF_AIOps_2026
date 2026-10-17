@@ -15,7 +15,7 @@ def _context(database,batch,start,end,observed,entity):
         if len(result)>=8:break
         values=query_evidence(database,batch,"states",entity_id=node,source="node",start=start,end=end,limit=1)
         if values:
-            row=values[0];result.append(compact_initial_observation(row,row.get("matrix"),profile="a1-readable-1"))
+            row=values[0];result.append(compact_initial_observation(row,row.get("matrix"),profile="a1-readable-1",include_drivers=False))
     return json.dumps(result,ensure_ascii=False,allow_nan=False)
 
 def root_context_observations(database,batch,start,end,observed,entity):

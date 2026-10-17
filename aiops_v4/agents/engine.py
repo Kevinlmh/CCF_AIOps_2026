@@ -49,7 +49,7 @@ def run_role(backend, session, role, case_id, payload, budget=Budget()):
     if structured:
         ids=([w['vector_id'] for w in payload['manifest']] if 'manifest' in payload else
              (payload.get('event') or {}).get('window_ids',[]))
-        session.prepare_candidates(ids)
+        session.prepare_candidates(ids, include_root_context=(role != 'review'))
         supplied=payload.get('independent_diagnoses') or payload.get('diagnoses') or {}
         blocks=[supplied[key] for key in sorted(supplied)]
         explanation=(payload.get('context') or {}).get('state_explanation')
