@@ -40,6 +40,64 @@ def compact_role_observation(state, matrix=None):
     return row
 
 
+
+def compact_initial_observation(state,matrix=None,profile=None):
+    """Opt-in initial projection; query_states keeps the complete compact detail."""
+    if profile not in (None,'a1-bounded-1','a1-readable-1'):raise ValueError('unknown initial evidence profile')
+    row=compact_role_observation(state,matrix)
+    if profile:
+        for metric in row['rule_inputs'].values():
+            if metric.get('kind')=='counter':
+                for name in ('mean','last','min','max','change_count'):metric.pop(name,None)
+        row['rule_input_projection']='initial counter summary omits cumulative absolute mean/last/min/max/change_count; delta,rate,reset,gap,unit,usable retained; query_states retrieves full details'
+    if profile=='a1-readable-1':
+        def relevant(name):
+            return any(key in name.lower() for key in ('error','fail','timeout','success','request','query','reply','response','rcode','status','latency','duration_seconds_sum','duration_seconds_count','availability','up::','down'))
+        original_features=row['feature_values']
+        if row.get('source')=='traffic':
+            selected={k:v for k,v in original_features.items() if relevant(k)}
+            if selected:row['feature_values']=selected
+        counters={k:v for k,v in row['rule_inputs'].items() if v.get('kind')=='counter'}
+        row['counter_checks']={k:{f:v[f] for f in ('usable','counter_decrease_count','counter_gap_count') if f in v} for k,v in counters.items()}
+        row['counter_deltas']={k:dict(delta_sum=v['delta_sum'],unit=v.get('unit')) for k,v in counters.items() if 'delta_sum' in v and (row.get('source')!='traffic' or relevant(k))}
+        row['counter_rates']={k:dict(rate_mean=v['rate_mean'],unit=v.get('rate_unit')) for k,v in counters.items() if 'rate_mean' in v and k+'::rate_mean' not in row['feature_values'] and (row.get('source')!='traffic' or relevant(k))}
+        row['rule_inputs']={k:v for k,v in row['rule_inputs'].items() if v.get('kind')!='counter'}
+        row['initial_projection']=dict(profile=profile,omitted_feature_count=len(original_features)-len(row['feature_values']),
+            scope='initial or summary delivery; complete values available via query_states detail=full',
+            counters='validity for all counters; relevant rates and deltas retained; cumulative absolute statistics omitted')
+    return row
+
+
+def sample_comparison_observations(rows,maximum=2):
+    if type(maximum) is not int or maximum<2:raise ValueError('comparison sample cap must be >=2')
+    return rows if len(rows)<=maximum else [rows[i*(len(rows)-1)//(maximum-1)] for i in range(maximum)]
+
+def sample_candidate_ids(manifest,wanted,maximum):
+    """Balance groups, then start/end observations; all omitted IDs stay in manifest."""
+    if type(maximum) is not int or maximum<2:raise ValueError('candidate sample cap must be >=2')
+    rows=[r for r in manifest if r['vector_id'] in wanted]
+    if len(rows)<=maximum:return [r['vector_id'] for r in rows]
+    groups={}
+    for row in rows:groups.setdefault(row['group_id'],[]).append(row)
+    keys=sorted(groups)
+    if len(keys)>maximum:keys=[keys[i*(len(keys)-1)//(maximum-1)] for i in range(maximum)]
+    orders={}
+    for key in keys:
+        group=sorted(groups[key],key=lambda r:(r['start_time'],r['vector_id']))
+        n=len(group);indices=list(dict.fromkeys([0,n-1]+[i*(n-1)//max(1,maximum-1) for i in range(maximum)]))
+        orders[key]=[group[i]['vector_id'] for i in indices]
+    chosen=[];offset=0
+    while len(chosen)<maximum:
+        advanced=False
+        for key in keys:
+            if offset<len(orders[key]):
+                chosen.append(orders[key][offset]);advanced=True
+                if len(chosen)==maximum:break
+        if not advanced:break
+        offset+=1
+    selected=set(chosen)
+    return [r['vector_id'] for r in rows if r['vector_id'] in selected]
+
 def resource_change_summary(rows, references, semantics=None):
     """Describe every delivered node resource series, without assigning labels.
 
@@ -123,14 +181,17 @@ class EvidenceSession:
         wanted=set(window_ids)
         if not wanted<={w['vector_id'] for w in manifest}:raise ValueError('candidate window outside bundle')
         ids=[w['vector_id'] for w in manifest if w['vector_id'] in wanted]
-        chosen=ids if len(ids)<=maximum else [ids[i*(len(ids)-1)//(maximum-1)] for i in range(maximum)]
+        profile=self.packet.get('initial_evidence_profile')
+        if profile not in (None,'a1-bounded-1','a1-readable-1'):raise ValueError('unknown initial evidence profile')
+        if profile:maximum=min(maximum,8)
+        chosen=sample_candidate_ids(manifest,wanted,maximum) if profile else (ids if len(ids)<=maximum else [ids[i*(len(ids)-1)//(maximum-1)] for i in range(maximum)])
         rows=[];references={};comparisons=[]
         with read_index(self.database,self.batch) as db:
             for identifier in chosen:
                 pair=db.execute('SELECT s.payload,m.payload FROM states s JOIN matrices m ON m.id=s.id WHERE s.id=?',(identifier,)).fetchone()
                 if pair is None: raise ValueError('candidate window not in evidence index')
                 state,matrix=map(_load,pair)
-                row=compact_role_observation(state,matrix)
+                row=compact_initial_observation(state,matrix,profile)
                 if state.get('admission_reference'):references[state['group_id']]=state['admission_reference']
                 rows.append(row)
             from datetime import datetime,timedelta
@@ -148,26 +209,59 @@ class EvidenceSession:
                     ('s.end<=? AND s.end>?',(start,before),'s.end DESC,s.id'),
                     ('s.start>=? AND s.start<?',(end,after),'s.start,s.id')):
                     query=('SELECT s.payload,m.payload FROM states s JOIN matrices m ON m.id=s.id '
-                        'LEFT JOIN suppressed_states z ON z.id=s.id WHERE s.grp=? AND s.candidate=0 '
-                        'AND s.status="scored" AND z.id IS NULL AND '+clause+' ORDER BY '+ordering+' LIMIT 1')
+                        'WHERE s.grp=? AND s.candidate=0 '
+                        'AND s.status="scored" AND NOT EXISTS (SELECT 1 FROM suppressed_states z WHERE z.id=s.id) AND '+clause+' ORDER BY '+ordering+' LIMIT 1')
                     pair=db.execute(query,(group,*args)).fetchone()
-                    if pair:comparisons.append(compact_role_observation(*map(_load,pair)))
-        packet=dict(self.packet,candidate_observations=rows,candidate_observation_count=len(ids),
+                    if pair:comparisons.append(compact_initial_observation(*map(_load,pair),profile=profile))
+        comparison_total=len(comparisons)
+        if profile:comparisons=sample_comparison_observations(comparisons,2)
+        root_context=[]
+        if profile=='a1-readable-1' and ids:
+            from aiops_challenge_2026.schema import VALID_NETWORK_ELEMENTS
+            from .ranking import root_context_observations
+            start=min(w['start_time'] for w in manifest if w['vector_id'] in wanted)
+            end=max(w['end_time'] for w in manifest if w['vector_id'] in wanted)
+            observed=sorted({entity_of(r) for r in rows+comparisons+[r for k in ('support','observations_without_current_trigger','quality_context') for r in self.packet.get(k,[])] if entity_of(r) in VALID_NETWORK_ELEMENTS})
+            from .review_basis import endpoint_associations
+            associated=endpoint_associations(rows)
+            observed=sorted(set(observed)|{a['mapped_service_node'] for a in associated})
+            root_context=root_context_observations(str(self.database),self.batch,start,end,tuple(observed),entity_of(self.packet))
+        packet=dict(self.packet,endpoint_associations=associated if profile=='a1-readable-1' and ids else [],root_candidate_context=root_context,candidate_observations=rows,candidate_observation_count=len(ids),
                          candidate_observations_truncated=len(ids)>len(rows),candidate_reference_by_group=references,
                          local_comparison_observations=comparisons,
                          local_comparison_scope='nearest_scorable_without_trigger_before_after; same_group; within_120_seconds; not_known_healthy')
         units={}
         for key in ('support','observations_without_current_trigger','quality_context'):
-            packet[key]=[compact_role_observation(r) for r in packet.get(key,[])]
-        for key in ('support','observations_without_current_trigger','quality_context','candidate_observations','local_comparison_observations'):
+            packet[key]=[compact_initial_observation(r,profile=profile) for r in packet.get(key,[])]
+        for key in ('support','observations_without_current_trigger','quality_context','candidate_observations','local_comparison_observations','root_candidate_context'):
             for row in packet[key]:
                 for name,value in row['feature_values'].items():
                     units[row['source']+':'+name]={k:v for k,v in value.items() if k!='raw_value'}
                     row['feature_values'][name]={'raw_value':value.get('raw_value')}
         packet['metric_semantics']=units
+        if profile:
+            packet['initial_evidence_delivery']=dict(profile=profile,candidate_observation_cap=maximum,local_comparison_cap=2,complete_candidate_manifest_retained=True,full_details_tool='query_states',interpretation='bounded stratified initial sample; omitted or untriggered observations are not known healthy')
+            packet['local_comparison_observation_count']=comparison_total
+            packet['local_comparison_observations_truncated']=comparison_total>len(comparisons)
+        if profile=='a1-readable-1':
+            packet['a1_role_contract']='simple-v2'
+            packet['root_ranking_policy']='ranked5-v4'
+            packet['root_context_limits']='Observed same-interval local-city comparison shortlist; not exhaustive topology, not proof of fault; unobserved devices are not fabricated.'
+            display=[];display_seen=set()
+            for row in packet['candidate_observations']+[r for kind in ('support','observations_without_current_trigger','quality_context') for r in packet[kind] if r.get('source')=='node']:
+                if row['vector_id'] in display_seen:continue
+                display_seen.add(row['vector_id'])
+                values=row.get('feature_values',{})
+                ordered=sorted(values,key=lambda k:(not any(x in k.lower() for x in ('error','timeout','rcode','latency','success','cpu_usage','memory_available','disk_io_util')),k))
+                measures=[]
+                for name in ordered[:12]:
+                    cell=values[name];unit=units.get(row['source']+':'+name,{}).get('unit','unknown')
+                    measures.append(name+'='+dumps(cell.get('raw_value'))+' '+str(unit))
+                display.append('state_id='+row['vector_id']+'; entity='+str(row.get('entity_id'))+'; source='+row['source']+'; interval='+row['start_time']+'/'+row['end_time']+'; candidate_is_only_a_rule_flag='+str(row.get('candidate'))+'; '+', '.join(measures))
+            packet['evidence_readout']=dict(scope='selected delivered measurements only; not a fault label or healthy baseline; cite this exact state_id',lines=display[:16],truncated=len(display)>16)
         self.packet=packet;self.compact_queries=True
         self.seen,self.anchors,self.groups={},{},set()
-        for key in ('support','observations_without_current_trigger','quality_context','candidate_observations','local_comparison_observations'):
+        for key in ('support','observations_without_current_trigger','quality_context','candidate_observations','local_comparison_observations','root_candidate_context'):
             self._register('states',packet[key])
         for ref in packet.get('references',[]):self.anchors[ref['record_id']]=dict(ref,entity_id=entity_of(packet))
         self._register('relations',packet.get('relations',[]))
@@ -212,7 +306,7 @@ class EvidenceSession:
 
     def call(self, name, args):
         allowed = {
-            'query_states': {'entity_id', 'source', 'group_id', 'start', 'end', 'limit', 'offset'},
+            'query_states': {'entity_id', 'source', 'group_id', 'start', 'end', 'limit', 'offset', 'detail'},
             'query_members': {'bundle_id', 'limit', 'offset'},
             'query_model': {'group_id'}, 'query_relations': {'limit', 'offset'},
             'query_raw': {'record_id'}, 'read_chunk': {'handle', 'offset'}}
@@ -229,6 +323,9 @@ class EvidenceSession:
                 raise ValueError('handle and offset required')
             return self._deliver(args['handle'], args['offset'])
         params = dict(args)
+        query_detail=params.pop('detail',None) if name=='query_states' else None
+        readable=self.packet.get('initial_evidence_profile')=='a1-readable-1'
+        if query_detail is not None and (not readable or query_detail not in ('summary','full')):raise ValueError('invalid state detail mode')
         if name == 'query_states':params.setdefault('limit',1)
         if name == 'query_states' and getattr(self,'compact_queries',False) and params['limit']>1:
             raise ValueError('compact state page must contain at most one observation')
@@ -248,7 +345,7 @@ class EvidenceSession:
             kind = {'query_states': 'states', 'query_members': 'members', 'query_model': 'model', 'query_relations': 'relations'}[name]
             value = query_evidence(self.database, self.batch, kind, **params)
         if kind=='states' and getattr(self,'compact_queries',False):
-            value=[compact_role_observation(row,row.get('matrix')) for row in value]
+            value=[compact_initial_observation(row,row.get('matrix'),profile='a1-readable-1') if readable and query_detail!='full' else compact_role_observation(row,row.get('matrix')) for row in value]
         if kind == 'relations':
             for row in value:
                 _annotate_relation(row)
@@ -263,9 +360,13 @@ class EvidenceSession:
 
 def tool_definitions(compact=False):
     strings = {key: {'type': 'string'} for key in ('entity_id', 'source', 'group_id', 'start', 'end', 'bundle_id', 'record_id', 'handle')}
+    strings['start']['description'] = 'Optional lower time bound: ISO 8601 with timezone; observations overlapping [start,end).'
+    strings['end']['description'] = 'Optional upper time bound: ISO 8601 with timezone; observations overlapping [start,end).'
+    state_time_scope = ('Use narrow entity/time filters with [start,end) overlap. Omitting both time bounds returns '
+                        'earliest matching observations in the batch; offset is pagination, not relative to the event.')
     numbers = {'limit': {'type': 'integer', 'minimum': 1, 'maximum': 1000}, 'offset': {'type': 'integer', 'minimum': 0}}
     specs = {
-        'query_states': ('Full native observations and matrix; current batch, half-open overlap filters. Default limit=1; use narrow entity/time filters and paginate.', ['entity_id', 'source', 'group_id', 'start', 'end', 'limit', 'offset'], []),
+        'query_states': ('Full native observations and matrix; current batch. Default limit=1; paginate. ' + state_time_scope, ['entity_id', 'source', 'group_id', 'start', 'end', 'limit', 'offset'], []),
         'query_members': ('Full original events in the current bundle; paginate truncated event IDs.', ['bundle_id', 'limit', 'offset'], []),
         'query_model': ('Reference and cluster model for an observed native group; not known healthy.', ['group_id'], ['group_id']),
         'query_relations': ('Sourced direct neighbors; overlap is not causal direction.', ['limit', 'offset'], []),
@@ -280,6 +381,6 @@ def tool_definitions(compact=False):
             function=tool['function']
             function['strict']=True
             if function['name']=='query_states':
-                function['description']='Compact actual observations; current batch. At most one per page; paginate. Candidate sample is already provided in the packet.'
+                function['description']='Compact actual observations; current batch. At most one per page; paginate. Candidate sample is already provided in the packet. ' + state_time_scope
                 function['parameters']['properties']['limit']=dict(type='integer',minimum=1,maximum=1)
     return tools

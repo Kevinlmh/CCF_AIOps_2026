@@ -107,7 +107,7 @@ class StateStore:
         ''')
 
     def query_states(self,*,entity_id=None,source=None,group_id=None,start=None,end=None,limit=100,offset=0):
-        sql='SELECT '+','.join('d.'+column for column in self._payload_columns.split(','))+' FROM deltas d JOIN features.groups g ON g.id=d.grp';where=[];args=[]
+        sql='SELECT '+','.join('d.'+column for column in self._payload_columns.split(','))+' FROM features.groups g CROSS JOIN deltas d ON d.grp=g.id';where=[];args=[]
         for key,column in ((entity_id,'g.entity'),(source,'g.source'),(group_id,'g.state_group')):
             if key is not None:where.append(column+'=?');args.append(key)
         if start is not None:where.append('d.end>?');args.append(micros(start))

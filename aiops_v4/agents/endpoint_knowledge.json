@@ -1,0 +1,34 @@
+{
+  "version": "user-endpoint-association-1",
+  "provenance": "User supplied cross-check of scrape_health exporter addresses and NetFlow destination addresses; /tmp/kiro_a1/HANDOFF_TO_GPT.md, section4",
+  "meaning": "Request destination association only, not a fault label or forced root cause",
+  "targets": [
+    {
+      "flow_type": "dns",
+      "target_domain": "dns.beida.aiops.local",
+      "target_region": "beida",
+      "mapped_service_node": "beida-service-vm-1",
+      "destination_ipv6": "fd00:1:40::31",
+      "protocol": "udp",
+      "port": 1053
+    },
+    {
+      "flow_type": "web",
+      "target_domain": "web01.shanghai.aiops.local",
+      "target_region": "shanghai",
+      "mapped_service_node": "shanghai-service-vm-1",
+      "destination_ipv6": "fd00:6:40::31",
+      "protocol": "tcp",
+      "port": 80
+    },
+    {
+      "flow_type": "auth",
+      "target_domain": "auth01.wuhan.aiops.local",
+      "target_region": "wuhan",
+      "mapped_service_node": "wuhan-service-vm-1",
+      "destination_ipv6": "fd00:5:40::31",
+      "protocol": "tcp",
+      "port": 8080
+    }
+  ]
+}

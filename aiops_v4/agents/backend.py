@@ -79,7 +79,7 @@ class _NoRedirect(HTTPRedirectHandler):
 
 
 class HTTPBackend:
-    def __init__(self, model, base_url, api_key, timeout=60, max_response_bytes=1048576, max_completion_tokens=4096, enable_thinking=None, temperature=None, structured_roles=False, compact_evidence=False):
+    def __init__(self, model, base_url, api_key, timeout=60, max_response_bytes=1048576, max_completion_tokens=4096, enable_thinking=None, temperature=None, structured_roles=False, compact_evidence=False, evidence_wire_version=None):
         parts = urlsplit(base_url)
         if (parts.scheme not in {'https', 'http'} or not parts.hostname or parts.username or parts.password
                 or parts.query or parts.fragment or (parts.scheme == 'http' and parts.hostname not in {'localhost', '127.0.0.1', '::1'})):
@@ -107,6 +107,10 @@ class HTTPBackend:
         if type(compact_evidence) is not bool or (compact_evidence and not structured_roles):
             raise ValueError("compact evidence requires structured roles")
         self.compact_evidence=compact_evidence
+        from .wire import VERSION,SUPPORTED_VERSIONS
+        self.evidence_wire_version=VERSION if evidence_wire_version is None else evidence_wire_version
+        if self.evidence_wire_version not in SUPPORTED_VERSIONS or (not compact_evidence and self.evidence_wire_version!=VERSION):
+            raise ValueError("invalid evidence wire version")
         self._opener = build_opener(_NoRedirect())
 
     def metadata(self):
@@ -115,8 +119,7 @@ class HTTPBackend:
                     max_completion_tokens=self.max_completion_tokens, enable_thinking=self.enable_thinking, temperature=self.temperature, structured_roles=self.structured_roles,
                     tool_schema_order='canonical', retries=0)
         if self.compact_evidence:
-            from .wire import VERSION
-            result['evidence_wire']=VERSION
+            result['evidence_wire']=self.evidence_wire_version
         return result
 
     def _payload(self,messages,tools):
@@ -135,7 +138,7 @@ class HTTPBackend:
             payload=self._payload(messages,tools)
             if self.compact_evidence:
                 from .wire import pack_request,request_stats
-                logical=payload;payload,codec=pack_request(logical)
+                logical=payload;payload,codec=pack_request(logical,version=self.evidence_wire_version)
                 wire=request_stats(logical,payload,codec)
             encoded=dumps(payload)
             encoded_bytes=encoded.encode('utf-8')

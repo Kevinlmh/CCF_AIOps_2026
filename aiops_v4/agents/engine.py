@@ -6,7 +6,19 @@ from .backend import BackendError, _message, _usage
 from .jsonio import dumps, loads
 from .prompts import PROMPT_VERSION, system_prompt
 from .tools import tool_definitions
-from .structured import FINAL_TOOL, STRUCTURED_INSTRUCTION, role_tools, validate_result, contract_feedback, compact_context, canonical_result
+from .structured import FINAL_TOOL, STRUCTURED_INSTRUCTION, role_tools, validate_result, contract_feedback, compact_context, canonical_result, contract_instruction, role_system_prompt
+
+TOOL_JSON_FEEDBACK = dict(accepted=False,error='invalid_tool_json',instruction='工具参数不是合法JSON，本次查询未执行、没有取得新证据。请重新调用工具，或基于已见证据提交判断。时间字符串使用完整双引号，例如 2026-08-19T04:00:00Z；不要单引号、尾逗号或截断。')
+
+def validate_query_times(name,args):
+    """Validate temporal arguments without opening any database or running SQL."""
+    if name!='query_states' or not isinstance(args,dict):return
+    from aiops_v4.data.reader import utc_time
+    if any(not isinstance(args[key],str) for key in ('start','end') if key in args):raise TypeError('query times must be strings')
+    parsed={key:utc_time(args[key],require_timezone=True)[0] for key in ('start','end') if key in args}
+    if len(parsed)==2 and parsed['start']>=parsed['end']:raise ValueError('query interval must be increasing')
+
+TIME_QUERY_FEEDBACK = dict(accepted=False,error='invalid_tool_time',instruction='时间参数无效，本次查询未执行，没有新证据。start/end须为完整带时区ISO时间且start<end，例如2026-08-19T04:00:00Z；不要在时间值内加入单引号或逗号。修正后查询，或基于已见证据提交判断。')
 
 JSON_REPAIR_MESSAGE = '上一条最终输出不是合法 JSON 对象。请重新输出一个符合当前角色格式的 JSON 对象，不要 Markdown，不要多余结束符。保持相同证据约束，不得编造或补齐结论。'
 
@@ -48,17 +60,21 @@ def run_role(backend, session, role, case_id, payload, budget=Budget()):
         if 'context' in payload:payload=dict(payload,context=compact_context(payload['context']))
         if role=='confirmation':payload=dict(payload,candidate_window_aliases={
             'w'+str(i):w['vector_id'] for i,w in enumerate(payload['manifest'])})
+    if structured and role=='confirmation' and session.packet.get('root_ranking_policy')=='ranked5-v4':
+        from .partition import component_description
+        payload=dict(payload,candidate_components=component_description(payload['manifest']))
     if 'bundle' in payload:payload=dict(payload,bundle=session.packet)
-    prompt=system_prompt(role)+ ('\n'+STRUCTURED_INSTRUCTION if structured else '')
+    prompt=role_system_prompt(role,payload,structured)
     messages = [{'role': 'system', 'content': prompt}, {'role': 'user', 'content': dumps(payload)}]
     tools, trace, usage, call_count, repairs, query_turns = tool_definitions(), [], {}, 0, 0, 0
-    if structured: tools=role_tools(role,payload,session.seen)
+    query_json_repairs = 0
+    if structured: tools=role_tools(role,payload,session.seen,chunks=session._chunks)
     result = dict(run_schema_version=3 if structured else 2, initial_messages=loads(dumps(messages)), initial_tools=loads(dumps(tools)), role=role, case_id=case_id, status='deferred', output=None, error_code=None,
                   model=backend.model, backend=backend.metadata(), prompt_version=PROMPT_VERSION,
                   budget=asdict(budget), trace=trace, usage=usage, backend_calls=0, usage_reported_calls=0)
     try:
         for turn in range(budget.max_turns):
-            if structured: tools=role_tools(role,payload,session.seen,query_turns)
+            if structured: tools=role_tools(role,payload,session.seen,query_turns,chunks=session._chunks)
             request = dict(messages=messages, tools=tools, model=backend.model)
             serialized = dumps(request)
             if len(serialized) > budget.max_prompt_chars:
@@ -98,12 +114,12 @@ def run_role(backend, session, role, case_id, payload, budget=Budget()):
                 call_count+=1; call=terminal[0]; arguments=loads(call['function']['arguments'])
                 record=dict(name=FINAL_TOOL,arguments=arguments,terminal=True);entry['tools'].append(record)
                 try:
-                    output=canonical_result(role,arguments,payload)
+                    output=canonical_result(role,arguments,payload,session.seen)
                     validate_result(role,output,payload,session.seen)
                 except (ValueError,KeyError,TypeError) as error:
                     if repairs == 0 and turn+1 < budget.max_turns:
                         repairs+=1;entry['repair']='invalid_role_contract'
-                        record['feedback']=contract_feedback(error)
+                        record['feedback']=contract_feedback(error,role,payload)
                         messages.append(completion.message)
                         messages.append(dict(role='tool',tool_call_id=call['id'],content=dumps(record['feedback'])))
                         continue
@@ -117,6 +133,28 @@ def run_role(backend, session, role, case_id, payload, budget=Budget()):
                 function = call['function']
                 try:
                     args = loads(function['arguments'])
+                except (ValueError, RecursionError):
+                    if query_json_repairs >= 1 or turn+1 >= budget.max_turns:
+                        raise BackendError('invalid_tool_json') from None
+                    query_json_repairs += 1
+                    record=dict(name=function['name'],arguments=function['arguments'],error_code='invalid_tool_json',feedback=dict(TOOL_JSON_FEEDBACK))
+                    entry['tools'].append(record)
+                    messages.append(dict(role='tool',tool_call_id=call['id'],content=dumps(record['feedback'])))
+                    continue
+                try:
+                    validate_query_times(function['name'],args)
+                except (ValueError,TypeError) as error:
+                    if isinstance(error,TypeError) or 'outside supported' in str(error):
+                        entry['tools'].append(dict(name=function['name'],arguments=function['arguments'],error_code='invalid_tool_query'))
+                        raise BackendError('invalid_tool_query') from None
+                    if query_json_repairs >= 1 or turn+1 >= budget.max_turns:
+                        raise BackendError('invalid_tool_time') from None
+                    query_json_repairs+=1
+                    record=dict(name=function['name'],arguments=args,error_code='invalid_tool_time',feedback=dict(TIME_QUERY_FEEDBACK))
+                    entry['tools'].append(record)
+                    messages.append(dict(role='tool',tool_call_id=call['id'],content=dumps(record['feedback'])))
+                    continue
+                try:
                     reply = session.call(function['name'], args)
                 except (ValueError, TypeError, OSError, RecursionError, OverflowError):
                     entry['tools'].append(dict(name=function['name'], arguments=function['arguments'], error_code='invalid_tool_query'))
@@ -143,31 +181,38 @@ def recorded_delivery(run, role, case_id):
             raise ValueError('complete recorded role required')
         wire_backend=None
         if 'evidence_wire' in run['backend']:
-            from .wire import VERSION
+            from .wire import SUPPORTED_VERSIONS
             from .backend import HTTPBackend
             meta=run['backend']
-            if meta['evidence_wire']!=VERSION or meta.get('kind')!='http' or meta.get('simulated') is not False or meta.get('structured_roles') is not True or not structured:
+            if meta['evidence_wire'] not in SUPPORTED_VERSIONS or meta.get('kind')!='http' or meta.get('simulated') is not False or meta.get('structured_roles') is not True or not structured:
                 raise ValueError('invalid recorded evidence wire backend')
             wire_backend=HTTPBackend(meta['model'],meta['base_url'],'recorded',timeout=meta['timeout'],
                 max_response_bytes=meta['max_response_bytes'],max_completion_tokens=meta['max_completion_tokens'],
-                enable_thinking=meta['enable_thinking'],temperature=meta['temperature'],structured_roles=True,compact_evidence=True)
+                enable_thinking=meta['enable_thinking'],temperature=meta['temperature'],structured_roles=True,compact_evidence=True,evidence_wire_version=meta['evidence_wire'])
             if wire_backend.metadata()!=meta:raise ValueError('recorded HTTP metadata changed')
         trace=run['trace'];budget=Budget(**run['budget'])
         if (not isinstance(trace,list) or not trace or type(run['backend_calls']) is not int
             or len(trace)!=run['backend_calls'] or len(trace)>budget.max_turns):
             raise ValueError('role trace/call count mismatch')
         messages=loads(dumps(run['initial_messages']));tools=run['initial_tools']
-        if (len(messages)!=2 or messages[0]!={'role':'system','content':system_prompt(role)+('\n'+STRUCTURED_INSTRUCTION if structured else '')}
-            or messages[1]['role']!='user'):
+        if len(messages)!=2 or messages[1]['role']!='user':
             raise ValueError('invalid recorded initial request')
-        payload=loads(messages[1]['content']);packet=payload.get('bundle',{})
+        payload=loads(messages[1]['content'])
+        if not isinstance(payload,dict):raise ValueError('invalid recorded initial payload')
+        expected_prompt=role_system_prompt(role,payload,structured)
+        if messages[0]!={'role':'system','content':expected_prompt}:
+            raise ValueError('invalid recorded initial request')
+        packet=payload.get('bundle',{})
+        if structured and role=='confirmation' and packet.get('root_ranking_policy')=='ranked5-v4':
+            from .partition import component_description
+            if payload.get('candidate_components')!=component_description(payload['manifest']):raise ValueError('observed component plan changed')
         if structured and 'resource_change_summary' in packet and packet['resource_change_summary']!=resource_change_summary(
                 packet.get('candidate_observations',[]),packet.get('candidate_reference_by_group',{}),
                 packet.get('metric_semantics',{})):
             raise ValueError('recorded resource comparison differs from delivered observations')
         registry=EvidenceSession.__new__(EvidenceSession)
         registry.seen,registry.anchors,registry.groups={}, {}, set()
-        for name in ('support','observations_without_current_trigger','quality_context','candidate_observations','local_comparison_observations'):
+        for name in ('support','observations_without_current_trigger','quality_context','candidate_observations','local_comparison_observations','root_candidate_context'):
             registry._register('states',packet.get(name,[]))
         for ref in packet.get('references',[]):registry.anchors[ref['record_id']]=dict(ref,entity_id=entity_of(packet))
         registry._register('relations',packet.get('relations',[]))
@@ -180,10 +225,10 @@ def recorded_delivery(run, role, case_id):
             for proof in block['evidence']:registry._register(mapping[proof['kind']],proof['data'])
         expected_tools=role_tools(role,payload,registry.seen) if structured else tool_definitions()
         if tools!=expected_tools:raise ValueError('invalid recorded initial tools')
-        chunks={};call_count=0;usage={};reported=0;repairs=0;query_turns=0
+        chunks={};call_count=0;usage={};reported=0;repairs=0;query_turns=0;query_json_repairs=0
         kinds={'query_states':'states','query_members':'members','query_relations':'relations','query_raw':'raw','query_model':'model'}
         for turn,entry in enumerate(trace):
-            if structured:tools=role_tools(role,payload,registry.seen,query_turns)
+            if structured:tools=role_tools(role,payload,registry.seen,query_turns,chunks=chunks)
             request=dict(messages=messages,tools=tools,model=run['model'])
             serialized=dumps(request)
             if (entry['turn']!=turn or entry['request_sha256']!=hashlib.sha256(serialized.encode()).hexdigest()
@@ -194,7 +239,7 @@ def recorded_delivery(run, role, case_id):
             else:
                 from .wire import pack_request,unpack_request,request_stats
                 logical=wire_backend._payload(messages,tools)
-                packed,codec=pack_request(logical)
+                packed,codec=pack_request(logical,version=run['backend']['evidence_wire'])
                 stats=entry.get('wire')
                 expected=request_stats(logical,packed,codec)
                 if (not isinstance(stats,dict) or set(stats)!=set(expected)
@@ -222,15 +267,15 @@ def recorded_delivery(run, role, case_id):
                     if entry['repair']!='invalid_role_contract' or repairs or turn==len(trace)-1:
                         raise ValueError('invalid recorded contract repair')
                     try:
-                        output=canonical_result(role,arguments,payload)
+                        output=canonical_result(role,arguments,payload,registry.seen)
                         validate_result(role,output,payload,registry.seen)
-                    except (ValueError,KeyError,TypeError) as error:feedback=contract_feedback(error)
+                    except (ValueError,KeyError,TypeError) as error:feedback=contract_feedback(error,role,payload)
                     else:raise ValueError('contract repair must follow invalid result')
                     if record.get('feedback')!=feedback:raise ValueError('recorded feedback changed')
                     repairs+=1;messages.append(response)
                     messages.append(dict(role='tool',tool_call_id=call['id'],content=dumps(feedback)))
                     continue
-                output=canonical_result(role,arguments,payload)
+                output=canonical_result(role,arguments,payload,registry.seen)
                 validate_result(role,output,payload,registry.seen)
                 if turn!=len(trace)-1 or output!=run['output']:raise ValueError('final role response changed')
                 continue
@@ -252,7 +297,26 @@ def recorded_delivery(run, role, case_id):
             query_turns+=1
             messages.append(response)
             for call,record in zip(calls,entry['tools']):
-                name=call['function']['name'];args=loads(call['function']['arguments'])
+                name=call['function']['name']
+                if record.get('error_code')=='invalid_tool_json':
+                    if query_json_repairs or record.get('name')!=name or record.get('arguments')!=call['function']['arguments'] or record.get('feedback')!=TOOL_JSON_FEEDBACK:
+                        raise ValueError('invalid recorded tool JSON repair')
+                    try:loads(call['function']['arguments'])
+                    except (ValueError,RecursionError):pass
+                    else:raise ValueError('tool JSON repair requires malformed JSON')
+                    query_json_repairs+=1;call_count+=1
+                    messages.append(dict(role='tool',tool_call_id=call['id'],content=dumps(record['feedback'])))
+                    continue
+                args=loads(call['function']['arguments'])
+                if record.get('error_code')=='invalid_tool_time':
+                    if query_json_repairs or record.get('name')!=name or record.get('arguments')!=args or record.get('feedback')!=TIME_QUERY_FEEDBACK:
+                        raise ValueError('invalid recorded temporal query repair')
+                    try:validate_query_times(name,args)
+                    except (ValueError,TypeError):pass
+                    else:raise ValueError('temporal query repair requires invalid time')
+                    query_json_repairs+=1;call_count+=1
+                    messages.append(dict(role='tool',tool_call_id=call['id'],content=dumps(record['feedback'])))
+                    continue
                 if record['name']!=name or record['arguments']!=args or 'error_code' in record:
                     raise ValueError('recorded tool query changed')
                 if structured and name=='query_states' and (
