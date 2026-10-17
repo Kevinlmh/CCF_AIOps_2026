@@ -47,9 +47,14 @@ def _publish(scratch, output):
 
 
 def diagnose(database, batch, output_dir, backend, *, bundle_id=None, limit_bundles=None, budget=Budget(),
-             context=None, diagnostic_mode='independent', review_mode='llm', state_explanation=False,progress=None):
+             context=None, diagnostic_mode='independent', review_mode='llm', state_explanation=False,progress=None,
+             export_abstentions=False, shard_index=0, shard_count=1):
     if diagnostic_mode not in ('independent', 'joint') or review_mode not in ('llm','program_only') or type(state_explanation) is not bool:
         raise ValueError('invalid diagnostic experiment modes')
+    if type(export_abstentions) is not bool:
+        raise ValueError('export_abstentions must be boolean')
+    if type(shard_count) is not int or shard_count < 1 or type(shard_index) is not int or not 0 <= shard_index < shard_count:
+        raise ValueError('invalid shard selection')
     from aiops_v4.experiments.roles import explain_state, role_session, diagnose_case, experiment_prediction_for
     output = Path(output_dir)
     if output.exists() or output.is_symlink():
@@ -78,10 +83,12 @@ def diagnose(database, batch, output_dir, backend, *, bundle_id=None, limit_bund
         input_state_config=state_summary['config'], backend=backend.metadata(), simulated=backend.metadata()['simulated'],
         diagnostic_mode=diagnostic_mode, review_mode=review_mode, semantic_review=review_mode=='llm',
         experimental=diagnostic_mode!='independent' or review_mode!='llm', state_explanation=state_explanation,
-        prompt_version=PROMPT_VERSION, budget=asdict(budget), selection=dict(bundle_id=bundle_id, limit_bundles=limit_bundles),
+        prompt_version=PROMPT_VERSION, budget=asdict(budget),
+        selection=dict(bundle_id=bundle_id, limit_bundles=limit_bundles, shard_index=shard_index, shard_count=shard_count),
+        export_abstentions=export_abstentions,
         bundles_available=available, bundles_selected=0, bundles_deferred=0, role_runs=0, role_failures=0, backend_calls=0, usage_reported_calls=0,
         assessments_confirmed=0, assessments_rejected=0, assessments_deferred=0,
-        diagnoses_accepted=0, diagnoses_rejected=0, diagnoses_deferred=0, predictions=0, usage={})
+        diagnoses_accepted=0, diagnoses_rejected=0, diagnoses_deferred=0, predictions=0, predictions_fallback=0, usage={})
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.v4-roles-', dir=output.parent) as temporary:
         scratch = Path(temporary)
@@ -110,6 +117,8 @@ def diagnose(database, batch, output_dir, backend, *, bundle_id=None, limit_bund
                     sql += ' LIMIT ?'; params.append(limit_bundles)
                 prediction_ids = set()
                 for (identifier,) in db.execute(sql, params):
+                    if shard_count > 1 and int(hashlib.sha256(identifier.encode()).hexdigest(), 16) % shard_count != shard_index:
+                        continue
                     packet = query_evidence(database, batch, 'bundle', bundle_id=identifier)[0]
                     bundle_record = dict(bundle_id=identifier, entity_id=packet['entity_id'], status='deferred',
                                          error_code=None, windows_assigned=0, assessments=[])
@@ -158,13 +167,17 @@ def diagnose(database, batch, output_dir, backend, *, bundle_id=None, limit_bund
                             if role in item: role_write(item[role]['run'])
                         item['simulated'] = summary['simulated']
                         summary['diagnoses_' + item['status']] += 1
-                        write('diagnoses.jsonl', item)
-                        record = experiment_prediction_for(item) if summary['experimental'] else prediction_for(item)
+                        record = (experiment_prediction_for(item) if summary['experimental']
+                                  else prediction_for(item, export_abstentions=export_abstentions))
                         if record is not None:
                             if record['prediction_id'] in prediction_ids:
                                 raise ValueError('duplicate prediction_id')
                             prediction_ids.add(record['prediction_id'])
-                            write('predictions.jsonl', record); summary['predictions'] += 1
+                            summary['predictions'] += 1
+                            if item.get('export_basis'):
+                                summary['predictions_fallback'] += 1
+                            write('predictions.jsonl', record)
+                        write('diagnoses.jsonl', item)
                     write('bundles.jsonl', bundle_record)
                     if progress:progress(dict(event='bundle_complete',bundles=summary['bundles_selected'],bundles_total=available,
                                               predictions=summary['predictions'],backend_calls=summary['backend_calls']))

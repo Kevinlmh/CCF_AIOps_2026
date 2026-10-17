@@ -1,4 +1,5 @@
 import copy
+import importlib
 import json
 
 import pytest
@@ -23,7 +24,8 @@ def test_focused_observations_are_bounded_actual_candidate_metrics(evidence):
         assert session.seen[('state', row['vector_id'])]['start_time'] == row['start_time']
         assert all(k.endswith(('::mean','::rate_mean','::sum','::last')) for k in row['feature_values'])
     assert 'candidate_observations' not in packet
-    assert all('drivers' not in row and 'matrix' not in row for row in focused)
+    assert all('matrix' not in row for row in focused)
+    assert all(len(row.get('drivers') or []) <= 8 for row in focused)
     assert isinstance(session.packet['candidate_reference_by_group'],dict)
 
 
@@ -264,3 +266,12 @@ def test_four_structured_roles_export_only_after_real_protocol_validation(eviden
             event=json.loads(run['initial_messages'][1]['content'])['event']
             assert 'reason' not in event and 'missing_evidence' not in event and 'confidence' not in event
             assert event['window_ids'] and event['event_id']
+
+
+def test_state_query_group_filter_is_closed_to_delivered_groups():
+    structured=importlib.import_module('aiops_v4.agents.structured')
+    payload=dict(bundle=dict(initial_evidence_profile='a1-readable-1', root_ranking_policy='ranked5-v4', a1_role_contract='simple-v2'), manifest=[])
+    seen={('state','x'):dict(vector_id='x',group_id='grp-1',source='node',entity_id='xian-br-1')}
+    tools={tool['function']['name']:tool['function'] for tool in structured.role_tools('localization',payload,seen)}
+    group=tools['query_states']['parameters']['properties'].get('group_id')
+    assert group and group.get('enum')==['grp-1']

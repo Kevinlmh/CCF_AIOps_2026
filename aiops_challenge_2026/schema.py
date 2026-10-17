@@ -26,8 +26,10 @@ VALID_NETWORK_ELEMENTS = frozenset(
     for city in _NETWORK_ELEMENTS["cities"]
     for role in _NETWORK_ELEMENTS["device_roles"]
 )
-if len(_FAULT_TAXONOMY["fault_categories"]) != 32:
-    raise RuntimeError("fault_taxonomy.json must contain the official 32 fault categories")
+_OFFICIAL_CATEGORY_COUNT = 35
+if len(_FAULT_TAXONOMY["fault_categories"]) != _OFFICIAL_CATEGORY_COUNT:
+    raise RuntimeError(
+        "fault_taxonomy.json must contain the official %d fault categories" % _OFFICIAL_CATEGORY_COUNT)
 if VALID_MAJOR != {"link", "firewall", "resource", "routing", "service"}:
     raise RuntimeError("fault_taxonomy.json has unexpected major categories")
 

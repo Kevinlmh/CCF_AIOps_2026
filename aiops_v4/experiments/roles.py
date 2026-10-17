@@ -142,9 +142,11 @@ def experiment_prediction_for(item):
 
 
 def run_diagnosis(database,batch,output_dir,backend,*,mode='independent',review_mode='llm',knowledge=True,
-                  state_explanation=False,bundle_id=None,limit_bundles=None,budget=Budget(),progress=None):
+                  state_explanation=False,bundle_id=None,limit_bundles=None,budget=Budget(),progress=None,
+                  export_abstentions=False,shard_index=0,shard_count=1):
     from aiops_v4.agents.pipeline import diagnose
     if type(knowledge) is not bool:raise ValueError('knowledge boolean required')
     return diagnose(database,batch,output_dir,backend,bundle_id=bundle_id,limit_bundles=limit_bundles,budget=budget,
         context=dict(knowledge=knowledge_cards()) if knowledge else {},diagnostic_mode=mode,
-        review_mode=review_mode,state_explanation=state_explanation,progress=progress)
+        review_mode=review_mode,state_explanation=state_explanation,progress=progress,
+        export_abstentions=export_abstentions,shard_index=shard_index,shard_count=shard_count)

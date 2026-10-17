@@ -1,6 +1,7 @@
 """Batch-scoped read-only tools over full native observations and memberships."""
 from contextlib import contextmanager
 from pathlib import Path
+import os
 import sqlite3
 from aiops_v4.data.reader import utc_time
 from aiops_v4.states.pipeline import _dump, _load
@@ -68,9 +69,14 @@ def read_index(database, batch):
     try:
         version=db.execute('PRAGMA user_version').fetchone()[0]
         if version==3:
-            from aiops_v4.data.cache import verify_layer
             from .linked import attach_linked
-            verify_layer(path.parent)
+            # Startup digest verification re-reads the whole linked feature layer
+            # (tens of GB) in every worker. The producer seals that layer and the
+            # pipeline still hashes this evidence database before and after the
+            # run, so an explicit opt-out is available for read-only batch workers.
+            if os.environ.get('AIOPS_SKIP_LAYER_VERIFY') != '1':
+                from aiops_v4.data.cache import verify_layer
+                verify_layer(path.parent)
             linked=attach_linked(db,path)
         db.execute('PRAGMA query_only=ON')
         if version not in (2,3) or metadata(db, 'batch') != batch:

@@ -105,7 +105,8 @@ def _records():
 def test_current_official_taxonomy_and_prediction_format():
     schema = _official("schema")
     assert len(schema.VALID_NETWORK_ELEMENTS) == 80
-    assert len(schema.VALID_MAJOR_SUB_PAIRS) == 32
+    assert len(schema.VALID_MAJOR_SUB_PAIRS) == 35
+    assert {('link', 'ndp_failure'), ('link', 'vxlan_misconfig'), ('firewall', 'mtu_blackhole')} <= schema.VALID_MAJOR_SUB_PAIRS
     _, prediction = _records()
     # A one-hour prediction and one candidate are valid format choices;
     # neither imposes a fault-duration distribution on later batches.

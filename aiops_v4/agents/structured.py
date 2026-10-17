@@ -123,15 +123,18 @@ def role_tools(role,payload,seen,query_turns=0,*,chunks=None):
     from .tools import tool_definitions
     tools=tool_definitions(compact=True) if query_turns<2 else []
     if (payload.get('bundle') or {}).get('initial_evidence_profile')=='a1-readable-1':
+        groups=sorted({row['group_id'] for (kind,_),row in seen.items() if kind=='state' and isinstance(row.get('group_id'),str)})
         for tool in tools:
             function=tool['function']
             if function['name']=='query_states':
                 function['parameters']['properties']['detail']=dict(type='string',enum=['summary','full'])
+                if groups:
+                    function['parameters']['properties']['group_id']=dict(type='string',enum=groups)
+                    function['description']+=' group_id must be a delivered state group; a bundle id is not a group.'
                 if (payload.get('bundle') or {}).get('root_ranking_policy')=='ranked5-v4':
                     for key in ('start','end'):
                         function['parameters']['properties'][key]=dict(type='string',pattern=r'^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?(Z|[+-][0-9]{2}:[0-9]{2})$')
                 function['description']+=' Default detail=summary: complete concise measurements, validity and deltas, with omitted fields declared. detail=full returns complete counter details and may require read_chunk; incomplete data cannot be cited.'
-        groups=sorted({row['group_id'] for (kind,_),row in seen.items() if kind=='state' and isinstance(row.get('group_id'),str)})
         pending={key:row['next'] for key,row in (chunks or {}).items() if row.get('next',0)<row.get('total',len(row.get('text','')))}
         filtered=[]
         for tool in tools:

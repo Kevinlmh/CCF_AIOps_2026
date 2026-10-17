@@ -14,9 +14,18 @@ def entity_of(row):
 
 def compact_role_observation(state, matrix=None):
     keys=('vector_id','batch','source','view','group_id','start_time','end_time','candidate',
-          'raw_candidate','suppression_reason','scoring_status','quality_flags','quality_signals','rule_signals','dimensions')
+          'raw_candidate','suppression_reason','scoring_status','quality_flags','quality_signals','rule_signals','dimensions',
+          'stat_score','statistical_signals','cluster_id','cluster_distance','cluster_reference_support','cluster_signals',
+          'cluster_support_basis','state_changed','feature_coverage','time_coverage','reference_status','is_reference',
+          'unseen_categories','details_truncated')
     row={k:state[k] for k in keys if k in state}
     row['entity_id']=entity_of(state)
+    drivers=state.get('drivers')
+    if isinstance(drivers,list):
+        row['drivers']=[{k:item[k] for k in ('feature','raw_value','deviation','transform','unit','semantic_status')
+                         if k in item} for item in drivers[:8] if isinstance(item,dict)]
+    elif isinstance(drivers,dict):
+        row['drivers']={k:drivers[k] for k in list(drivers)[:8]}
     features=(matrix or {}).get('features',state.get('feature_values',{}))
     row['feature_values']={k:{f:v[f] for f in ('raw_value','unit','semantic_status') if f in v}
                           for k,v in features.items()}

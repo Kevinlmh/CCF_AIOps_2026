@@ -123,3 +123,18 @@ def test_paginated_relations_have_visible_stable_ids_and_delivered_only_citation
             assert row['relation_id'] == initial[row['relation']]
         assert ('relation', row['relation_id']) in session.seen
     assert packet['relations'][0]['relation_id'] == initial[packet['relations'][0]['relation']]
+
+
+def test_compact_observation_preserves_statistical_drivers_and_cluster_context():
+    row = tool_module().compact_role_observation({
+        'vector_id': 'v', 'source': 'node', 'entity_id': 'xian-br-1',
+        'stat_score': 9.5, 'cluster_id': 2, 'cluster_distance': 4.2,
+        'cluster_reference_support': 0.3, 'state_changed': True,
+        'drivers': [{'feature': 'cpu_usage::mean', 'raw_value': 90.0, 'deviation': 9.5}],
+        'feature_coverage': 0.9, 'time_coverage': 0.8, 'reference_status': 'ready',
+        'is_reference': False, 'statistical_signals': ['statistics:robust_deviation'],
+        'cluster_signals': ['cluster:distant_state'], 'feature_values': {}})
+    assert row['stat_score'] == 9.5 and row['cluster_id'] == 2 and row['cluster_distance'] == 4.2
+    assert row['drivers'][0]['feature'] == 'cpu_usage::mean' and row['state_changed'] is True
+    assert row['feature_coverage'] == 0.9 and row['reference_status'] == 'ready'
+    assert row['statistical_signals'] == ['statistics:robust_deviation']

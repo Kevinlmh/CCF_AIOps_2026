@@ -19,7 +19,9 @@ MECHANISMS={
  ('routing','long_path_interruption'):'多跳远端路径中断', ('service','dns_down'):'DNS 解析服务不可用',
  ('service','dns_wrong_record'):'DNS 记录指向错误', ('service','web_5xx'):'Web 服务端错误',
  ('service','web_slow'):'Web 响应变慢', ('service','auth_timeout'):'认证请求超时',
- ('service','auth_error'):'认证返回异常错误'}
+ ('service','auth_error'):'认证返回异常错误',
+ ('link','ndp_failure'):'IPv6 邻居发现异常导致目标不可达', ('link','vxlan_misconfig'):'VXLAN 隧道配置错误导致业务不通',
+ ('firewall','mtu_blackhole'):'MTU 异常形成黑洞导致大报文丢失'}
 HYPOTHESES={
  'link':['比较接口、路由邻接与可用业务观测的时间先后','资源压力或服务错误可能产生相似表征；缺流量细节不能排除'],
  'firewall':['对照防火墙本机资源和上下游观测','ACL/端口/规则顺序需要配置或明确流量证据，仅连通性下降不能区分'],

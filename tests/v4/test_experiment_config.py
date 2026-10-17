@@ -52,7 +52,7 @@ def test_knowledge_is_public_taxonomy_with_limits_not_per_event_answers():
     from aiops_challenge_2026.schema import VALID_MAJOR_SUB_PAIRS
     cards = importlib.import_module('aiops_v4.experiments.knowledge').knowledge_cards()
     assert {(c['major_category'],c['sub_category']) for c in cards['cards']} == VALID_MAJOR_SUB_PAIRS
-    assert len(cards['cards']) == 32 and cards['source'].startswith('https://challenge.aiops.cn/')
+    assert len(cards['cards']) == 35 and cards['source'].startswith('https://challenge.aiops.cn/')
     assert cards['limits'] and cards['purpose'] and cards['version']
     for card in cards['cards']:
         assert card['mechanism'] and card['verification_hypotheses']
