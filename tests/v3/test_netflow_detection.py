@@ -102,27 +102,43 @@ def test_path_signals_expose_affected_city_router_context():
     assert any(item["node"] == "xian-br-1" and item["role"] == "context" for item in signals)
 
 
-def test_single_city_volume_loss_yields_volume_event():
+def test_two_services_lose_same_city_volume_yields_path_event():
+    rows = []
+    for service in ("dns", "auth"):
+        rows += healthy(service, range(0, 10))
+        rows += [row(service, "beida", minute, 500, 500) for minute in range(10, 30)]
+        rows += [row(service, "xian", minute, 500, 500) for minute in range(0, 10)]
+        rows += [row(service, "xian", minute, 500, 500) for minute in range(30, 40)]
+        rows += [row(service, "beida", minute, 500, 500) for minute in range(30, 40)]
+    events = [event for event in detect(rows, minute_count=100) if event.kind == "volume_loss"]
+    assert [(event.start_minute, event.end_minute, event.affected_cities)
+            for event in events] == [(10, 30, ("xian",))]
+
+
+def test_single_service_volume_drop_is_not_a_path_event():
     rows = healthy("dns", range(0, 10))
     rows += [row("dns", "beida", minute, 500, 500) for minute in range(10, 30)]
     rows += [row("dns", "xian", minute, 500, 500) for minute in range(0, 10)]
     rows += [row("dns", "xian", minute, 500, 500) for minute in range(30, 40)]
     rows += [row("dns", "beida", minute, 500, 500) for minute in range(30, 40)]
     events = [event for event in detect(rows, minute_count=100) if event.kind == "volume_loss"]
-    assert [(event.start_minute, event.end_minute, event.scope, event.affected_cities)
-            for event in events] == [(10, 30, "subset", ("xian",))]
+    assert events == []
 
 
 def test_volume_loss_requires_recovery():
-    rows = healthy("dns", range(0, 10))
-    rows += [row("dns", "beida", minute, 500, 500) for minute in range(10, 40)]
-    rows += [row("dns", "xian", minute, 500, 500) for minute in range(0, 10)]
+    rows = []
+    for service in ("dns", "auth"):
+        rows += healthy(service, range(0, 10))
+        rows += [row(service, "beida", minute, 500, 500) for minute in range(10, 40)]
+        rows += [row(service, "xian", minute, 500, 500) for minute in range(0, 10)]
     events = [event for event in detect(rows, minute_count=100) if event.kind == "volume_loss"]
     assert events == []
 
 
 def test_global_traffic_stop_is_not_volume_loss():
-    rows = healthy("dns", range(0, 10))
-    rows += [row("dns", city, minute, 500, 500) for city in ("beida", "xian") for minute in range(0, 10)]
+    rows = []
+    for service in ("dns", "auth"):
+        rows += [row(service, city, minute, 500, 500)
+                 for city in ("beida", "xian") for minute in range(0, 10)]
     events = [event for event in detect(rows, minute_count=100) if event.kind == "volume_loss"]
     assert events == []
