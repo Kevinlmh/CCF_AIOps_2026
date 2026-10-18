@@ -6,11 +6,12 @@ from .contracts import OfficialContract, validate_prediction
 from .diagnosis import Diagnosis, EvidencePack
 
 
-def prediction_record(pack: EvidencePack, diagnosis: Diagnosis, contract: OfficialContract) -> dict:
+def prediction_record(pack: EvidencePack, diagnosis: Diagnosis, contract: OfficialContract,
+                      *, start_time: str | None = None, end_time: str | None = None) -> dict:
     record = {
         "prediction_id": pack.event_id,
-        "start_time": pack.start_time,
-        "end_time": pack.end_time,
+        "start_time": start_time or pack.start_time,
+        "end_time": end_time or pack.end_time,
         "root_cause_top5": [
             {"rank": rank, "network_element_id": node}
             for rank, node in enumerate(diagnosis.roots, 1)

@@ -31,6 +31,8 @@ class DetectorSettings:
     exact_bgp_session_merge: bool = False
     rule_overrides: dict[str, dict[str, float]] = field(default_factory=dict)
     prefix_aware_blackhole: bool = False
+    netflow_events: bool = False
+    netflow_stats_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -52,6 +54,7 @@ class Event:
     start_minute: int
     end_minute: int  # exclusive
     signals: tuple[Signal, ...]
+    observers: tuple[dict, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -476,6 +479,78 @@ def _blackhole_prefix_support(store: FeatureStore, threshold: float) -> tuple[np
     return supported, unresolved
 
 
+def _event_city(store: FeatureStore, event: Event) -> str | None:
+    for signal in event.signals:
+        node = signal.node
+        if node in store.nodes and "-" in node:
+            return node.split("-", 1)[0]
+    return None
+
+
+def _load_netflow_events(store: FeatureStore, settings: DetectorSettings) -> list[Event]:
+    """Convert compact NetFlow response-loss windows into detection events."""
+    from pathlib import Path
+
+    from .netflow_detection import detect as detect_netflow, signal_rows
+    from .netflow_stats import load_stats
+
+    if not settings.netflow_stats_path:
+        raise ValueError("netflow_events requires netflow_stats_path")
+    rows = load_stats(Path(settings.netflow_stats_path))
+    netflow_events = detect_netflow(rows, minute_count=store.manifest["minute_count"])
+    events: list[Event] = []
+    for index, netflow in enumerate(netflow_events, 1):
+        signals = tuple(Signal(**item) for item in signal_rows(netflow))
+        events.append(Event(f"nf-{index:06d}", netflow.start_minute, netflow.end_minute,
+                            signals, netflow.observers))
+    return events
+
+
+def _merge_netflow_events(store: FeatureStore, final: list[Event],
+                          netflow_events: list[Event],
+                          ) -> tuple[list[Event], list[dict]]:
+    """Attach NetFlow evidence to overlapping rule events, otherwise add events."""
+    records: list[dict] = []
+    merged: list[Event] = list(final)
+    for inflow in netflow_events:
+        target_city = None
+        for signal in inflow.signals:
+            if signal.node in store.nodes and "-" in signal.node:
+                target_city = signal.node.split("-", 1)[0]
+                break
+        affected = {signal.node.split("-", 1)[0]
+                    for signal in inflow.signals if signal.role == "context"}
+        match = None
+        for index, existing in enumerate(merged):
+            overlap = min(existing.end_minute, inflow.end_minute) - max(existing.start_minute, inflow.start_minute)
+            if overlap < 1:
+                continue
+            city = _event_city(store, existing)
+            if city == target_city or city in affected:
+                match = index
+                break
+        if match is None:
+            merged.append(inflow)
+            continue
+        existing = merged[match]
+        start = min(existing.start_minute, inflow.start_minute)
+        end = max(existing.end_minute, inflow.end_minute)
+        if end - start > 30:
+            end = start + 30
+        signals = {signal.evidence_id: signal for signal in (*existing.signals, *inflow.signals)}
+        ordered = sorted(signals.values(), key=lambda item: (-item.score, item.evidence_id))
+        observers = {row.get("source_city"): row for row in (*existing.observers, *inflow.observers)}
+        merged[match] = Event(existing.event_id, start, end, tuple(ordered[:60]),
+                              tuple(observers[key] for key in sorted(observers)))
+        records.append({"reason": "netflow_service_overlap",
+                        "source_event_ids": [existing.event_id, inflow.event_id]})
+    renumbered = [Event(f"v3-e{index:06d}", event.start_minute, event.end_minute,
+                        event.signals, event.observers)
+                  for index, event in enumerate(sorted(merged, key=lambda item: (
+                      item.start_minute, item.end_minute, item.event_id)), 1)]
+    return renumbered, records
+
+
 def detect_with_audit(store: FeatureStore, settings: DetectorSettings = DetectorSettings()) -> DetectionResult:
     if settings.service_overlap_policy not in {"city", "related_device"}:
         raise ValueError("unknown service overlap policy")
@@ -646,6 +721,10 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
             else:
                 screened.append(event)
         final = screened
+    if settings.netflow_events and settings.netflow_stats_path:
+        netflow_events = _load_netflow_events(store, settings)
+        final, netflow_merged = _merge_netflow_events(store, final, netflow_events)
+        merged.extend(netflow_merged)
     return DetectionResult(tuple(final), tuple(rejected), tuple(merged))
 
 

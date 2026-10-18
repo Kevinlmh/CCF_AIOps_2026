@@ -13,6 +13,7 @@ from .calibration import load_calibration
 from .detection import DetectorSettings, detect_with_audit
 from .diagnosis import build_evidence, diagnose_rules
 from .optional_llm import choose_diagnosis, load_diagnoses
+from .role_import import apply_roles, load_roles
 from .output import prediction_record
 from .raw import build_sample_store
 from .store import open_store
@@ -84,11 +85,22 @@ def run(
     calibration_profile: Path | None = None,
     exact_bgp_session_merge: bool = False,
     prefix_aware_blackhole: bool = False,
+    netflow_stats: Path | None = None,
+    netflow_events: bool = False,
+    role_results: Path | None = None,
+    role_scope: str = "all",
+    boundary_refine: bool = True,
 ) -> RunSummary:
-    if mode not in {"rules", "llm-jsonl"}:
+    if mode not in {"rules", "llm-jsonl", "roles-jsonl"}:
         raise ValueError(f"unknown diagnosis mode: {mode}")
     if mode == "llm-jsonl" and llm_responses is None:
         raise ValueError("llm-jsonl mode requires response file")
+    if mode == "roles-jsonl" and role_results is None:
+        raise ValueError("roles-jsonl mode requires role response file")
+    if netflow_events and netflow_stats is None:
+        raise ValueError("netflow_events requires netflow_stats")
+    if role_scope not in {"all", "ambiguous"}:
+        raise ValueError(f"unknown role scope: {role_scope}")
     if detector_profile not in {"standard", "conservative"}:
         raise ValueError(f"unknown detector profile: {detector_profile}")
     if baseline_strategy not in {"global_median", "healthy_tail", "rolling_healthy_tail"}:
@@ -114,6 +126,8 @@ def run(
                                  cross_city_merge_policy=cross_city_merge_policy,
                                  exact_bgp_session_merge=exact_bgp_session_merge,
                                  prefix_aware_blackhole=prefix_aware_blackhole,
+                                 netflow_events=netflow_events,
+                                 netflow_stats_path=str(netflow_stats) if netflow_stats else None,
                                  rule_overrides=rule_overrides)
                 if detector_profile == "conservative"
                 else DetectorSettings(request_aware_service=request_aware_service,
@@ -123,9 +137,12 @@ def run(
                                       cross_city_merge_policy=cross_city_merge_policy,
                                       exact_bgp_session_merge=exact_bgp_session_merge,
                                       prefix_aware_blackhole=prefix_aware_blackhole,
+                                      netflow_events=netflow_events,
+                                      netflow_stats_path=str(netflow_stats) if netflow_stats else None,
                                       rule_overrides=rule_overrides))
     detection = detect_with_audit(store, settings)
     responses = load_diagnoses(llm_responses) if mode == "llm-jsonl" else {}
+    role_rows = load_roles(role_results) if mode == "roles-jsonl" else {}
     predictions: list[dict] = []
     evidence: list[dict] = []
     audit: list[dict] = []
@@ -136,17 +153,29 @@ def run(
                               include_routing_context=routing_context_candidates,
                               include_temporal_context=temporal_context)
         rules = diagnose_rules(pack, contract)
+        boundary = None
+        role_fallbacks: list[str] = []
         if mode == "llm-jsonl":
             diagnosis, reason = choose_diagnosis(pack, rules, responses.get(event.event_id), contract)
             fallback_count += reason is not None
+        elif mode == "roles-jsonl":
+            diagnosis, boundary, role_fallbacks = apply_roles(
+                pack, rules, role_rows.get(event.event_id, {}), contract)
+            if not boundary_refine:
+                boundary = None
+            fallback_count += bool(role_fallbacks)
+            reason = None
         else:
             diagnosis, reason = rules, None
-        predictions.append(prediction_record(pack, diagnosis, contract))
+        predictions.append(prediction_record(
+            pack, diagnosis, contract,
+            start_time=boundary["start_time"] if boundary else None,
+            end_time=boundary["end_time"] if boundary else None))
         evidence_record = asdict(pack)
-        if not pack.temporal_context:
-            evidence_record.pop("temporal_context")
-        if not pack.traffic_observations:
-            evidence_record.pop("traffic_observations")
+        for name in ("temporal_context", "traffic_observations", "observers",
+                     "topology", "candidate_priors", "evidence_owners", "quality"):
+            if not evidence_record.get(name):
+                evidence_record.pop(name, None)
         evidence.append({**evidence_record, "evidence_sha256": pack.sha256()})
         audit.append({
             "event_id": event.event_id,
@@ -157,6 +186,8 @@ def run(
             "candidate_count": len(pack.candidates),
             "signal_count": len(pack.signals),
             "model": responses.get(event.event_id, {}).get("model") if mode == "llm-jsonl" else None,
+            "role_fallback_fields": role_fallbacks,
+            "role_boundary": boundary,
         })
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_jsonl(output_dir / "predictions.jsonl", predictions)
@@ -183,6 +214,10 @@ def run(
             if (Path(input_store) / name).is_file()
         },
         "llm_responses_sha256": _sha256(llm_responses) if llm_responses else None,
+        "role_results_sha256": _sha256(role_results) if role_results else None,
+        "role_scope": role_scope if mode == "roles-jsonl" else None,
+        "netflow_stats_sha256": _sha256(netflow_stats) if netflow_stats else None,
+        "netflow_events": netflow_events,
         "code_sha256": {
             str(path.relative_to(package_dir)): _sha256(path)
             for path in sorted((*package_dir.rglob("*.py"), *package_dir.glob("config/*.json")))
@@ -213,7 +248,7 @@ def main() -> None:
     parser.add_argument("--build-store-to", type=Path)
     parser.add_argument("--source-profile", choices=("stage1", "stage2"), default="stage1")
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--diagnoser", choices=("rules", "llm-jsonl"), default="rules")
+    parser.add_argument("--diagnoser", choices=("rules", "llm-jsonl", "roles-jsonl"), default="rules")
     parser.add_argument("--detector-profile", choices=("standard", "conservative"), default="standard")
     parser.add_argument("--request-aware-service", action="store_true")
     parser.add_argument("--source-aware-candidates", action="store_true")
@@ -230,6 +265,11 @@ def main() -> None:
     parser.add_argument("--prefix-aware-blackhole", action="store_true",
                         help="Require a same-prefix observed presence-to-absence onset")
     parser.add_argument("--llm-responses", type=Path)
+    parser.add_argument("--netflow-stats", type=Path)
+    parser.add_argument("--netflow-events", action="store_true")
+    parser.add_argument("--role-results", type=Path)
+    parser.add_argument("--role-scope", choices=("all", "ambiguous"), default="all")
+    parser.add_argument("--no-boundary-refine", action="store_true")
     parser.add_argument("--calibration-profile", type=Path)
     args = parser.parse_args()
     if args.raw_root and not args.build_store_to:
@@ -242,7 +282,9 @@ def main() -> None:
                   args.service_overlap_policy, args.routing_context_candidates,
                   args.temporal_context, args.routing_dimension_detection,
                   args.cross_city_merge_policy, args.calibration_profile,
-                  args.exact_bgp_session_merge, args.prefix_aware_blackhole)
+                  args.exact_bgp_session_merge, args.prefix_aware_blackhole,
+                  args.netflow_stats, args.netflow_events, args.role_results,
+                  args.role_scope, not args.no_boundary_refine)
     print(json.dumps(asdict(summary), default=str))
 
 

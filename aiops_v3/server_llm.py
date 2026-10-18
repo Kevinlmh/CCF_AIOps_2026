@@ -25,6 +25,11 @@ def _pack(record: dict) -> EvidencePack:
               for row in record["candidates"]),
         tuple(record.get("temporal_context", ())),
         tuple(record.get("traffic_observations", ())),
+        tuple(record.get("observers", ())),
+        dict(record.get("topology", {})),
+        dict(record.get("candidate_priors", {})),
+        dict(record.get("evidence_owners", {})),
+        dict(record.get("quality", {})),
     )
 
 

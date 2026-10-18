@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import hashlib
 import json
 
@@ -29,13 +29,18 @@ class EvidencePack:
     candidates: tuple[Candidate, ...]
     temporal_context: tuple[dict, ...] = ()
     traffic_observations: tuple[dict, ...] = ()
+    observers: tuple[dict, ...] = ()
+    topology: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    candidate_priors: dict[str, str] = field(default_factory=dict)
+    evidence_owners: dict[str, str] = field(default_factory=dict)
+    quality: dict = field(default_factory=dict)
 
     def sha256(self) -> str:
         fields = asdict(self)
-        if not self.temporal_context:
-            fields.pop("temporal_context")
-        if not self.traffic_observations:
-            fields.pop("traffic_observations")
+        for name in ("temporal_context", "traffic_observations", "observers",
+                     "topology", "candidate_priors", "evidence_owners", "quality"):
+            if not fields.get(name):
+                fields.pop(name, None)
         payload = json.dumps(fields, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -135,6 +140,144 @@ def _temporal_context(store, event: Event, signals: list[Signal]) -> tuple[dict,
     return tuple(rows)
 
 
+def _rule_candidates(contract, direct, prefix_context, primary_city, symptom_cities,
+                     single_probe, probe_evidence) -> list[Candidate]:
+    """Original rule-era candidate construction, kept unchanged for batch 1."""
+    candidates: list[Candidate] = []
+    for node in sorted(contract.nodes):
+        if node in direct:
+            evidence = direct[node]
+            score = max(item.score for item in evidence) + .1 * (len(evidence) - 1)
+            candidates.append(Candidate(node, score, tuple(sorted(item.evidence_id for item in evidence)),
+                                        "direct_device_evidence"))
+        elif node == single_probe:
+            candidates.append(Candidate(node, .29, tuple(sorted(probe_evidence[node])),
+                                        "single_probe_observer_possible_local_path_cause"))
+        elif node in prefix_context:
+            candidates.append(Candidate(node, .26, tuple(sorted(item.evidence_id for item in prefix_context[node])),
+                                        "correlated_peer_prefix_change"))
+        elif _city(node) == primary_city:
+            score = (.30 if node.endswith(("service-vm-1", "service-vm-2", "service-vm-3"))
+                     and primary_city in symptom_cities else .25)
+            candidates.append(Candidate(node, score, (), "same_city_context_no_direct_evidence"))
+        elif _city(node) in symptom_cities and node.endswith(("service-vm-1", "service-vm-2", "service-vm-3")):
+            candidates.append(Candidate(node, .15, (), "symptom_target_city_no_verified_instance_mapping"))
+    candidates.sort(key=lambda item: (-item.score, item.node))
+    candidates = candidates[:12]
+    if len(candidates) < 8:
+        seen = {item.node for item in candidates}
+        for node in sorted(contract.nodes):
+            if node not in seen:
+                candidates.append(Candidate(node, 0, (), "coverage_fallback_no_direct_evidence"))
+                if len(candidates) >= 8:
+                    break
+    return candidates
+
+
+_CITY_ROLE = {"br-1", "br-2", "cr-1", "cr-2", "fw", "traffic-vm",
+              "service-vm-1", "service-vm-2", "service-vm-3", "monitor-vm"}
+
+
+def _service_node_for(store, signal: Signal, contract: OfficialContract) -> str | None:
+    node = signal.node
+    if node in contract.nodes:
+        return node
+    if node.startswith("service-group:"):
+        parts = node.split(":")
+        if len(parts) >= 3 and f"{parts[1]}-service-vm-1" in contract.nodes:
+            return f"{parts[1]}-service-vm-1"
+    return None
+
+
+def _netflow_candidates(store, signals: list[Signal], contract: OfficialContract
+                        ) -> tuple[list[Candidate], dict[str, str]]:
+    """Candidate set driven by service/path NetFlow evidence."""
+    priors: dict[str, str] = {}
+    candidates: list[Candidate] = []
+
+    def add(node: str, score: float, reason: str, evidence=()):
+        if node not in contract.nodes:
+            return
+        priors[node] = reason
+        candidates.append(Candidate(node, score, tuple(evidence), reason))
+
+    netflow = [signal for signal in signals if signal.feature.startswith("netflow.")]
+    direct_netflow = [signal for signal in netflow if signal.role == "direct"]
+    context = [signal for signal in netflow if signal.role == "context"]
+    symptom_netflow = [signal for signal in netflow if signal.role == "symptom"]
+    if direct_netflow:
+        target = direct_netflow[0].node
+        city = target.split("-", 1)[0]
+        add(target, 0.95, "service_target", (direct_netflow[0].evidence_id,))
+        for role in ("service-vm-2", "service-vm-3"):
+            add(f"{city}-{role}", 0.60, "same_city_service")
+        for role in ("fw", "cr-1", "br-1"):
+            add(f"{city}-{role}", 0.45, "same_city_fallback")
+    else:
+        for signal in context:
+            add(signal.node, 0.90 if signal.node.endswith("-br-1") else 0.80,
+                "path_observer_city_device", (signal.evidence_id,))
+        for signal in symptom_netflow:
+            add(signal.node, 0.50, "service_target_under_observer_failure", (signal.evidence_id,))
+        for city in sorted({signal.node.split("-", 1)[0] for signal in context}):
+            for role in ("cr-1", "br-2", "fw"):
+                add(f"{city}-{role}", 0.75 if role == "cr-1" else 0.70,
+                    "path_observer_city_device")
+    candidates.sort(key=lambda item: (-item.score, item.node))
+    candidates = candidates[:12]
+    if len(candidates) < 8:
+        seen = {item.node for item in candidates}
+        for node in sorted(contract.nodes):
+            if node not in seen:
+                candidates.append(Candidate(node, 0, (), "coverage_fallback_no_direct_evidence"))
+                if len(candidates) >= 8:
+                    break
+    return candidates, priors
+
+
+def _observers_from_event(store, event: Event, signals: list[Signal]) -> tuple[dict, ...]:
+    rows: list[dict] = list(event.observers)
+    if not hasattr(store, "edges"):
+        return tuple(rows)
+    for signal in signals:
+        if not signal.evidence_id.startswith("edge:") or not signal.feature.startswith("traffic."):
+            continue
+        parts = signal.evidence_id.split(":", 3)
+        if len(parts) != 4 or not parts[2].isdigit():
+            continue
+        index = int(parts[2])
+        if not 0 <= index < len(store.edges):
+            continue
+        edge = store.edges[index]
+        if edge.get("relation") != "traffic":
+            continue
+        source = str(edge.get("source", ""))
+        rows.append({
+            "kind": "traffic",
+            "source_city": source.split("-", 1)[0] if "-" in source else source,
+            "observer": source,
+            "target": edge.get("target"),
+            "feature": signal.feature,
+            "value": round(float(signal.value), 6),
+            "stance": "support",
+        })
+    return tuple(rows)
+
+
+def _evidence_owners(signals: list[Signal], contract: OfficialContract) -> dict[str, str]:
+    owners: dict[str, str] = {}
+    for signal in signals:
+        owner = signal.node
+        if owner not in contract.nodes and owner.startswith("service-group:"):
+            parts = owner.split(":")
+            if len(parts) >= 3:
+                candidate = f"{parts[1]}-service-vm-1"
+                if candidate in contract.nodes:
+                    owner = candidate
+        owners[signal.evidence_id] = owner
+    return owners
+
+
 def build_evidence(
     store, event: Event, contract: OfficialContract, *, include_probe_candidates: bool = False,
     include_routing_context: bool = False, include_temporal_context: bool = False,
@@ -218,32 +361,28 @@ def build_evidence(
     primary_city = _city(leader) if leader else (sorted(symptom_cities)[0] if symptom_cities else None)
     single_probe = (next(iter(probe_evidence)) if include_probe_candidates
                     and not direct and len(probe_evidence) == 1 else None)
-    candidates: list[Candidate] = []
-    for node in sorted(contract.nodes):
-        if node in direct:
-            evidence = direct[node]
-            score = max(item.score for item in evidence) + .1 * (len(evidence) - 1)
-            candidates.append(Candidate(node, score, tuple(sorted(item.evidence_id for item in evidence)), "direct_device_evidence"))
-        elif node == single_probe:
-            candidates.append(Candidate(node, .29, tuple(sorted(probe_evidence[node])),
-                                        "single_probe_observer_possible_local_path_cause"))
-        elif node in prefix_context:
-            candidates.append(Candidate(node, .26, tuple(sorted(item.evidence_id for item in prefix_context[node])),
-                                        "correlated_peer_prefix_change"))
-        elif _city(node) == primary_city:
-            score = .30 if node.endswith(("service-vm-1", "service-vm-2", "service-vm-3")) and primary_city in symptom_cities else .25
-            candidates.append(Candidate(node, score, (), "same_city_context_no_direct_evidence"))
-        elif _city(node) in symptom_cities and node.endswith(("service-vm-1", "service-vm-2", "service-vm-3")):
-            candidates.append(Candidate(node, .15, (), "symptom_target_city_no_verified_instance_mapping"))
-    candidates.sort(key=lambda item: (-item.score, item.node))
-    candidates = candidates[:12]
-    if len(candidates) < 8:
-        seen = {item.node for item in candidates}
-        for node in sorted(contract.nodes):
-            if node not in seen:
-                candidates.append(Candidate(node, 0, (), "coverage_fallback_no_direct_evidence"))
-                if len(candidates) >= 8:
-                    break
+    candidate_priors: dict[str, str] = {}
+    if any(signal.feature.startswith("netflow.") for signal in signals):
+        candidates, candidate_priors = _netflow_candidates(store, list(signals), contract)
+    else:
+        candidates = _rule_candidates(contract, direct, prefix_context, primary_city,
+                                      symptom_cities, single_probe, probe_evidence)
+        for candidate in candidates:
+            candidate_priors.setdefault(candidate.node, candidate.reason)
+    topology = {}
+    for candidate in candidates:
+        parts = candidate.node.split("-", 1)
+        if len(parts) == 2:
+            topology[candidate.node] = (f"city:{parts[0]}", f"role:{parts[1]}")
+    observers = _observers_from_event(store, event, signals)
+    evidence_owners = _evidence_owners(signals, contract)
+    quality = {
+        "has_direct": bool(direct),
+        "netflow_observers": sum(1 for row in observers if row.get("kind") == "netflow"),
+        "traffic_observers": sum(1 for row in observers if row.get("kind") == "traffic"),
+        "signal_count": len(signals),
+        "weak_evidence": not direct,
+    }
     return EvidencePack(
         event.event_id,
         store.time_at(event.start_minute).isoformat().replace("+00:00", "Z"),
@@ -252,6 +391,11 @@ def build_evidence(
         tuple(candidates),
         _temporal_context(store, event, signals) if include_temporal_context else (),
         tuple(traffic_observations[key] for key in sorted(traffic_observations)),
+        observers,
+        topology,
+        candidate_priors,
+        evidence_owners,
+        quality,
     )
 
 
@@ -286,7 +430,15 @@ def _category(signals: list[Signal], root: str, contract: OfficialContract) -> t
             return pair
     for signal in ordered:
         feature = signal.feature
-        if "traffic.dns." in feature:
+        if feature == "netflow.dns.response_ratio":
+            pair = ("service", "dns_down")
+        elif feature == "netflow.web.response_ratio":
+            pair = ("service", "web_5xx")
+        elif feature == "netflow.auth.response_ratio":
+            pair = ("service", "auth_timeout")
+        elif feature == "netflow.path.response_ratio":
+            pair = ("link", "loss")
+        elif "traffic.dns." in feature:
             pair = ("service", "dns_down")
         elif "traffic.web." in feature:
             pair = ("service", "web_slow" if "latency" in feature else "web_5xx")
