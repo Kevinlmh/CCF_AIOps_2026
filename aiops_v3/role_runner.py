@@ -19,7 +19,7 @@ from urllib import request
 from .classification import is_clear_event
 from .contracts import load_contract
 from .diagnosis import Diagnosis, EvidencePack, diagnose_rules
-from .roles import ROLE_NAMES, build_request, validate
+from .roles import ROLE_NAMES, build_request, normalize_localize, validate
 from .server_llm import _pack, _post_json
 
 
@@ -138,10 +138,17 @@ def run_roles(evidence_path: Path, out_dir: Path, *, model: str, revision: str,
                 started = time.monotonic()
                 result = {"role": role, "cached": False, "payload": payload,
                           "started": started, "body": None, "error": None}
-                try:
-                    result["body"] = _call(complete, payload)
-                except (KeyError, IndexError, TypeError, ValueError, OSError) as exc:
-                    result["error"] = f"request_failed:{type(exc).__name__}"
+                for attempt in range(2):
+                    try:
+                        body = _call(complete, payload)
+                        if role == "localize":
+                            body = normalize_localize(pack, body)
+                        result["body"] = body
+                        result["error"] = None
+                        break
+                    except (KeyError, IndexError, TypeError, ValueError, OSError) as exc:
+                        result["error"] = f"request_failed:{type(exc).__name__}"
+                        result["body"] = None
                 return result
 
             def settle(result: dict) -> None:

@@ -213,8 +213,6 @@ def _material(pack: EvidencePack, baseline: Diagnosis, upstream: dict[str, dict]
                                "sub_category": baseline.category[1]},
         },
         "upstream": upstream,
-        "allowed_network_elements": node_ids,
-        "allowed_categories": sorted(_contract().categories),
     }
 
 
@@ -237,7 +235,7 @@ def build_request(role: str, pack: EvidencePack, *, baseline: Diagnosis,
             "name": f"v3_role_{role}", "schema": schema}},
         "chat_template_kwargs": {"enable_thinking": False},
         "temperature": 0,
-        "max_tokens": 512,
+        "max_tokens": 640,
     }
 
 
@@ -297,6 +295,28 @@ def validate_confirm(pack: EvidencePack, body: dict) -> str | None:
     if dice < MIN_BOUNDARY_DICE:
         return "boundary_invalid"
     return None
+
+
+def normalize_localize(pack: EvidencePack, body: dict) -> dict:
+    """Drop non-owned evidence ids from ranks > 1 (keep rank 1 strict).
+
+    A lower rank only orders alternatives; duplication of the rank-1 device's
+    evidence is a common model shortcut and must not invalidate the whole list.
+    """
+    if not isinstance(body, dict) or not isinstance(body.get("ranked"), list):
+        return body
+    signals = _signal_index(pack)
+    ranked = []
+    for item in body["ranked"]:
+        if not isinstance(item, dict) or item.get("rank") == 1:
+            ranked.append(item)
+            continue
+        node = item.get("network_element_id")
+        ids = [item_id for item_id in item.get("evidence_ids", [])
+               if item_id in signals
+               and pack.evidence_owners.get(item_id, signals[item_id].node) == node]
+        ranked.append({**item, "evidence_ids": ids})
+    return {**body, "ranked": ranked}
 
 
 def validate_localize(pack: EvidencePack, body: dict) -> str | None:
