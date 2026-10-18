@@ -60,6 +60,13 @@ def test_short_glitch_is_dropped_with_min_minutes_two():
     assert events == ()
 
 
+def test_short_subset_window_is_dropped():
+    rows = healthy("dns", range(0, 10))
+    rows += [row("dns", "beida", minute, 500, 0) for minute in (10, 11)]
+    rows += [row("dns", "xian", minute, 500, 500) for minute in (10, 11)]
+    assert detect(rows, minute_count=100) == ()
+
+
 def test_long_window_is_split_at_30_minutes():
     rows = healthy("dns", range(0, 40))
     rows += [row("dns", city, minute, 500, 0) for city in ("beida", "xian") for minute in range(40, 100)]

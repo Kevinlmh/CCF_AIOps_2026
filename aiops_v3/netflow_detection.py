@@ -36,6 +36,7 @@ class NetflowSettings:
     min_minutes: int = 1
     max_event_minutes: int = 30
     min_observer_requests: float = 20.0
+    min_subset_minutes: int = 3
     require_observed_minutes: bool = True
 
 
@@ -178,6 +179,8 @@ def detect(rows, *, settings: NetflowSettings = NetflowSettings(),
                     scope = "all"
                 elif len(affected) == 1:
                     scope = "subset"
+                    if part_end - part_start < settings.min_subset_minutes:
+                        continue
                 else:
                     continue
                 affected_ratio = min(

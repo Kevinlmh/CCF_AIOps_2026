@@ -364,6 +364,24 @@ def build_evidence(
     candidate_priors: dict[str, str] = {}
     if any(signal.feature.startswith("netflow.") for signal in signals):
         candidates, candidate_priors = _netflow_candidates(store, list(signals), contract)
+        seen = {candidate.node for candidate in candidates}
+        for node in sorted(direct):
+            if node in seen:
+                continue
+            evidence = direct[node]
+            score = max(item.score for item in evidence) + .1 * (len(evidence) - 1)
+            candidates.append(Candidate(node, score, tuple(sorted(item.evidence_id for item in evidence)),
+                                        "direct_device_evidence"))
+            candidate_priors.setdefault(node, "direct_device_evidence")
+        candidates.sort(key=lambda item: (-item.score, item.node))
+        candidates = candidates[:12]
+        if len(candidates) < 8:
+            seen = {candidate.node for candidate in candidates}
+            for node in sorted(contract.nodes):
+                if node not in seen:
+                    candidates.append(Candidate(node, 0, (), "coverage_fallback_no_direct_evidence"))
+                    if len(candidates) >= 8:
+                        break
     else:
         candidates = _rule_candidates(contract, direct, prefix_context, primary_city,
                                       symptom_cities, single_probe, probe_evidence)
