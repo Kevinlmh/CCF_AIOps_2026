@@ -62,3 +62,20 @@ LLM 仍然只做确认、定位、分类、复核四个角色；没有增加工�
 
 运行日志在 `controller.out`、`stage*_shard_*.log`，分片结果在 `runs/<batch>/shard_*/`。
 合并文件只做官方格式校验、唯一 ID、去重和重新编号，不修改任何预测内容。
+
+## 5. 严格官方导出与 Top5 补齐（2026-10-18）
+
+最终提交文件只使用 `normalize_submission.py` 生成：
+
+- 字段恰好 `prediction_id/start_time/end_time/root_cause_top5/fault_category`；
+- 时间规范为 UTC、毫秒、显式 `+00:00`，且 `end > start`；
+- `root_cause_top5` 统一补齐到 **5 个**：保留已观测根因在前，按根因角色补充同城官方网元
+  （service-vm 根因 → 其余 service-vm、fw、路由器；路由器根因 → 其余路由器、fw、service-vm；
+  fw 根因 → 路由器、service-vm；traffic-vm 根因 → service-vm、fw、路由器），
+  不重复、不使用 monitor-vm；补齐只影响候选列表，不改变事件、时间和故障类别；
+- `rank` 从 1 连续到 5，网元为官方枚举，类别为官方 major/sub 配对；
+- 按时间排序后重新编号 `pred_000001` 起，逐条通过官方 `validate_prediction`。
+
+已生成并校验：`official_stage2.jsonl` 124 条（补齐 30 条）、`official_stage3.jsonl` 188 条
+（补齐 49 条），全部 5 根因、0 条不合规；stage1 合并后同样自动生成，三批齐全后生成
+`final_submission.jsonl`。
