@@ -66,6 +66,8 @@ class DetectionResult:
     events: tuple[Event, ...]
     rejected: tuple[dict, ...]
     merged: tuple[dict, ...] = ()
+    raw_events: tuple[Event, ...] = ()
+    weak_rejected: tuple[Event, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -715,6 +717,8 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
                 continue
         retained.append(Event(f"v3-e{len(retained) + 1:06d}", event.start_minute, event.end_minute, event.signals))
     final, merged = _consolidate(store, retained, settings)
+    raw_events = tuple(final)
+    weak_rejected: list[Event] = []
     if (settings.weak_cpu_max_minutes > 0 and settings.weak_cpu_max_score > 0
             and not settings.keep_weak_cpu):
         screened: list[Event] = []
@@ -731,6 +735,7 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
             if weak_cpu_only:
                 rejected.append({"event_id": event.event_id, "start_minute": event.start_minute,
                                  "end_minute": event.end_minute, "reason": "short_weak_single_cpu_signal"})
+                weak_rejected.append(event)
             else:
                 screened.append(event)
         final = screened
@@ -738,7 +743,8 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
         netflow_events = _load_netflow_events(store, settings)
         final, netflow_merged = _merge_netflow_events(store, final, netflow_events)
         merged.extend(netflow_merged)
-    return DetectionResult(tuple(final), tuple(rejected), tuple(merged))
+    return DetectionResult(tuple(final), tuple(rejected), tuple(merged),
+                           raw_events, tuple(weak_rejected))
 
 
 def detect(store: FeatureStore, settings: DetectorSettings = DetectorSettings()) -> list[Event]:
