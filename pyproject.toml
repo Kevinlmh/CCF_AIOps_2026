@@ -18,3 +18,6 @@ include = ["aiops_v3*", "data_side*"]
 
 [tool.setuptools.package-data]
 "aiops_v3" = ["config/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
