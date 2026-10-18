@@ -225,6 +225,15 @@ def test_conservative_profile_audits_short_weak_cpu_only_event(tmp_path):
     assert [item["reason"] for item in result.rejected] == ["short_weak_single_cpu_signal"]
 
 
+def test_keep_weak_cpu_flag_keeps_short_weak_event(tmp_path):
+    store = fixture_store(tmp_path, [10] * 5 + [35] * 3 + [10] * 8)
+    result = detect_with_audit(store, DetectorSettings(weak_cpu_max_minutes=3,
+                                                       weak_cpu_max_score=8,
+                                                       keep_weak_cpu=True))
+    assert [(event.start_minute, event.end_minute) for event in result.events] == [(5, 8)]
+    assert result.rejected == ()
+
+
 def test_conservative_profile_keeps_sustained_cpu_incident(tmp_path):
     store = fixture_store(tmp_path, [10] * 5 + [78] * 7 + [10] * 10)
     result = detect_with_audit(store, DetectorSettings(weak_cpu_max_minutes=3, weak_cpu_max_score=8))

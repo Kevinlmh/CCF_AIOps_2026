@@ -37,6 +37,9 @@ class NetflowSettings:
     max_event_minutes: int = 30
     min_observer_requests: float = 20.0
     min_subset_minutes: int = 3
+    min_volume_minutes: int = 3
+    volume_drop_ratio: float = 0.2
+    volume_recovery_ratio: float = 0.5
     require_observed_minutes: bool = True
 
 
@@ -52,6 +55,7 @@ class NetflowEvent:
     window_ratio: float
     affected_ratio: float
     affected_cities: tuple[str, ...]
+    kind: str = "response_loss"  # "response_loss" | "volume_loss"
 
     @property
     def duration(self) -> int:
@@ -194,12 +198,80 @@ def detect(rows, *, settings: NetflowSettings = NetflowSettings(),
                     service=service,
                     service_node=SERVICE_NODE[service],
                     scope=scope,
+                    kind="response_loss",
                     observers=observers,
                     baseline_ratio=round(baseline_ratio, 6),
                     window_ratio=round(window_ratio, 6),
                     affected_ratio=round(affected_ratio, 6),
                     affected_cities=affected,
                 ))
+    # Volume-loss pass: one observer city stops sending while the service and
+    # the other observers stay normal.  This targets link/route/firewall faults
+    # that reduce reachability without changing the response ratio.
+    if settings.min_volume_minutes > 0:
+        for service in _SERVICES:
+            by_minute = totals[service]
+            observed = {minute for minute in by_minute
+                        if by_minute[minute][0] + by_minute[minute][1] > 0}
+            if not observed:
+                continue
+            eligible = [minute for minute in observed if by_minute[minute][0] >= settings.min_requests]
+            if not eligible:
+                continue
+            service_median = statistics.median([by_minute[minute][0] for minute in eligible])
+            city_requests: dict[str, dict[int, float]] = {}
+            for (cell_service, minute, city), (req, _resp) in cells.items():
+                if cell_service != service:
+                    continue
+                city_requests.setdefault(city, {})[minute] = req
+            existing = {(event.start_minute, event.end_minute, tuple(event.affected_cities))
+                        for event in events if event.service == service}
+            for city in sorted(city_requests):
+                minutes = city_requests[city]
+                active = [minute for minute in minutes if minutes[minute] >= settings.min_observer_requests]
+                if len(active) < 10:
+                    continue
+                baseline = statistics.median([minutes[minute] for minute in active])
+                if baseline <= 0:
+                    continue
+                low = [minute for minute in observed
+                       if minutes.get(minute, 0.0) < settings.volume_drop_ratio * baseline]
+                for start, end in _runs(low):
+                    for part_start, part_end in _split(start, end, settings.max_event_minutes):
+                        if part_end - part_start < settings.min_volume_minutes:
+                            continue
+                        window = range(part_start, part_end)
+                        if statistics.median([by_minute.get(minute, (0.0, 0.0))[0] for minute in window]) \
+                                < 0.5 * service_median:
+                            continue
+                        recovered_before = any(
+                            minutes.get(minute, 0.0) >= settings.volume_recovery_ratio * baseline
+                            for minute in range(max(0, part_start - 10), part_start))
+                        recovered_after = any(
+                            minutes.get(minute, 0.0) >= settings.volume_recovery_ratio * baseline
+                            for minute in range(part_end, min(max(observed) + 1, part_end + 10)))
+                        if not (recovered_before and recovered_after):
+                            continue
+                        if any(part_start < item_end and part_end > item_start
+                               and (city,) == item_cities or city in item_cities
+                               for item_start, item_end, item_cities in existing):
+                            continue
+                        ratios = [minutes.get(minute, 0.0) / baseline for minute in window]
+                        affected_ratio = min(ratios)
+                        observers = _window_observers(service, part_start, part_end, cells, settings)
+                        events.append(NetflowEvent(
+                            start_minute=part_start,
+                            end_minute=part_end,
+                            service=service,
+                            service_node=SERVICE_NODE[service],
+                            scope="subset",
+                            kind="volume_loss",
+                            observers=observers,
+                            baseline_ratio=round(baseline, 6),
+                            window_ratio=round(affected_ratio, 6),
+                            affected_ratio=round(affected_ratio, 6),
+                            affected_cities=(city,),
+                        ))
     events.sort(key=lambda item: (item.start_minute, item.end_minute, item.service))
     return tuple(events)
 
@@ -212,6 +284,31 @@ def signal_rows(event: NetflowEvent) -> tuple[dict, ...]:
     affected cities' border routers, so path devices can enter the candidate set.
     """
     signals: list[dict] = []
+    if event.kind == "volume_loss":
+        for city in event.affected_cities:
+            signals.append({
+                "evidence_id": f"netflow:{event.start_minute}:{city}:{event.service}:volume",
+                "minute": event.start_minute,
+                "node": f"{city}-br-1",
+                "feature": f"netflow.{event.service}.request_volume_ratio",
+                "category": "path_unreachable",
+                "value": event.affected_ratio,
+                "reference": event.baseline_ratio,
+                "score": 4.0 + 4.0 * max(0.0, 1.0 - event.affected_ratio),
+                "role": "context",
+            })
+        signals.append({
+            "evidence_id": f"netflow:{event.start_minute}:{event.service}:{event.service_node}",
+            "minute": event.start_minute,
+            "node": event.service_node,
+            "feature": f"netflow.{event.service}.request_volume_ratio",
+            "category": "path_unreachable",
+            "value": event.affected_ratio,
+            "reference": event.baseline_ratio,
+            "score": 4.0,
+            "role": "symptom",
+        })
+        return tuple(signals)
     if event.scope == "all":
         signals.append({
             "evidence_id": f"netflow:{event.start_minute}:{event.service}:{event.service_node}",

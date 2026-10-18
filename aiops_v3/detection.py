@@ -33,6 +33,7 @@ class DetectorSettings:
     prefix_aware_blackhole: bool = False
     netflow_events: bool = False
     netflow_stats_path: str | None = None
+    keep_weak_cpu: bool = False
 
 
 @dataclass(frozen=True)
@@ -703,7 +704,8 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
                 continue
         retained.append(Event(f"v3-e{len(retained) + 1:06d}", event.start_minute, event.end_minute, event.signals))
     final, merged = _consolidate(store, retained, settings)
-    if settings.weak_cpu_max_minutes > 0 and settings.weak_cpu_max_score > 0:
+    if (settings.weak_cpu_max_minutes > 0 and settings.weak_cpu_max_score > 0
+            and not settings.keep_weak_cpu):
         screened: list[Event] = []
         for event in final:
             direct = [signal for signal in event.signals if signal.role == "direct"]

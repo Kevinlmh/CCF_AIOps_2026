@@ -456,6 +456,8 @@ def _category(signals: list[Signal], root: str, contract: OfficialContract) -> t
             pair = ("service", "auth_timeout")
         elif feature == "netflow.path.response_ratio":
             pair = ("link", "loss")
+        elif ".request_volume_ratio" in feature:
+            pair = ("link", "loss")
         elif "traffic.dns." in feature:
             pair = ("service", "dns_down")
         elif "traffic.web." in feature:
