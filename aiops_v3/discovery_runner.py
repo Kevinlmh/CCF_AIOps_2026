@@ -24,7 +24,8 @@ def _read_jsonl(path: Path) -> list[dict]:
 
 
 def _settings(netflow_stats: Path | None, *, keep_weak_cpu: bool,
-              routing_change: bool, subset_minutes: int) -> DetectorSettings:
+              routing_change: bool, subset_minutes: int,
+              prefix_aware: bool) -> DetectorSettings:
     return DetectorSettings(
         weak_cpu_max_minutes=3,
         weak_cpu_max_score=8,
@@ -33,6 +34,7 @@ def _settings(netflow_stats: Path | None, *, keep_weak_cpu: bool,
         netflow_stats_path=str(netflow_stats) if netflow_stats else None,
         netflow_subset_minutes=subset_minutes,
         routing_change_detection=routing_change,
+        prefix_aware_blackhole=prefix_aware,
         keep_weak_cpu=keep_weak_cpu,
     )
 
@@ -49,12 +51,13 @@ def run_shard(*, input_store: Path, netflow_stats: Path | None, out_dir: Path,
               model: str, revision: str, base_url: str, api_key: str | None,
               shard: int, shards: int, limit: int | None, timeout: int,
               keep_weak_cpu: bool, routing_change: bool, subset_minutes: int,
-              complete=None) -> dict:
+              prefix_aware: bool, complete=None) -> dict:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     contract = load_contract()
     settings = _settings(netflow_stats, keep_weak_cpu=keep_weak_cpu,
-                         routing_change=routing_change, subset_minutes=subset_minutes)
+                         routing_change=routing_change, subset_minutes=subset_minutes,
+                         prefix_aware=prefix_aware)
     store, bundles = build_clusters(input_store, netflow_stats, detector_settings=settings)
     cluster_ids = [cid for index, cid in enumerate(sorted(bundles)) if index % shards == shard]
     if limit is not None:
@@ -157,6 +160,7 @@ def main() -> None:
     run.add_argument("--keep-weak-cpu", action="store_true")
     run.add_argument("--routing-change", action="store_true")
     run.add_argument("--subset-minutes", type=int, default=3)
+    run.add_argument("--prefix-aware-blackhole", action="store_true")
     combine_parser = sub.add_parser("combine")
     combine_parser.add_argument("--out-dir", type=Path, required=True)
     combine_parser.add_argument("--output", type=Path, required=True)
@@ -171,6 +175,7 @@ def main() -> None:
         shard=args.shard, shards=args.shards, limit=args.limit,
         timeout=args.timeout, keep_weak_cpu=args.keep_weak_cpu,
         routing_change=args.routing_change, subset_minutes=args.subset_minutes,
+        prefix_aware=args.prefix_aware_blackhole,
     )
     print(json.dumps(summary, ensure_ascii=False))
 
