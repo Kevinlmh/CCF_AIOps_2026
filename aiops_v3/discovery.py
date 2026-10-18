@@ -23,7 +23,7 @@ from .diagnosis import build_evidence, diagnose_rules
 from .netflow_detection import SERVICE_NODE, NetflowSettings, detect as detect_netflow, signal_rows
 from .netflow_stats import load_stats
 
-MAX_EVENTS_PER_CLUSTER = 4
+MAX_EVENTS_PER_CLUSTER = 2
 MAX_BOUNDARY_SHIFT_MINUTES = 10
 MIN_EVENT_MINUTES = 1
 MAX_EVENT_MINUTES = 30
@@ -245,6 +245,7 @@ def _material(store, start: int, end: int, windows, rule_events, observers,
         "rule_baseline_events": rule_rows,
         "candidate_network_elements": candidates,
         "mechanism_hint": _MECHANISM_HINT,
+        "allowed_categories": [[major, sub] for major, sub in sorted(contract.categories)],
         "effective_signals": len(signal_map),
     }
     return material, signal_map, owners
@@ -275,8 +276,8 @@ def _schema(store, contract: OfficialContract, start: int, end: int) -> dict:
                                 "additionalProperties": False,
                             },
                         },
-                        "major_category": {"type": "string"},
-                        "sub_category": {"type": "string"},
+                        "major_category": {"type": "string", "enum": sorted({pair[0] for pair in contract.categories})},
+                        "sub_category": {"type": "string", "enum": sorted({pair[1] for pair in contract.categories})},
                         "mechanism_evidence_ids": {"type": "array", "items": {"type": "string"}},
                         "observation_note": {"type": "string"},
                     },
@@ -357,8 +358,8 @@ def _request_payload(material: dict, contract: OfficialContract,
                                 "additionalProperties": False,
                             },
                         },
-                        "major_category": {"type": "string"},
-                        "sub_category": {"type": "string"},
+                        "major_category": {"type": "string", "enum": sorted({pair[0] for pair in contract.categories})},
+                        "sub_category": {"type": "string", "enum": sorted({pair[1] for pair in contract.categories})},
                         "mechanism_evidence_ids": {"type": "array", "items": {"type": "string"}},
                         "observation_note": {"type": "string"},
                     },
