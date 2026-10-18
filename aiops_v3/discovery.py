@@ -503,6 +503,12 @@ def _pad_roots(bundle: ClusterBundle, body_roots: list[dict],
             node = root["network_element_id"]
             if node not in roots:
                 roots.append(node)
+    if len(roots) < 5:
+        for node in sorted(contract.nodes):
+            if len(roots) >= 5:
+                break
+            if node not in roots:
+                roots.append(node)
     if len(roots) != 5:
         return None
     return roots
