@@ -33,6 +33,7 @@ class DetectorSettings:
     prefix_aware_blackhole: bool = False
     netflow_events: bool = False
     netflow_stats_path: str | None = None
+    netflow_volume: bool = False
     keep_weak_cpu: bool = False
 
 
@@ -492,13 +493,15 @@ def _load_netflow_events(store: FeatureStore, settings: DetectorSettings) -> lis
     """Convert compact NetFlow response-loss windows into detection events."""
     from pathlib import Path
 
-    from .netflow_detection import detect as detect_netflow, signal_rows
+    from .netflow_detection import NetflowSettings, detect as detect_netflow, signal_rows
     from .netflow_stats import load_stats
 
     if not settings.netflow_stats_path:
         raise ValueError("netflow_events requires netflow_stats_path")
     rows = load_stats(Path(settings.netflow_stats_path))
-    netflow_events = detect_netflow(rows, minute_count=store.manifest["minute_count"])
+    netflow_settings = NetflowSettings(min_volume_minutes=3 if settings.netflow_volume else 0)
+    netflow_events = detect_netflow(rows, minute_count=store.manifest["minute_count"],
+                                    settings=netflow_settings)
     events: list[Event] = []
     for index, netflow in enumerate(netflow_events, 1):
         signals = tuple(Signal(**item) for item in signal_rows(netflow))

@@ -87,6 +87,7 @@ def run(
     prefix_aware_blackhole: bool = False,
     netflow_stats: Path | None = None,
     netflow_events: bool = False,
+    netflow_volume: bool = False,
     keep_weak_cpu: bool = False,
     role_results: Path | None = None,
     role_scope: str = "all",
@@ -129,6 +130,7 @@ def run(
                                  prefix_aware_blackhole=prefix_aware_blackhole,
                                  netflow_events=netflow_events,
                                  netflow_stats_path=str(netflow_stats) if netflow_stats else None,
+                                 netflow_volume=netflow_volume,
                                  keep_weak_cpu=keep_weak_cpu,
                                  rule_overrides=rule_overrides)
                 if detector_profile == "conservative"
@@ -141,6 +143,7 @@ def run(
                                       prefix_aware_blackhole=prefix_aware_blackhole,
                                       netflow_events=netflow_events,
                                       netflow_stats_path=str(netflow_stats) if netflow_stats else None,
+                                      netflow_volume=netflow_volume,
                                       keep_weak_cpu=keep_weak_cpu,
                                       rule_overrides=rule_overrides))
     detection = detect_with_audit(store, settings)
@@ -221,6 +224,7 @@ def run(
         "role_scope": role_scope if mode == "roles-jsonl" else None,
         "netflow_stats_sha256": _sha256(netflow_stats) if netflow_stats else None,
         "netflow_events": netflow_events,
+        "netflow_volume": netflow_volume,
         "code_sha256": {
             str(path.relative_to(package_dir)): _sha256(path)
             for path in sorted((*package_dir.rglob("*.py"), *package_dir.glob("config/*.json")))
@@ -270,6 +274,7 @@ def main() -> None:
     parser.add_argument("--llm-responses", type=Path)
     parser.add_argument("--netflow-stats", type=Path)
     parser.add_argument("--netflow-events", action="store_true")
+    parser.add_argument("--netflow-volume", action="store_true")
     parser.add_argument("--keep-weak-cpu", action="store_true")
     parser.add_argument("--role-results", type=Path)
     parser.add_argument("--role-scope", choices=("all", "ambiguous"), default="all")
@@ -287,8 +292,9 @@ def main() -> None:
                   args.temporal_context, args.routing_dimension_detection,
                   args.cross_city_merge_policy, args.calibration_profile,
                   args.exact_bgp_session_merge, args.prefix_aware_blackhole,
-                  args.netflow_stats, args.netflow_events, args.keep_weak_cpu,
-                  args.role_results, args.role_scope, not args.no_boundary_refine)
+                  args.netflow_stats, args.netflow_events, args.netflow_volume,
+                  args.keep_weak_cpu, args.role_results, args.role_scope,
+                  not args.no_boundary_refine)
     print(json.dumps(asdict(summary), default=str))
 
 
