@@ -40,14 +40,15 @@ _ROLE_INSTRUCTIONS = {
         "'uncertain' with a null boundary. If supported, you may adjust the window "
         "by at most 10 minutes per side; duration must stay between 1 and 30 "
         "minutes and must keep at least 60% Dice overlap with the original window. "
-        "Cite the evidence ids that support or contradict the decision."
+        "Cite the evidence ids that support or contradict the decision. "
+        "Keep observations to at most two short bullets."
     ),
     "localize": (
         "Rank up to five distinct root-cause candidates from the candidate list. "
         "Rank must start at 1 and be consecutive. Every cited evidence id must "
         "belong to the network element you cite (see the evidence owner map). "
         "Rank 1 needs direct evidence or support from at least two independent "
-        "observers; never rank a candidate without evidence."
+        "observers; lower ranks may reuse rank 1 evidence. Keep observations to at most two short bullets."
     ),
     "classify": (
         "Choose one official major/sub category pair for the confirmed incident. "
@@ -170,7 +171,7 @@ def _material(pack: EvidencePack, baseline: Diagnosis, upstream: dict[str, dict]
     node_ids = sorted(contract_nodes(pack))
     ordered = sorted(pack.signals, key=lambda item: (
         0 if item.role == "direct" else 1 if item.role == "symptom" else 2,
-        -float(item.score), item.evidence_id))[:24]
+        -float(item.score), item.evidence_id))[:16]
     observations = [
         {
             "evidence_id": signal.evidence_id,
@@ -192,7 +193,7 @@ def _material(pack: EvidencePack, baseline: Diagnosis, upstream: dict[str, dict]
             "evidence_ids": list(candidate.evidence_ids),
             "prior": pack.candidate_priors.get(candidate.node),
         }
-        for candidate in pack.candidates
+        for candidate in pack.candidates[:10]
     ]
     return {
         "event": {
@@ -202,11 +203,9 @@ def _material(pack: EvidencePack, baseline: Diagnosis, upstream: dict[str, dict]
             "duration_minutes": _duration_minutes(pack),
         },
         "observations": observations,
-        "observers": list(pack.observers),
-        "topology": {node: list(value) for node, value in pack.topology.items()},
+        "observers": list(pack.observers)[:10],
         "quality": dict(pack.quality),
         "candidates": candidates,
-        "evidence_owners": dict(pack.evidence_owners),
         "rule_baseline": {
             "root_cause_top5": list(baseline.roots),
             "fault_category": {"major_category": baseline.category[0],
