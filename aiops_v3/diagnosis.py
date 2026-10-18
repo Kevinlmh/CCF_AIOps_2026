@@ -196,7 +196,7 @@ def _netflow_candidates(store, signals: list[Signal], contract: OfficialContract
     candidates: list[Candidate] = []
 
     def add(node: str, score: float, reason: str, evidence=()):
-        if node not in contract.nodes:
+        if node not in contract.nodes or node in priors:
             return
         priors[node] = reason
         candidates.append(Candidate(node, score, tuple(evidence), reason))
@@ -208,11 +208,17 @@ def _netflow_candidates(store, signals: list[Signal], contract: OfficialContract
     if direct_netflow:
         target = direct_netflow[0].node
         city = target.split("-", 1)[0]
-        add(target, 0.95, "service_target", (direct_netflow[0].evidence_id,))
-        for role in ("service-vm-2", "service-vm-3"):
-            add(f"{city}-{role}", 0.60, "same_city_service")
-        for role in ("fw", "cr-1", "br-1"):
-            add(f"{city}-{role}", 0.45, "same_city_fallback")
+        target_role = target.split("-", 1)[1] if "-" in target else ""
+        if target_role.startswith(("br", "cr", "fw")):
+            add(target, 0.95, "path_target", (direct_netflow[0].evidence_id,))
+            for role, score in (("br-2", 0.80), ("cr-1", 0.80), ("cr-2", 0.75), ("fw", 0.75)):
+                add(f"{city}-{role}", score, "same_city_path_fallback")
+        else:
+            add(target, 0.95, "service_target", (direct_netflow[0].evidence_id,))
+            for role in ("service-vm-2", "service-vm-3"):
+                add(f"{city}-{role}", 0.60, "same_city_service")
+            for role in ("fw", "cr-1", "br-1"):
+                add(f"{city}-{role}", 0.45, "same_city_fallback")
     else:
         for signal in context:
             add(signal.node, 0.90 if signal.node.endswith("-br-1") else 0.80,
