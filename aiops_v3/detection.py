@@ -34,6 +34,8 @@ class DetectorSettings:
     netflow_events: bool = False
     netflow_stats_path: str | None = None
     netflow_volume: bool = False
+    netflow_subset_minutes: int = 3
+    routing_change_detection: bool = False
     keep_weak_cpu: bool = False
 
 
@@ -499,7 +501,9 @@ def _load_netflow_events(store: FeatureStore, settings: DetectorSettings) -> lis
     if not settings.netflow_stats_path:
         raise ValueError("netflow_events requires netflow_stats_path")
     rows = load_stats(Path(settings.netflow_stats_path))
-    netflow_settings = NetflowSettings(min_volume_minutes=3 if settings.netflow_volume else 0)
+    netflow_settings = NetflowSettings(
+        min_volume_minutes=3 if settings.netflow_volume else 0,
+        min_subset_minutes=settings.netflow_subset_minutes)
     netflow_events = detect_netflow(rows, minute_count=store.manifest["minute_count"],
                                     settings=netflow_settings)
     events: list[Event] = []
@@ -572,7 +576,11 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
             symptom_active.setdefault(edge["target"], np.zeros(count, bool))
     scored: list[tuple[_Rule, np.ndarray, np.ndarray, str]] = []
     prefix_unresolved: list[dict] = []
-    for default_rule in _NODE_RULES:
+    rules_to_scan = list(_NODE_RULES)
+    if settings.routing_change_detection:
+        rules_to_scan.append(_Rule("routing.ipv6_route_change_total", "bgp_route_flap",
+                                   1, 0.5, 2.0))
+    for default_rule in rules_to_scan:
         override = settings.rule_overrides.get(default_rule.feature, {})
         rule = replace(default_rule, **{key: value for key, value in override.items()
                                         if key in {"floor", "absolute"}})

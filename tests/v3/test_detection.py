@@ -225,6 +225,17 @@ def test_conservative_profile_audits_short_weak_cpu_only_event(tmp_path):
     assert [item["reason"] for item in result.rejected] == ["short_weak_single_cpu_signal"]
 
 
+def test_routing_change_detection_is_opt_in(tmp_path):
+    values = np.zeros((20, 1, 1), np.float32)
+    values[5, 0, 0] = 3
+    values[6, 0, 0] = 4
+    store = multi_node_store(tmp_path, ["xian-br-1"], ["routing.ipv6_route_change_total"], values)
+    assert detect(store) == []
+    events = detect(store, DetectorSettings(routing_change_detection=True))
+    assert [(event.start_minute, event.end_minute) for event in events] == [(5, 7)]
+    assert events[0].signals[0].category == "bgp_route_flap"
+
+
 def test_keep_weak_cpu_flag_keeps_short_weak_event(tmp_path):
     store = fixture_store(tmp_path, [10] * 5 + [35] * 3 + [10] * 8)
     result = detect_with_audit(store, DetectorSettings(weak_cpu_max_minutes=3,

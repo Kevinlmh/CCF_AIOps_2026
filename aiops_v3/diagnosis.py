@@ -448,6 +448,7 @@ def _category(signals: list[Signal], root: str, contract: OfficialContract) -> t
             "ospf6_neighbor_down": ("routing", "ospf6_neighbor_down"),
             "ospf6_interface_flap": ("routing", "ospf6_interface_flap"),
             "ospf6_cost_anomaly": ("routing", "ospf6_cost_anomaly"),
+            "bgp_route_flap": ("routing", "bgp_route_flap"),
         }
         pair = mapping.get(signal.category)
         if pair in contract.categories:
