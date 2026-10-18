@@ -83,6 +83,7 @@ def run(
     cross_city_merge_policy: str = "correlated",
     calibration_profile: Path | None = None,
     exact_bgp_session_merge: bool = False,
+    prefix_aware_blackhole: bool = False,
 ) -> RunSummary:
     if mode not in {"rules", "llm-jsonl"}:
         raise ValueError(f"unknown diagnosis mode: {mode}")
@@ -112,6 +113,7 @@ def run(
                                  routing_dimension_detection=routing_dimension_detection,
                                  cross_city_merge_policy=cross_city_merge_policy,
                                  exact_bgp_session_merge=exact_bgp_session_merge,
+                                 prefix_aware_blackhole=prefix_aware_blackhole,
                                  rule_overrides=rule_overrides)
                 if detector_profile == "conservative"
                 else DetectorSettings(request_aware_service=request_aware_service,
@@ -120,6 +122,7 @@ def run(
                                       routing_dimension_detection=routing_dimension_detection,
                                       cross_city_merge_policy=cross_city_merge_policy,
                                       exact_bgp_session_merge=exact_bgp_session_merge,
+                                      prefix_aware_blackhole=prefix_aware_blackhole,
                                       rule_overrides=rule_overrides))
     detection = detect_with_audit(store, settings)
     responses = load_diagnoses(llm_responses) if mode == "llm-jsonl" else {}
@@ -224,6 +227,8 @@ def main() -> None:
     parser.add_argument("--cross-city-merge-policy", choices=("correlated", "same_city"),
                         default="correlated")
     parser.add_argument("--exact-bgp-session-merge", action="store_true")
+    parser.add_argument("--prefix-aware-blackhole", action="store_true",
+                        help="Require a same-prefix observed presence-to-absence onset")
     parser.add_argument("--llm-responses", type=Path)
     parser.add_argument("--calibration-profile", type=Path)
     args = parser.parse_args()
@@ -237,7 +242,7 @@ def main() -> None:
                   args.service_overlap_policy, args.routing_context_candidates,
                   args.temporal_context, args.routing_dimension_detection,
                   args.cross_city_merge_policy, args.calibration_profile,
-                  args.exact_bgp_session_merge)
+                  args.exact_bgp_session_merge, args.prefix_aware_blackhole)
     print(json.dumps(asdict(summary), default=str))
 
 

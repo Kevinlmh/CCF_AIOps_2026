@@ -30,6 +30,7 @@ class DetectorSettings:
     cross_city_merge_policy: str = "correlated"
     exact_bgp_session_merge: bool = False
     rule_overrides: dict[str, dict[str, float]] = field(default_factory=dict)
+    prefix_aware_blackhole: bool = False
 
 
 @dataclass(frozen=True)
@@ -437,6 +438,44 @@ def _consolidate(store: FeatureStore, events: list[Event], settings: DetectorSet
             for index, event in enumerate(consolidated, 1)], merged
 
 
+def _blackhole_prefix_support(store: FeatureStore, threshold: float) -> tuple[np.ndarray, list[dict]]:
+    """Require an observed onset in the same contiguous per-prefix series.
+
+    Initial absence and absence after a collection gap remain unresolved. A
+    different prefix's earlier presence cannot establish this prefix's onset.
+    """
+    supported = np.zeros((store.manifest['minute_count'], len(store.nodes)), bool)
+    nodes = {node: index for index, node in enumerate(store.nodes)}
+    unresolved = []
+    found = False
+    for series in store.iter_dimension_series(source='routing'):
+        prefix = dict(series.dimensions).get('prefix')
+        if series.metric != 'routing.ipv6_route_exists' or not prefix:
+            continue
+        found = True
+        times, values = np.asarray(series.time_indices), np.asarray(series.values)
+        if not len(times):
+            continue
+        missing = np.isfinite(values) & (values <= threshold)
+        contiguous = np.diff(times.astype(np.int64)) == 1
+        starts = np.flatnonzero(missing & np.r_[True, ~missing[:-1] | ~contiguous])
+        ends = np.flatnonzero(missing & np.r_[~missing[1:] | ~contiguous, True]) + 1
+        for start, end in zip(starts, ends):
+            if (start > 0 and contiguous[start - 1]
+                    and np.isfinite(values[start - 1]) and values[start - 1] > threshold):
+                supported[times[start:end], nodes[series.node_id]] = True
+            else:
+                unresolved.append({
+                    'reason': 'blackhole_onset_unobserved', 'node': series.node_id,
+                    'prefix': prefix, 'start_minute': int(times[start]),
+                    'end_minute': int(times[end - 1]) + 1,
+                    'status': 'unresolved_observation',
+                })
+    if not found:
+        raise ValueError('prefix-aware blackhole detection requires per-prefix routing evidence')
+    return supported, unresolved
+
+
 def detect_with_audit(store: FeatureStore, settings: DetectorSettings = DetectorSettings()) -> DetectionResult:
     if settings.service_overlap_policy not in {"city", "related_device"}:
         raise ValueError("unknown service overlap policy")
@@ -453,6 +492,7 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
             target_edges.setdefault(edge["target"], []).append(index)
             symptom_active.setdefault(edge["target"], np.zeros(count, bool))
     scored: list[tuple[_Rule, np.ndarray, np.ndarray, str]] = []
+    prefix_unresolved: list[dict] = []
     for default_rule in _NODE_RULES:
         override = settings.rule_overrides.get(default_rule.feature, {})
         rule = replace(default_rule, **{key: value for key, value in override.items()
@@ -463,7 +503,15 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
             continue
         data = np.asarray(store.node_values[:, :, column], np.float32)
         mask = np.asarray(store.node_mask[:, :, column], bool)
-        score, center = _scores(data, mask, rule, settings.baseline_strategy)
+        if rule.category == 'blackhole' and settings.prefix_aware_blackhole:
+            supported, prefix_unresolved = _blackhole_prefix_support(store, rule.absolute)
+            # Presence before the per-prefix onset establishes the binary
+            # reference, even if another prefix keeps the node minimum at zero.
+            center = np.ones(len(store.nodes), np.float32)
+            score = np.where(supported & mask & np.isfinite(data),
+                             np.maximum((1.0 - data) / rule.floor, 0), 0).astype(np.float32)
+        else:
+            score, center = _scores(data, mask, rule, settings.baseline_strategy)
         active = _supported(score, score_threshold, rule.immediate)
         score = np.where(active, score, 0)
         direct_active |= active
@@ -513,7 +561,7 @@ def detect_with_audit(store: FeatureStore, settings: DetectorSettings = Detector
         anchors.extend((start, end, "edge", target) for start, end in _groups(uncovered, settings) if end - start >= 2)
     anchors.sort(key=lambda item: (item[0], item[1], item[2], str(item[3])))
     events: list[Event] = []
-    rejected: list[dict] = []
+    rejected: list[dict] = list(prefix_unresolved)
     for start, end, anchor_kind, anchor_entity in anchors:
         signals: list[Signal] = []
         for rule, score, center, kind in scored:

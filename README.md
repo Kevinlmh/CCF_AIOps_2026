@@ -6,7 +6,9 @@ v3 从两批特征库读取多源观测，完成故障事件检测、根因 Top-
 
 ## 当前结果
 
-根目录 `result.jsonl` 当前为两批合并的 **395 条** BGP 双端合并版，官网反馈 **22.789581578083233/60**。此前 397 条路由上下文版保存在 `outputs/v3/stage1_stage2_routing_experimental_20261002.jsonl`，得分 22.78450382836741；原保守版 `outputs/v3/stage1_stage2_canonical_conservative_20261001.jsonl` 同为 397 条及 22.78450382836741。新版本仅合并第一批两组同窗 BGP 事件，第二批保持 76 条。
+截至 2026-10-17，本机根目录 `result.jsonl` 已更新为三批合并 **568 条**：历史两批395条保持不变，第三批173条启用可选的前缀起点校验。该三批文件尚无官网评分；第三批原版v3的866条及1261条合并文件保留作对照。修正依据、命令和限制见 [第三批前缀起点校验](docs/v3-stage3-prefix-onset-2026-10-17.md)。
+
+已评分的两批 **395 条** BGP 双端合并基线保存在 `outputs/v3/stage1_exact_bgp_candidate_stage2_control_verified_20261003.jsonl`，官网反馈 **22.789581578083233/60**。此前 397 条路由上下文版保存在 `outputs/v3/stage1_stage2_routing_experimental_20261002.jsonl`，得分 22.78450382836741；原保守版 `outputs/v3/stage1_stage2_canonical_conservative_20261001.jsonl` 同为 397 条及 22.78450382836741。395条版本仅合并第一批两组同窗 BGP 事件，第二批保持76条。
 
 `outputs/v3/` 保留了已评分合并文件、两批各自的预测/证据/审计、公开样例评测，以及可选服务器交接包。
 
