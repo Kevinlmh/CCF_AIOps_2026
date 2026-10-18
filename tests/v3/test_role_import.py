@@ -64,6 +64,24 @@ def test_invalid_category_falls_back_to_rules():
     assert "category" in fallbacks
 
 
+def test_missing_review_does_not_block_validated_fields():
+    pack, rules = setup_pack()
+    rows = bodies(pack)
+    rows.pop("review")
+    diagnosis, _, fallbacks = apply_roles(pack, rules, rows, load_contract())
+    assert diagnosis.roots[0] == "xian-br-1"
+    assert fallbacks == []
+
+
+def test_explicit_review_reject_vetoes_field():
+    pack, rules = setup_pack()
+    rows = bodies(pack)
+    rows["review"].update({"localize": "reject", "counter_evidence_ids": ["node:5:1:node.cpu_usage"]})
+    diagnosis, _, fallbacks = apply_roles(pack, rules, rows, load_contract())
+    assert diagnosis.roots == rules.roots
+    assert "roots" in fallbacks
+
+
 def test_missing_roles_keep_rule_diagnosis():
     pack, rules = setup_pack()
     diagnosis, boundary, fallbacks = apply_roles(pack, rules, {}, load_contract())

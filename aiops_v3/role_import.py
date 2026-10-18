@@ -57,8 +57,14 @@ def apply_roles(pack: EvidencePack, rules: Diagnosis, rows: dict[str, dict],
                   "localize": localize if localize_ok else {},
                   "classify": classify if classify_ok else {}}) is None
 
+    def approved(field: str) -> bool:
+        """A role validator is sufficient; a usable review can only veto."""
+        if review is None or not review_ok:
+            return True
+        return review.get(field) == "accept"
+
     roots = rules.roots
-    if localize_ok and review_ok and review.get("localize") == "accept":
+    if localize_ok and approved("localize"):
         ranked = [item["network_element_id"] for item in localize["ranked"]]
         padded = list(ranked)
         for node in rules.roots:
@@ -74,13 +80,13 @@ def apply_roles(pack: EvidencePack, rules: Diagnosis, rows: dict[str, dict],
         fallbacks.append("roots")
 
     category = rules.category
-    if classify_ok and review_ok and review.get("classify") == "accept":
+    if classify_ok and approved("classify"):
         category = (classify["major_category"], classify["sub_category"])
     else:
         fallbacks.append("category")
 
     boundary = None
-    if (confirm_ok and review_ok and review.get("confirm") == "accept"
+    if (confirm_ok and approved("confirm")
             and confirm.get("verdict") == "supported" and confirm.get("boundary")):
         boundary = {"start_time": confirm["boundary"]["start_time"],
                     "end_time": confirm["boundary"]["end_time"]}
