@@ -168,6 +168,9 @@ def _contract() -> OfficialContract:
 
 def _material(pack: EvidencePack, baseline: Diagnosis, upstream: dict[str, dict]) -> dict:
     node_ids = sorted(contract_nodes(pack))
+    ordered = sorted(pack.signals, key=lambda item: (
+        0 if item.role == "direct" else 1 if item.role == "symptom" else 2,
+        -float(item.score), item.evidence_id))[:24]
     observations = [
         {
             "evidence_id": signal.evidence_id,
@@ -179,7 +182,7 @@ def _material(pack: EvidencePack, baseline: Diagnosis, upstream: dict[str, dict]
             "score": round(float(signal.score), 4),
             "role": signal.role,
         }
-        for signal in pack.signals
+        for signal in ordered
     ]
     candidates = [
         {
@@ -234,7 +237,7 @@ def build_request(role: str, pack: EvidencePack, *, baseline: Diagnosis,
             "name": f"v3_role_{role}", "schema": schema}},
         "chat_template_kwargs": {"enable_thinking": False},
         "temperature": 0,
-        "max_tokens": 768,
+        "max_tokens": 512,
     }
 
 
@@ -318,7 +321,9 @@ def validate_localize(pack: EvidencePack, body: dict) -> str | None:
             return "rank_invalid"
         seen_nodes.add(node)
         ids = item["evidence_ids"]
-        if not isinstance(ids, list) or not ids:
+        if not isinstance(ids, list):
+            return "unknown_evidence"
+        if position == 1 and not ids:
             return "unknown_evidence"
         for evidence_id in ids:
             signal = signals.get(evidence_id)
@@ -384,7 +389,8 @@ def validate_review(pack: EvidencePack, body: dict, *, baseline: Diagnosis,
                            ("classify", body["classify"])):
         if decision == "accept" and checks[role] is not None:
             return "missing_upstream"
-        if decision == "reject" and not body["counter_evidence_ids"]:
+        if (decision == "reject" and checks[role] is None
+                and not body["counter_evidence_ids"]):
             return "counter_evidence_required"
     return None
 

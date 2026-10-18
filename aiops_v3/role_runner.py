@@ -8,6 +8,7 @@ as ``fallback`` so the importer keeps the rule value for that field.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -127,15 +128,30 @@ def run_roles(evidence_path: Path, out_dir: Path, *, model: str, revision: str,
                 audit_file.flush()
                 continue
             upstream: dict[str, dict] = {}
-            for role in ROLE_NAMES:
+
+            def fetch(role: str) -> dict:
                 key = (event_id, role)
                 cached_row = cached.get(key)
                 if cached_row is not None:
-                    if cached_row.get("status") == "accepted":
-                        upstream[role] = cached_row.get("body", {})
-                    continue
-                started = time.monotonic()
+                    return {"role": role, "cached": True, "row": cached_row}
                 payload = build_request(role, pack, baseline=baseline, upstream=upstream)
+                started = time.monotonic()
+                result = {"role": role, "cached": False, "payload": payload,
+                          "started": started, "body": None, "error": None}
+                try:
+                    result["body"] = _call(complete, payload)
+                except (KeyError, IndexError, TypeError, ValueError, OSError) as exc:
+                    result["error"] = f"request_failed:{type(exc).__name__}"
+                return result
+
+            def settle(result: dict) -> None:
+                role = result["role"]
+                if result["cached"]:
+                    row = result["row"]
+                    if row.get("status") == "accepted":
+                        upstream[role] = row.get("body", {})
+                    return
+                payload = result["payload"]
                 row = {
                     "event_id": event_id,
                     "evidence_sha256": record["evidence_sha256"],
@@ -143,24 +159,22 @@ def run_roles(evidence_path: Path, out_dir: Path, *, model: str, revision: str,
                     "prompt_sha256": _prompt_sha256(payload),
                     "model": model_id,
                     "status": "fallback",
-                    "body": None,
-                    "reason": None,
+                    "body": result["body"],
+                    "reason": result["error"],
                 }
-                try:
-                    body = _call(complete, payload)
-                    reason = validate(role, pack, body, baseline=baseline, upstream=upstream)
+                if result["body"] is not None:
+                    reason = validate(role, pack, result["body"], baseline=baseline,
+                                      upstream=upstream)
                     if reason is None:
                         row["status"] = "accepted"
-                        row["body"] = body
-                        upstream[role] = body
+                        upstream[role] = result["body"]
                         summary["roles"][role]["accepted"] += 1
                     else:
                         row["reason"] = reason
                         summary["roles"][role]["fallback"] += 1
-                except (KeyError, IndexError, TypeError, ValueError, OSError) as exc:
-                    row["reason"] = f"request_failed:{type(exc).__name__}"
+                else:
                     summary["roles"][role]["fallback"] += 1
-                row["seconds"] = round(time.monotonic() - started, 3)
+                row["seconds"] = round(time.monotonic() - result["started"], 3)
                 summary["roles"][role]["seconds"] += row["seconds"]
                 roles_file.write(json.dumps(row, ensure_ascii=False) + "\n")
                 roles_file.flush()
@@ -169,6 +183,28 @@ def run_roles(evidence_path: Path, out_dir: Path, *, model: str, revision: str,
                     "reason": row["reason"], "seconds": row["seconds"],
                 }, ensure_ascii=False) + "\n")
                 audit_file.flush()
+
+            settle(fetch("confirm"))
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(fetch, role) for role in ("localize", "classify")]
+                remaining = [future.result() for future in futures]
+            for result in remaining:
+                settle(result)
+            if "localize" not in upstream and "classify" not in upstream:
+                row = {"event_id": event_id, "evidence_sha256": record["evidence_sha256"],
+                       "role": "review", "prompt_sha256": "", "model": model_id,
+                       "status": "fallback", "body": None, "reason": "upstream_fallback",
+                       "seconds": 0.0}
+                summary["roles"]["review"]["fallback"] += 1
+                roles_file.write(json.dumps(row, ensure_ascii=False) + "\n")
+                roles_file.flush()
+                audit_file.write(json.dumps({
+                    "event_id": event_id, "role": "review", "status": "fallback",
+                    "reason": "upstream_fallback", "seconds": 0.0,
+                }, ensure_ascii=False) + "\n")
+                audit_file.flush()
+            else:
+                settle(fetch("review"))
     (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2))
     return summary
 
