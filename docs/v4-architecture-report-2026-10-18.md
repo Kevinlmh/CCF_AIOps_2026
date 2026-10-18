@@ -148,6 +148,4 @@ flowchart LR
 | 第三批 | 188 |
 | **合计** | **682** |
 
-- 输出文件：`outputs/v4/rerun_20261017/final_submission.jsonl`，SHA-256 `25cf0e3ddfa7c3236446e69b1e8e8c26d91ea4f8d87331ea6bf0440d6fdb482e`
-- 官方格式：字段恰好五字段，时间 UTC 毫秒 `+00:00`，`root_cause_top5` 统一 5 个、rank 1–5 连续、网元官方唯一，类别官方配对，`prediction_id` 唯一
-- 校验结果：**0 条不合规**
+最终得分19.43/100. 不如v3的33/100.
