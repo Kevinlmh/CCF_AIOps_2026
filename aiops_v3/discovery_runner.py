@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -76,8 +77,11 @@ def run_shard(*, input_store: Path, netflow_stats: Path | None, out_dir: Path,
             bundle = bundles[cluster_id]
             payload = build_request(bundle, contract)
             prompt_sha = _prompt_sha256(payload)
+            material_sha = hashlib.sha256(json.dumps(
+                bundle.material, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
             row = cached.get(cluster_id)
-            if row is None or row.get("prompt_sha256") != prompt_sha:
+            if (row is None or row.get("prompt_sha256") != prompt_sha
+                    or row.get("material_sha256") != material_sha):
                 started = time.monotonic()
                 body, error = None, None
                 for _attempt in range(2):
@@ -88,6 +92,7 @@ def run_shard(*, input_store: Path, netflow_stats: Path | None, out_dir: Path,
                     except (KeyError, IndexError, TypeError, ValueError, OSError) as exc:
                         error = f"{type(exc).__name__}"
                 row = {"cluster_id": cluster_id, "prompt_sha256": prompt_sha,
+                       "material_sha256": material_sha,
                        "model": model_id, "body": body, "error": error,
                        "seconds": round(time.monotonic() - started, 3)}
                 cache_file.write(json.dumps(row, ensure_ascii=False) + "\n")
