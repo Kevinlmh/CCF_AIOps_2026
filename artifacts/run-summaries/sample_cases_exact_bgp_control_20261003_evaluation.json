@@ -1,0 +1,45 @@
+{
+  "Total": 96.0111111111111,
+  "AD": 36.011111111111106,
+  "RCA": 40.0,
+  "Major": 10.0,
+  "Minor": 10.0,
+  "TP": 3,
+  "FP": 0,
+  "FN": 0,
+  "precision": 1.0,
+  "alpha_fp": 1.0,
+  "per_ground_truth": [
+    {
+      "ground_truth_id": "incident-0013",
+      "matched": true,
+      "prediction_id": "pred_000001",
+      "dice": 0.9037974683544304,
+      "ad": 0.8733333333333333,
+      "rca": 1.0,
+      "major": 1.0,
+      "minor": 1.0
+    },
+    {
+      "ground_truth_id": "incident-0017",
+      "matched": true,
+      "prediction_id": "pred_000002",
+      "dice": 0.9109090909090909,
+      "ad": 0.9183333333333333,
+      "rca": 1.0,
+      "major": 1.0,
+      "minor": 1.0
+    },
+    {
+      "ground_truth_id": "incident-0021",
+      "matched": true,
+      "prediction_id": "pred_000003",
+      "dice": 0.8968779564806055,
+      "ad": 0.9091666666666666,
+      "rca": 1.0,
+      "major": 1.0,
+      "minor": 1.0
+    }
+  ],
+  "unmatched_prediction_ids": []
+}

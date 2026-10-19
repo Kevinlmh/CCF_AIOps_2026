@@ -27,3 +27,16 @@ __pycache__/
 .DS_Store
 /submit.py
 /result.jsonl
+
+# Local agent state and generated audit tables
+/.claude/
+/.superpowers/
+/data_side/results/*
+!/data_side/results/raw_schema.csv
+!/data_side/results/field_dictionary_reconciled.csv
+!/data_side/results/public_case_evidence.json
+*.log
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm

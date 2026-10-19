@@ -1,0 +1,108 @@
+{
+  "verified": true,
+  "prediction_count": 395,
+  "merged_file": "outputs/v3/stage1_exact_bgp_candidate_stage2_control_verified_20261003.jsonl",
+  "merged_sha256": "273dba7296935e533c516026b44c749bfdc4388e6c0ec140bc3e108797da1505",
+  "batches": [
+    {
+      "run_dir": "outputs/v3/stage1_exact_bgp_candidate_verified_20261003",
+      "input_store": "data/feature_store/v3/stage1_canonical_20260930",
+      "source_profile": "unknown",
+      "prediction_count": 319,
+      "categories": {
+        "firewall/cpu_pressure": 13,
+        "resource/cpu_pressure": 79,
+        "resource/disk_io_pressure": 28,
+        "resource/disk_space_low": 7,
+        "resource/memory_pressure": 9,
+        "resource/process_pressure": 2,
+        "routing/bgp_session_down": 41,
+        "routing/ospf6_cost_anomaly": 5,
+        "service/auth_error": 33,
+        "service/auth_timeout": 8,
+        "service/dns_down": 42,
+        "service/web_5xx": 38,
+        "service/web_slow": 14
+      },
+      "evidence_tiers": {
+        "multi_metric_direct": 42,
+        "multi_node_direct": 53,
+        "multi_probe_symptom": 77,
+        "single_metric_direct": 89,
+        "single_probe_symptom": 58
+      },
+      "root_has_direct_evidence": 184,
+      "traffic_observation_count": 800,
+      "input_start": "2026-08-19T04:00:00+00:00",
+      "input_end": "2026-09-02T04:00:00+00:00"
+    },
+    {
+      "run_dir": "outputs/v3/stage2_exact_bgp_control_verified_20261003",
+      "input_store": "data/feature_store/v3/stage2_canonical_20261001",
+      "source_profile": "stage2",
+      "prediction_count": 76,
+      "categories": {
+        "firewall/cpu_pressure": 9,
+        "resource/cpu_pressure": 34,
+        "resource/disk_io_pressure": 12,
+        "resource/memory_pressure": 10,
+        "resource/process_pressure": 2,
+        "routing/bgp_session_down": 2,
+        "routing/ospf6_cost_anomaly": 7
+      },
+      "evidence_tiers": {
+        "multi_metric_direct": 24,
+        "multi_node_direct": 3,
+        "single_metric_direct": 49
+      },
+      "root_has_direct_evidence": 76,
+      "traffic_observation_count": 0,
+      "input_start": "2026-09-17T04:00:00+00:00",
+      "input_end": "2026-09-24T04:00:00+00:00"
+    }
+  ],
+  "same_category_overlap_pairs": 8,
+  "overlap_examples": [
+    {
+      "first": "v3-e000004",
+      "second": "v3-e000005",
+      "dice": 0.667
+    },
+    {
+      "first": "v3-e000043",
+      "second": "v3-e000046",
+      "dice": 0.643
+    },
+    {
+      "first": "v3-e000048",
+      "second": "v3-e000049",
+      "dice": 0.923
+    },
+    {
+      "first": "v3-e000112",
+      "second": "v3-e000113",
+      "dice": 0.5
+    },
+    {
+      "first": "v3-e000162",
+      "second": "v3-e000163",
+      "dice": 0.875
+    },
+    {
+      "first": "v3-e000210",
+      "second": "v3-e000211",
+      "dice": 0.786
+    },
+    {
+      "first": "v3-e000226",
+      "second": "v3-e000227",
+      "dice": 0.667
+    },
+    {
+      "first": "v3-e000036",
+      "second": "v3-e000037",
+      "dice": 0.485
+    }
+  ],
+  "accuracy_caveat": "No hidden ground truth was used; this is a consistency audit, not a score estimate."
+}

@@ -1,0 +1,54 @@
+{
+  "submission_S1": {
+    "rows": 580,
+    "months": {
+      "2026-08": 280,
+      "2026-09": 120,
+      "2026-10": 180
+    },
+    "categories": {
+      "resource/cpu_pressure": 188,
+      "resource/disk_io_pressure": 61,
+      "routing/bgp_session_down": 55,
+      "service/dns_down": 51,
+      "resource/memory_pressure": 43,
+      "service/web_5xx": 39,
+      "service/auth_error": 33,
+      "firewall/cpu_pressure": 32,
+      "routing/ospf6_cost_anomaly": 28,
+      "service/web_slow": 14,
+      "service/auth_timeout": 10,
+      "resource/disk_space_low": 9,
+      "routing/bgp_route_filter": 9,
+      "resource/process_pressure": 4,
+      "routing/blackhole": 3,
+      "routing/ospf6_neighbor_down": 1
+    }
+  },
+  "submission_S2": {
+    "rows": 580,
+    "months": {
+      "2026-08": 280,
+      "2026-09": 120,
+      "2026-10": 180
+    },
+    "categories": {
+      "resource/cpu_pressure": 188,
+      "resource/disk_io_pressure": 60,
+      "routing/bgp_session_down": 55,
+      "service/dns_down": 52,
+      "resource/memory_pressure": 43,
+      "service/web_5xx": 39,
+      "service/auth_error": 33,
+      "firewall/cpu_pressure": 32,
+      "routing/ospf6_cost_anomaly": 28,
+      "service/web_slow": 14,
+      "service/auth_timeout": 10,
+      "resource/disk_space_low": 9,
+      "routing/bgp_route_filter": 9,
+      "resource/process_pressure": 4,
+      "routing/blackhole": 3,
+      "routing/ospf6_neighbor_down": 1
+    }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "format": "v3-netflow-service-v1",
+  "start_time": "2026-09-17T04:00:00+00:00",
+  "minute_count": 10080,
+  "rows": 180267,
+  "minutes": 10080,
+  "services": [
+    "auth",
+    "dns",
+    "web"
+  ],
+  "input_sha256": {
+    "wuhan_20260919040000_20260921040000/wuhan/netflow_5tuple_minute_readable.csv": "4c9d92c38743880d785d1701be3a3f7cd91288261503012f9fa5fd804e319cce",
+    "shanghai_20260917040000_20260919040000/shanghai/netflow_5tuple_minute_readable.csv": "9d87cbcddf82c5cfee13a117dedf8b25df880dbea66a471b86131202b1272330",
+    "beida_20260919040000_20260921040000/beida/netflow_5tuple_minute_readable.csv": "35d6bc9acab413b2f9126da044ea77b9398ac8d7fcbbd13aea31bc8e26f436f9",
+    "beida_20260917040000_20260919040000/beida/netflow_5tuple_minute_readable.csv": "e5deca57d13ff56c57de5921f05c9efbbda7333d903d2e809270ebf9b74c6947",
+    "shanghai_20260921040000_20260924040000/shanghai/netflow_5tuple_minute_readable.csv": "b4c94f38db9fc58faed534f302aa0966a31a70126e6ba813b7fff47e2d6fd62a",
+    "beida_20260921040000_20260924040000/beida/netflow_5tuple_minute_readable.csv": "c34ca25e5d6a1fb721e04b340e7c596e6a3f2dedcf590e0fbd1c532a4a91afd6",
+    "wuhan_20260921040000_20260924040000/wuhan/netflow_5tuple_minute_readable.csv": "2cfbdde725172d46e29d4c60ee0b586199ff0303d0807dbba51af7c8e244f46a",
+    "wuhan_20260917040000_20260919040000/wuhan/netflow_5tuple_minute_readable.csv": "f56dd8198ef7f7b6d2162551cd60f91d94851d77da18ce1d6624094141e751b7",
+    "shanghai_20260919040000_20260921040000/shanghai/netflow_5tuple_minute_readable.csv": "1eca8f0d32d677c9ae00cddd972b71034817ba51fa34ba266e22a4e220b65975"
+  },
+  "input_files": [
+    "wuhan_20260919040000_20260921040000/wuhan/netflow_5tuple_minute_readable.csv",
+    "shanghai_20260917040000_20260919040000/shanghai/netflow_5tuple_minute_readable.csv",
+    "beida_20260919040000_20260921040000/beida/netflow_5tuple_minute_readable.csv",
+    "beida_20260917040000_20260919040000/beida/netflow_5tuple_minute_readable.csv",
+    "shanghai_20260921040000_20260924040000/shanghai/netflow_5tuple_minute_readable.csv",
+    "beida_20260921040000_20260924040000/beida/netflow_5tuple_minute_readable.csv",
+    "wuhan_20260921040000_20260924040000/wuhan/netflow_5tuple_minute_readable.csv",
+    "wuhan_20260917040000_20260919040000/wuhan/netflow_5tuple_minute_readable.csv",
+    "shanghai_20260919040000_20260921040000/shanghai/netflow_5tuple_minute_readable.csv"
+  ],
+  "input_paths": [
+    "/data/liminghang/CCF_AIOps_2026/stage2_extract/wuhan_20260919040000_20260921040000/wuhan/netflow_5tuple_minute_readable.csv",
+    "/data/liminghang/CCF_AIOps_2026/stage2_extract/shanghai_20260917040000_20260919040000/shanghai/netflow_5tuple_minute_readable.csv",
+    "/data/liminghang/CCF_AIOps_2026/stage2_extract/beida_20260919040000_20260921040000/beida/netflow_5tuple_minute_readable.csv",
+    "/data/liminghang/CCF_AIOps_2026/stage2_extract/beida_20260917040000_20260919040000/beida/netflow_5tuple_minute_readable.csv",
+    "/data/liminghang/CCF_AIOps_2026/stage2_extract/shanghai_20260921040000_20260924040000/shanghai/netflow_5tuple_minute_readable.csv",
+    "/data/liminghang/CCF_AIOps_2026/stage2_extract/beida_20260921040000_20260924040000/beida/netflow_5tuple_minute_readable.csv",
+    "/data/liminghang/CCF_AIOps_2026/stage2_extract/wuhan_20260921040000_20260924040000/wuhan/netflow_5tuple_minute_readable.csv",
+    "/data/liminghang/CCF_AIOps_2026/stage2_extract/wuhan_20260917040000_20260919040000/wuhan/netflow_5tuple_minute_readable.csv",
+    "/data/liminghang/CCF_AIOps_2026/stage2_extract/shanghai_20260919040000_20260921040000/shanghai/netflow_5tuple_minute_readable.csv"
+  ],
+  "code_sha256": "22453e277e9e02ee9a552d09a56f6f3542b2ae5a8617c3f13338a2d8ee857a83",
+  "skipped": {
+    "out_of_range": 0,
+    "unparseable_minute": 0,
+    "malformed": 0,
+    "unattributed": 0
+  }
+}

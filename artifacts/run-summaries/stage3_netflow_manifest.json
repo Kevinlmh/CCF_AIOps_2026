@@ -1,0 +1,11 @@
+{
+  "format": "v3-netflow-service-v1",
+  "start_time": "2026-10-01T04:00:00+00:00",
+  "minute_count": 20160,
+  "rows": 604076,
+  "parts": [
+    "data/netflow_stats/stage3_beida.jsonl",
+    "data/netflow_stats/stage3_shanghai.jsonl",
+    "data/netflow_stats/stage3_wuhan.jsonl"
+  ]
+}

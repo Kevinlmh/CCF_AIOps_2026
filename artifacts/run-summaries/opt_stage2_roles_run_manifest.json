@@ -1,0 +1,289 @@
+{
+  "format_version": 1,
+  "mode": "roles-jsonl",
+  "detector_profile": "conservative",
+  "source_aware_candidates": false,
+  "routing_context_candidates": true,
+  "temporal_context": true,
+  "input_store": "data/feature_store/v3/stage2_canonical_20261001",
+  "input_manifest_sha256": "0ee7b71e77d4c50e8a34a37dc4c1e74478d9743c43efec1857ae28598d893b13",
+  "input_array_sha256": {
+    "node_values": "3c7fb246cd1301f5802d49d2dae17aa81b4d727a1e6c741bc3f762a083de86b7",
+    "node_mask": "890e667536e383dfa998195a5915ad6c33097798500d3773f7c2136ddf096726",
+    "edge_values": "45c1ca3044c47eb5d6f861cf62c2ff523197079ac7dd43957d23514bd599bf25",
+    "edge_mask": "f2f3bdb2a92e71580bcf19bff47d5a2f933768a05406f4c769c1fbe482a42141",
+    "log_values": "ad0cea63ed857de8e5610ea08387dccf23982b043395bdd3962985770b6abc24",
+    "log_mask": "09fd0189a4940c0c9d4ebb29d1a14ead993b064a876aeb5c9fef00f914f0a189"
+  },
+  "input_sidecar_sha256": {
+    "dimension_series.json": "3944767edc94cae740e94fa58353e4471454e638a314e721ddcf15dca9c156cd",
+    "dimension_cells.npy": "2c3cb86759498506c68f5d9b7702d6fa3a313b004fa1539cb914702536166f6c",
+    "text_evidence.jsonl": "716e0eb46f5398e4255c218ee8b7b0fd217d48bbdef50cd895ac2e2bfdcb4916"
+  },
+  "llm_responses_sha256": null,
+  "role_results_sha256": "701c51feb2e2c68ad7ce082a3f4c0d029b0ed15264b95877eabec085d0efd7c6",
+  "role_scope": "all",
+  "netflow_stats_sha256": "ed5a94b9af26031677c40738365d83eb940c2ec53fe3ff9ca0c6ba8fb6d51fff",
+  "netflow_events": true,
+  "code_sha256": {
+    "__init__.py": "102b121e64c562e91e45128224f92e9fe85bf328f74d1d8e6e539c1df79eb3b4",
+    "build_features.py": "f1d348e778a3e90c79672993df524bc2a7fec33c82eb343550e840c8af740a6c",
+    "calibration.py": "aada8e5e4fccffb76061317e91d7f44a1e752985307057cfb136ef5ddf3e0b1d",
+    "classification.py": "bde638bd7d26d3b5efc8d7aeece3f82501418920b01a8a88cf693b6e2db74edd",
+    "compare_runs.py": "d0906609791ab190db1074de9006d03a5cc8e5dc32e4581739f13dcb12e3bac1",
+    "compare_stores.py": "60379d2697462d4c74abe7b889026b32c11022020ba49a19703f40efac75f7d9",
+    "config/fault_taxonomy.json": "ab13a21bfe8eef8775a93d70474257c428940d3f2b8b7b161cc252e036dea3df",
+    "config/network_elements.json": "31c28b1df3fc4e69f6f9d6b22b9f91349f954e61e4386701c127f81608c81c93",
+    "contracts.py": "59e6875c4cdbeca0d1b588ed939c166097517b2409e846d255dd2367908d0735",
+    "data/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "data/build.py": "00b5bde7bcaa7c375d35fabe1d4c4c31f31fe1b32ec794ec5f04508d48c0efb2",
+    "data/contracts.py": "c4f28ee8be8950f4c0fc821f7928fb1483235da5dc537745abb6fe522e76fed3",
+    "data/feature_store.py": "89c0d37064a225bc06c03c53c74a48c5c0b11f7dfdcd996ff97c44b231decbf9",
+    "data/features.py": "83c5d98b2ac3237c8382459dc5ad5b3e0bf2223531abe5b3a8de5ba7089c4079",
+    "data/multisource.py": "f3bdb80f91946594e3a7322b0addb96a46eb9647805bd445de9dbf0447e17072",
+    "data/observations.py": "1e05992255eca87798789065554a8f59bb108eef78ef88738da68ed3cb2e6a2f",
+    "data/projection.py": "5e50af60bfd6d17ed2758bfbc814f1920180a9f7c40a7cd4918040a8c89c75c7",
+    "data/registry.py": "e5b4e84c9b022893cef344f6aa0a659eb4b0567b85e86c96453463195b5354b3",
+    "data/source.py": "575b014d3697d2ef254e18f00a6d376a770c2e1f74f6ec4f7f0bc9a6fd99d36b",
+    "detection.py": "2d638c22667fa07a6b8f8a4d065b938404da5c3793caa1ec2b28dcdd1b4030e1",
+    "diagnosis.py": "c2b629b09281d49717863a9aa794c61caec93d82e310b520a671f9d4a10eb479",
+    "evaluation.py": "89d42c67e2c9f2a36206368762ed9ad883140a33a6b334aaee6a8ddbf4c34b3f",
+    "merge.py": "8a0e54ac17991f178d1c81d68ff8c3ce0685d26bb869a09536cb9efd743c519c",
+    "netflow_detection.py": "b66989c6f3ed040bea49de47e590f55d8c08c5a2244619523f195ebc9def2ebe",
+    "netflow_stats.py": "22453e277e9e02ee9a552d09a56f6f3542b2ae5a8617c3f13338a2d8ee857a83",
+    "optional_llm.py": "43eb7553241481f8cbe44b7e0b7aae5d9ac80405be58f44ce546db65c4cdc8b3",
+    "output.py": "e2f4d03f66928117585fd8f9ba0ac5c26d6d53e30752f6cf7d8a316375cf289b",
+    "prediction_audit.py": "225f112eeb62f997e267a35df37666d6b641251abe213ba5cd942ca699148499",
+    "raw.py": "14466d46ccfb615fff6e292c14ea79fcaf93f605c25a4701189e9a9edd8eb3a9",
+    "role_import.py": "daa4ad11a89229e91e2835b537d4ed6181541ba4330f0c4b197cb4f49acee472",
+    "role_runner.py": "d18831e113d9f844fab717d841bbd33f91885ba458b99235ce982cb80c6b48de",
+    "roles.py": "328e3860185a8804eb614eb6166d35aa50bfdf1c9878bb2705d7ebd8c253c4ad",
+    "routing_audit.py": "4db1cf85e1252e8688d196e1abe183dae8fcead549cd2f23f1f24a488f92c340",
+    "run.py": "9948134a00e62630dcd1e29d8dabb95be90e0faf79e6ed2643769d8055d1fa7e",
+    "server_llm.py": "955bb1150e266d20541cb695a897ac19b4df76b735cb3e518079d288ee887ad9",
+    "store.py": "e5d4065fbf7ca746631e6d7ece53a63704753a36d92a4d5417c427453019f578"
+  },
+  "output_sha256": {
+    "predictions.jsonl": "71f91e64f696eceb2f6ce5893e7ecae524d8a1e8f253a7379ed7b4e03b47e425",
+    "evidence.jsonl": "a8102614e58110ece8604b03e9f093ba7350957016f8f0417ef5c87017992481",
+    "audit.jsonl": "e05e346f16395162e44111a1712ee56aad03c517655caad69e1ed193b9cbcad3"
+  },
+  "source_counts": {
+    "interface": 43901496,
+    "netflow": 10256616,
+    "node": 8708036,
+    "routing": 20104282,
+    "scrape": 3144960
+  },
+  "source_profile": "stage2",
+  "calibration_profile_sha256": null,
+  "calibration_status": null,
+  "detector_settings": {
+    "score_threshold": 4.0,
+    "merge_gap_minutes": 1,
+    "max_event_minutes": 30,
+    "max_signals_per_event": 60,
+    "bgp_flap_gap_minutes": 4,
+    "coincident_onset_minutes": 1,
+    "coincident_overlap_fraction": 0.5,
+    "trajectory_correlation_min": 0.75,
+    "min_component_dice": 0.4,
+    "weak_cpu_max_minutes": 3,
+    "weak_cpu_max_score": 8,
+    "request_aware_service": false,
+    "service_overlap_policy": "city",
+    "baseline_strategy": "global_median",
+    "routing_dimension_detection": true,
+    "cross_city_merge_policy": "correlated",
+    "exact_bgp_session_merge": false,
+    "rule_overrides": {},
+    "prefix_aware_blackhole": false,
+    "netflow_events": true,
+    "netflow_stats_path": "data/netflow_stats/stage2_service.jsonl"
+  },
+  "event_count": 81,
+  "fallback_count": 42,
+  "rejected_events": [
+    {
+      "event_id": "v3-e000001",
+      "start_minute": 40,
+      "end_minute": 42,
+      "reason": "short_weak_single_cpu_signal"
+    },
+    {
+      "event_id": "v3-e000007",
+      "start_minute": 285,
+      "end_minute": 287,
+      "reason": "short_weak_single_cpu_signal"
+    },
+    {
+      "event_id": "v3-e000008",
+      "start_minute": 289,
+      "end_minute": 291,
+      "reason": "short_weak_single_cpu_signal"
+    },
+    {
+      "event_id": "v3-e000009",
+      "start_minute": 524,
+      "end_minute": 526,
+      "reason": "short_weak_single_cpu_signal"
+    },
+    {
+      "event_id": "v3-e000011",
+      "start_minute": 674,
+      "end_minute": 676,
+      "reason": "short_weak_single_cpu_signal"
+    },
+    {
+      "event_id": "v3-e000015",
+      "start_minute": 1240,
+      "end_minute": 1243,
+      "reason": "short_weak_single_cpu_signal"
+    },
+    {
+      "event_id": "v3-e000016",
+      "start_minute": 1252,
+      "end_minute": 1254,
+      "reason": "short_weak_single_cpu_signal"
+    },
+    {
+      "event_id": "v3-e000022",
+      "start_minute": 1863,
+      "end_minute": 1865,
+      "reason": "short_weak_single_cpu_signal"
+    },
+    {
+      "event_id": "v3-e000027",
+      "start_minute": 2117,
+      "end_minute": 2119,
+      "reason": "short_weak_single_cpu_signal"
+    },
+    {
+      "event_id": "v3-e000043",
+      "start_minute": 5125,
+      "end_minute": 5127,
+      "reason": "short_weak_single_cpu_signal"
+    },
+    {
+      "event_id": "v3-e000054",
+      "start_minute": 6477,
+      "end_minute": 6479,
+      "reason": "short_weak_single_cpu_signal"
+    },
+    {
+      "event_id": "v3-e000078",
+      "start_minute": 9149,
+      "end_minute": 9151,
+      "reason": "short_weak_single_cpu_signal"
+    },
+    {
+      "event_id": "v3-e000079",
+      "start_minute": 9161,
+      "end_minute": 9163,
+      "reason": "short_weak_single_cpu_signal"
+    },
+    {
+      "event_id": "v3-e000083",
+      "start_minute": 9274,
+      "end_minute": 9277,
+      "reason": "short_weak_single_cpu_signal"
+    },
+    {
+      "event_id": "v3-e000087",
+      "start_minute": 9600,
+      "end_minute": 9602,
+      "reason": "short_weak_single_cpu_signal"
+    },
+    {
+      "event_id": "v3-e000089",
+      "start_minute": 9751,
+      "end_minute": 9753,
+      "reason": "short_weak_single_cpu_signal"
+    }
+  ],
+  "merged_events": [
+    {
+      "reason": "synchronous_same_category",
+      "source_event_ids": [
+        "v3-e000010",
+        "v3-e000011"
+      ],
+      "final_event_id": "v3-e000010"
+    },
+    {
+      "reason": "synchronous_same_category",
+      "source_event_ids": [
+        "v3-e000022",
+        "v3-e000023"
+      ],
+      "final_event_id": "v3-e000021"
+    },
+    {
+      "reason": "synchronous_same_category",
+      "source_event_ids": [
+        "v3-e000071",
+        "v3-e000072"
+      ],
+      "final_event_id": "v3-e000069"
+    },
+    {
+      "reason": "synchronous_same_category",
+      "source_event_ids": [
+        "v3-e000071",
+        "v3-e000073"
+      ],
+      "final_event_id": "v3-e000069"
+    },
+    {
+      "reason": "synchronous_same_category",
+      "source_event_ids": [
+        "v3-e000071",
+        "v3-e000074"
+      ],
+      "final_event_id": "v3-e000069"
+    },
+    {
+      "reason": "synchronous_same_category",
+      "source_event_ids": [
+        "v3-e000071",
+        "v3-e000075"
+      ],
+      "final_event_id": "v3-e000069"
+    },
+    {
+      "reason": "netflow_service_overlap",
+      "source_event_ids": [
+        "v3-e000005",
+        "nf-000001"
+      ]
+    },
+    {
+      "reason": "netflow_service_overlap",
+      "source_event_ids": [
+        "v3-e000023",
+        "nf-000002"
+      ]
+    },
+    {
+      "reason": "netflow_service_overlap",
+      "source_event_ids": [
+        "v3-e000063",
+        "nf-000006"
+      ]
+    },
+    {
+      "reason": "netflow_service_overlap",
+      "source_event_ids": [
+        "v3-e000076",
+        "nf-000008"
+      ]
+    },
+    {
+      "reason": "netflow_service_overlap",
+      "source_event_ids": [
+        "v3-e000088",
+        "nf-000010"
+      ]
+    }
+  ]
+}

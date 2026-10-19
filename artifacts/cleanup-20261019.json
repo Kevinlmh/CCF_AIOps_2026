@@ -1,0 +1,243 @@
+{
+  "date": "2026-10-19",
+  "scope": "Project closeout; local v3 source and public samples retained. No Git push.",
+  "server": {
+    "host": "121.48.161.203",
+    "removed": [
+      {
+        "path": "/data/liminghang/CCF_AIOps_2026",
+        "allocated_bytes_before": 297135820800
+      },
+      {
+        "path": "/home/liminghang/work/CCF_AIOps_2026/data",
+        "allocated_bytes_before": 8451350528
+      },
+      {
+        "path": "/home/liminghang/work/CCF_AIOps_2026/models",
+        "allocated_bytes_before": 6114660352
+      },
+      {
+        "path": "/home/liminghang/work/CCF_AIOps_2026/outputs",
+        "allocated_bytes_before": 1989013504
+      }
+    ],
+    "bytes_removed": 313690845184,
+    "gpu_processes_stopped": true
+  },
+  "local": {
+    "removed": [
+      {
+        "path": "data",
+        "allocated_bytes_before": 108071596032
+      },
+      {
+        "path": "outputs/v3",
+        "allocated_bytes_before": 58433536
+      },
+      {
+        "path": "outputs/v4",
+        "allocated_bytes_before": 165908480
+      },
+      {
+        "path": "outputs/cleanup_plan_20261013.json",
+        "allocated_bytes_before": 499712
+      },
+      {
+        "path": "outputs/kiro_handoff_20261015.md",
+        "allocated_bytes_before": 8192
+      },
+      {
+        "path": "outputs/official_rules_20261017.txt",
+        "allocated_bytes_before": 40960
+      },
+      {
+        "path": "outputs/v4_v5_optimization_plan_20261017.md",
+        "allocated_bytes_before": 20480
+      },
+      {
+        "path": "docs/plans",
+        "allocated_bytes_before": 61440
+      },
+      {
+        "path": "docs/v3-baseline-official-review-2026-10-08.md",
+        "allocated_bytes_before": 20480
+      },
+      {
+        "path": "docs/v3-server-llm-handoff.md",
+        "allocated_bytes_before": 4096
+      },
+      {
+        "path": "docs/v3-stage2-coverage-and-bgp-ablation-2026-10-03.md",
+        "allocated_bytes_before": 8192
+      },
+      {
+        "path": "docs/v3-stage3-prefix-onset-2026-10-17.md",
+        "allocated_bytes_before": 4096
+      },
+      {
+        "path": "docs/v3-two-batch-audit-2026-10-03.md",
+        "allocated_bytes_before": 8192
+      },
+      {
+        "path": ".superpowers",
+        "allocated_bytes_before": 4096
+      },
+      {
+        "path": "data_side/results/summary.json",
+        "allocated_bytes_before": 4096
+      },
+      {
+        "path": "data_side/results/routing_metric_role_quality.csv",
+        "allocated_bytes_before": 12288
+      },
+      {
+        "path": "data_side/results/raw_field_quality.csv",
+        "allocated_bytes_before": 110592
+      },
+      {
+        "path": "data_side/results/node_partial_missing_rows.csv",
+        "allocated_bytes_before": 4096
+      },
+      {
+        "path": "data_side/results/store_evidence_stage1_20261002",
+        "allocated_bytes_before": 3788800
+      },
+      {
+        "path": "data_side/results/raw_node_aliases.csv",
+        "allocated_bytes_before": 8192
+      },
+      {
+        "path": "data_side/results/city_source_coverage.csv",
+        "allocated_bytes_before": 8192
+      },
+      {
+        "path": "data_side/results/entity_source_coverage.csv",
+        "allocated_bytes_before": 28672
+      },
+      {
+        "path": "data_side/results/routing_metric_quality_by_metric.csv",
+        "allocated_bytes_before": 4096
+      },
+      {
+        "path": "data_side/results/threshold_comparison.json",
+        "allocated_bytes_before": 4096
+      },
+      {
+        "path": "data_side/results/raw_file_rescan.csv",
+        "allocated_bytes_before": 12288
+      },
+      {
+        "path": "data_side/results/dimension_identifiers.csv",
+        "allocated_bytes_before": 139264
+      },
+      {
+        "path": "data_side/results/routing_metric_quality.csv",
+        "allocated_bytes_before": 8192
+      },
+      {
+        "path": "data_side/results/candidate_review.csv",
+        "allocated_bytes_before": 102400
+      },
+      {
+        "path": "data_side/results/metric_profile.csv",
+        "allocated_bytes_before": 49152
+      },
+      {
+        "path": "data_side/results/disk_io_above_100.csv",
+        "allocated_bytes_before": 4096
+      },
+      {
+        "path": "data_side/results/dimension_series_delta.csv",
+        "allocated_bytes_before": 110592
+      },
+      {
+        "path": "data_side/results/stage2_threshold_audit_20261002.json",
+        "allocated_bytes_before": 28672
+      },
+      {
+        "path": "data_side/results/file_inventory.csv",
+        "allocated_bytes_before": 20480
+      },
+      {
+        "path": "data_side/results/traffic_flow_field_quality_by_flow.csv",
+        "allocated_bytes_before": 8192
+      },
+      {
+        "path": "data_side/results/store_evidence_stage2_20261002",
+        "allocated_bytes_before": 1712128
+      },
+      {
+        "path": "data_side/results/stage1_threshold_audit_20261002.json",
+        "allocated_bytes_before": 36864
+      },
+      {
+        "path": "data_side/results/raw_rescan_summary.json",
+        "allocated_bytes_before": 4096
+      },
+      {
+        "path": "data_side/results/unit_scale_audit.csv",
+        "allocated_bytes_before": 4096
+      },
+      {
+        "path": "data_side/results/candidate_city_category.csv",
+        "allocated_bytes_before": 4096
+      },
+      {
+        "path": "data_side/results/service_domain_mapping_worklist.csv",
+        "allocated_bytes_before": 4096
+      },
+      {
+        "path": "data_side/results/interface_link_mapping_worklist.csv",
+        "allocated_bytes_before": 24576
+      },
+      {
+        "path": "data_side/results/traffic_flow_field_quality.csv",
+        "allocated_bytes_before": 57344
+      },
+      {
+        "path": "data_side/results/raw_field_quality_by_source.csv",
+        "allocated_bytes_before": 16384
+      },
+      {
+        "path": "outputs/researchwrite/aiops-course-proposal/qa_logs/rendered",
+        "allocated_bytes_before": 917504
+      },
+      {
+        "path": "outputs/researchwrite/aiops-course-proposal/qa_logs/with_pdf",
+        "allocated_bytes_before": 217088
+      },
+      {
+        "path": "outputs/researchwrite/aiops-course-proposal/qa_logs/fontconfig",
+        "allocated_bytes_before": 4096
+      }
+    ],
+    "bytes_removed": 108304076800
+  },
+  "preserved": [
+    "aiops_v3/ and data_side/ source",
+    "tests/v3/",
+    "sample/ and public ground truth",
+    "artifacts/final-v3/",
+    "artifacts/public-sample-v1/",
+    "artifacts/run-summaries/ (historical; not full D3 replay)",
+    "docs/requirements/, docs/research/, current-state and final results",
+    "historical v4 architecture report and Git branches",
+    "outputs/researchwrite/aiops-course-proposal/ source and final exports",
+    "local and server Python environments",
+    "server external code backups and build scripts",
+    "shared user dependency and inference caches"
+  ],
+  "frozen_predictions_sha256": "43545e7913a03c118f6257ebf06c169b5ba0b227387d7a42c724a501fc40a099",
+  "notes": [
+    "Allocated bytes measured by du -sk before removal; small bytecode caches are additional and not included.",
+    "Deleted untracked raw data and full LLM traces are not recoverable from Git. Previously tracked documents and tables remain in prior commits.",
+    "Final predictions and metadata remain verifiable; full D3 replay requires reacquiring raw data, weights and regenerating evidence."
+  ],
+  "verification": {
+    "pytest": "246 passed",
+    "public_case001_smoke": "1 event; 0 fallbacks",
+    "final_predictions": "634 records; contract, unique IDs, batch counts and SHA-256 checked",
+    "markdown_local_links": "passed",
+    "pipeline_source_and_tests": "unchanged"
+  }
+}

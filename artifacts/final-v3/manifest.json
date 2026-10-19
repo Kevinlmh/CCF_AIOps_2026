@@ -1,0 +1,31 @@
+{
+  "version": "D3",
+  "frozen_date": "2026-10-19",
+  "prediction_count": 634,
+  "stage_counts": {
+    "stage1": 327,
+    "stage2": 89,
+    "stage3": 218
+  },
+  "official_score_reported": 34.5224,
+  "score_source": "docs/v3-optimization-results-2026-10-18.md (author-recorded; no official receipt retained)",
+  "predictions_sha256": "43545e7913a03c118f6257ebf06c169b5ba0b227387d7a42c724a501fc40a099",
+  "root_result_identical": true,
+  "scope": "Final predictions and historical run summaries only. Raw data, feature stores, evidence and full LLM traces removed during project cleanup; this is not a complete replay bundle.",
+  "calendar_month_counts": {
+    "2026-08": 288,
+    "2026-09": 128,
+    "2026-10": 218
+  },
+  "stage_counts_note": "Stage 1 spans 2026-08-19 through 2026-09-02; stage counts differ from calendar-month counts.",
+  "source_snapshot_commit": "673c7c421ed6f2fd4ef95b2b6bf7f0b421b1e855",
+  "source_snapshot_note": "Source version preserved at closeout; exact D3 producing commit was not independently reconstructed.",
+  "validation": {
+    "prediction_contract": "passed for all 634 records",
+    "unique_prediction_ids": 634,
+    "stage_counts": "verified against recorded batch time ranges",
+    "local_server_sha256_match": true,
+    "pytest_passed": 246,
+    "public_case001_build_and_rules_smoke": "passed"
+  }
+}
