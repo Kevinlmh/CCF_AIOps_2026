@@ -276,10 +276,40 @@ def _onset(material: dict, node: str) -> int | None:
     return min((item["minute"] for item in observations), default=None)
 
 
+def normalize_rerank(material: dict, body: dict | None) -> dict | None:
+    """Drop duplicate/unknown nodes and non-owned citations on lower ranks."""
+    if not isinstance(body, dict) or not isinstance(body.get("ranked"), list):
+        return body
+    ranked = body["ranked"]
+    if not ranked or not isinstance(ranked[0], dict):
+        return body
+    candidates = set(material["_candidates"])
+    signals = material["_signal_index"]
+    if ranked[0].get("network_element_id") not in candidates:
+        return body
+    seen: set[str] = set()
+    cleaned: list[dict] = []
+    for position, item in enumerate(ranked, 1):
+        if not isinstance(item, dict):
+            continue
+        node = item.get("network_element_id")
+        if node in seen or node not in candidates:
+            continue
+        seen.add(node)
+        ids = [evidence_id for evidence_id in item.get("evidence_ids", [])
+               if signals.get(evidence_id) == node or position == 1]
+        item = dict(item)
+        item["evidence_ids"] = ids
+        item["rank"] = len(cleaned) + 1
+        cleaned.append(item)
+    return {**body, "ranked": cleaned}
+
+
 def apply_rerank(event: dict, material: dict, body: dict | None) -> tuple[dict, str]:
     row = json.loads(json.dumps(event))
     if body is None:
         return row, "fallback_no_response"
+    body = normalize_rerank(material, body)
     reason = validate_rerank(material, body)
     if reason is not None:
         return row, f"fallback_invalid:{reason}"
