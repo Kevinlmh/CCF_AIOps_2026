@@ -239,5 +239,6 @@
     "final_predictions": "634 records; contract, unique IDs, batch counts and SHA-256 checked",
     "markdown_local_links": "passed",
     "pipeline_source_and_tests": "unchanged"
-  }
+  },
+  "superseded_server_retention_note": "Server retention was tightened in the follow-up: public samples, predictions, runtime artifacts and Git data objects were also removed. Git refs including stash and auxiliary source preserved locally; see server-data-audit-20261019.json."
 }

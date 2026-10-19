@@ -27,5 +27,6 @@
     "local_server_sha256_match": true,
     "pytest_passed": 246,
     "public_case001_build_and_rules_smoke": "passed"
-  }
+  },
+  "server_prediction_copy_removed": "2026-10-19 follow-up cleanup; final predictions preserved locally in Git only."
 }

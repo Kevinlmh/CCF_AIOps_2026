@@ -12,7 +12,7 @@
 
 ## 已清理内容
 
-本地 `data/`、旧 `outputs/v3/`、`outputs/v4/`；服务器项目 `data/`、`models/`、`outputs/` 及 `/data/liminghang/CCF_AIOps_2026/` 下的原始数据、解压包、SQLite 库和构建工作区均已删除。项目 GPU 服务已停止。Python 环境、服务器源码备份和用户共享依赖缓存保留。
+本地 `data/`、旧 `outputs/v3/`、`outputs/v4/`；服务器项目 `data/`、`models/`、`outputs/` 及 `/data/liminghang/CCF_AIOps_2026/` 下的原始数据、解压包、SQLite 库和构建工作区均已删除。项目 GPU 服务已停止。2026-10-19 补充核查进一步删除服务器的公开样例、最终预测副本、归档产物、生成的审计表、临时测试数据及含数据的 Git 历史对象。服务器仅保留源码、配置、文档和依赖环境；完整 Git 引用与辅助源码均已在本地保存。核查结果见 [服务器数据核查](../artifacts/server-data-audit-20261019.json)。本地公开样例和最终归档保留。
 
 ## 公开样例运行
 

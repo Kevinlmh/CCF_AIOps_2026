@@ -1,0 +1,78 @@
+{
+  "date": "2026-10-19",
+  "host": "121.48.161.203",
+  "status": "verified after additional cleanup",
+  "checked_user_storage_roots": [
+    "/home/liminghang",
+    "/data/liminghang",
+    "/tmp",
+    "/var/tmp",
+    "/dev/shm"
+  ],
+  "additional_mount_check": {
+    "/data": "only owned root /data/liminghang; empty",
+    "/data1": "no user-owned path found through depth 3",
+    "/data2": "no user-owned path found through depth 3",
+    "scope_note": "Other users private directories were not accessed."
+  },
+  "expected_project_paths_absent": {
+    "/data/liminghang/CCF_AIOps_2026": true,
+    "/home/liminghang/work/CCF_AIOps_2026/data": true,
+    "/home/liminghang/work/CCF_AIOps_2026/models": true,
+    "/home/liminghang/work/CCF_AIOps_2026/outputs": true,
+    "/home/liminghang/work/CCF_AIOps_2026/sample": true,
+    "/home/liminghang/work/CCF_AIOps_2026/artifacts": true,
+    "/home/liminghang/work/CCF_AIOps_2026/result.jsonl": true,
+    "/home/liminghang/work/CCF_AIOps_2026/.git": true,
+    "/home/liminghang/work/CCF_AIOps_2026/data_side/results": true,
+    "/home/liminghang/.cache/aiops_fast": true,
+    "/home/liminghang/.cache/vllm": true,
+    "/home/liminghang/.cache/huggingface": true
+  },
+  "project_data_file_matches_after_cleanup": 0,
+  "project_model_weight_matches_after_cleanup": 0,
+  "project_processes_after_cleanup": 0,
+  "open_deleted_project_file_handles_after_cleanup": 0,
+  "owned_posix_shared_memory_objects_after_cleanup": 0,
+  "user_data_directory_entries_after_cleanup": 0,
+  "scan_errors_in_owned_scope": 0,
+  "additional_removed_entries": 297,
+  "additional_removed_files": 13726,
+  "additional_allocated_bytes_removed": 1558626304,
+  "additional_cleanup_locations": [
+    "server project sample/, artifacts/, examples/, result.jsonl, data_side/results/, data_side/templates/, .git/",
+    "~/.cache/aiops_fast/, ~/.cache/vllm/, ~/.cache/huggingface/",
+    "~/work/CCF_build_stage3/run_stage3/ and historical generated backups",
+    "/tmp/ project discovery, reranking, role, prediction, test, archive and log artifacts",
+    "/dev/shm/ orphaned user-owned inference segments and semaphores"
+  ],
+  "server_source_matches_local": true,
+  "source_files_verified": 39,
+  "server_project_allocated_kib": 94708,
+  "server_layout": "Code and documentation export plus Python dependencies; no .git history, public samples, predictions or archived runtime artifacts.",
+  "git_history_preserved_locally": [
+    "refs/archive/server-20261019/heads/v3 1ba6b11e55add34b04d8e45439155a7b55bd26b2",
+    "refs/archive/server-20261019/heads/v4 69872ca17b01ad60e3bef390fd95c589ba538c3f",
+    "refs/archive/server-20261019/remotes/origin/v4 f579e2f028da4249f4a5ed7c138f6dda2967f803",
+    "refs/archive/server-20261019/stash 6ea8dd31eb7d3128c68327a55b51cf3df5a1d1a7"
+  ],
+  "auxiliary_source_archive_local": "/Users/likevin/lmh/CCF_AIOps_2026_server_auxiliary_code_20261019.tar.gz",
+  "auxiliary_source_archive_sha256": "d216f26d855280e0fb957cd5dc2c457a4f16053ec98de21e2ec30d07c86d0e47",
+  "excluded_storage": {
+    "dependency_and_app_trees": "Installed packages, package caches, editor/chat runtimes and account configuration excluded from project-data scan. Dependency caches separately scanned for learned model weight files.",
+    "library_resources": [
+      {
+        "path": "/home/liminghang/.cache/uv/archive-v0/FBtmbryrdphO5dsA/compressed_tensors/transform/utils/hadamards.safetensors",
+        "size": 1436901,
+        "classification": "compressed_tensors package Hadamard transform constant matrix; package resource, not project observations or Qwen weights"
+      },
+      {
+        "path": "/home/liminghang/.venvs/aiops-vllm-cu129/lib/python3.10/site-packages/compressed_tensors/transform/utils/hadamards.safetensors",
+        "size": 1436901,
+        "classification": "compressed_tensors package Hadamard transform constant matrix; package resource, not project observations or Qwen weights"
+      }
+    ]
+  },
+  "gpu_note": "A GPU process observed during final scan belonged to another user (UID 1063); no project GPU service remained.",
+  "no_github_push": true
+}
